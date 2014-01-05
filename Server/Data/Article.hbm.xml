@@ -1,0 +1,15 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<hibernate-mapping xmlns="urn:nhibernate-mapping-2.2" auto-import="true" assembly="McNNTP" namespace="McNNTP.Server.Data">
+  <class name="Article" table="Article" lazy="true">
+    <id name="Id">
+      <generator class="native" />
+    </id>
+    <many-to-one name="Newsgroup" column="NewsgroupId" not-null="true" />
+    <property name="Subject" />
+    <property name="Author" />
+    <property name="Date" />
+    <property name="References" column="Refs" />
+    <property name="MessageId" />
+    <property name="Body" />
+  </class>
+</hibernate-mapping>
