@@ -5,11 +5,28 @@
       <generator class="native" />
     </id>
     <many-to-one name="Newsgroup" column="NewsgroupId" not-null="true" />
-    <property name="Subject" />
-    <property name="Author" />
-    <property name="Date" />
-    <property name="References" column="Refs" />
-    <property name="MessageId" />
+    <property name="Date" not-null="true" length="100" />
+    <property name="From" column="FromHeader" not-null="true" length="1000" />
+    <property name="MessageId" not-null="true" length="500" />
+    <property name="Newsgroups" not-null="true" length="1000" />
+    <property name="Path" not-null="true" length="1000" />
+    <property name="Subject" not-null="true" length="1000" />
+
+    <property name="Approved" />
+    <property name="Archive" />
+    <property name="Control" />
+    <property name="Distribution" />
+    <property name="Expires" />
+    <property name="FollowupTo" />
+    <property name="InjectionDate" />
+    <property name="InjectionInfo" />
+    <property name="Organization" />
+    <property name="References" column="ReferencesHeader" />
+    <property name="Summary" />
+    <property name="Supersedes" />
+    <property name="UserAgent" />
+    <property name="Xref" />
+
     <property name="Body" />
   </class>
 </hibernate-mapping>

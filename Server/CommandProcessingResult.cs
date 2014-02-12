@@ -1,9 +1,20 @@
-﻿namespace McNNTP.Server
+﻿using System;
+
+namespace McNNTP.Server
 {
     internal sealed class CommandProcessingResult
     {
         public bool IsHandled { get; set; }
         public bool IsQuitting { get; set; }
+        
+        /// <summary>
+        /// If not null, this indicates the request was the 
+        /// start of a message that should be read until its end,
+        /// at which time this function should be invoked on the result.
+        /// </summary>
+        public Func<Connection, string, CommandProcessingResult, CommandProcessingResult> MessageHandler { get; set; }
+
+        public string Message { get; set; }
 
         public CommandProcessingResult(bool isHandled)
             : this(isHandled, false)

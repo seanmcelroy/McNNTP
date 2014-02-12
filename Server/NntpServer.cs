@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Data.SQLite;
 using System.Diagnostics;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Net;
 using System.Net.Sockets;
@@ -10,6 +12,8 @@ using NHibernate;
 using NHibernate.Cfg;
 using McNNTP.Server.Data;
 using System.Globalization;
+using NHibernate.Criterion;
+using NHibernate.Tool.hbm2ddl;
 
 namespace McNNTP.Server
 {
@@ -19,6 +23,11 @@ namespace McNNTP.Server
         private static ISessionFactory _sessionFactory;
 
         private readonly Dictionary<string, Func<Connection, string, CommandProcessingResult>> _commandDirectory;
+
+        private CommandProcessingResult _inProcessCommand;
+
+        public bool AllowPosting { get; set; }
+        public string ServerPath { get; set; }
 
         public NntpServer()
         {
@@ -41,6 +50,9 @@ namespace McNNTP.Server
                     {"XOVER", XOver},
                     {"QUIT", (s, c) => Quit(s)}
                 };
+
+            // TODO: Put this in a custom config section
+            ServerPath = "freenews.localhost";
         }
 
 
@@ -103,7 +115,7 @@ namespace McNNTP.Server
             // Create the state object.
             var state = new Connection
             {
-                CanPost = false,
+                CanPost = AllowPosting,
                 WorkSocket = handler
             };
             _connections.Add(state);
@@ -151,24 +163,37 @@ namespace McNNTP.Server
                     if (ShowSummaries || ShowDetail)
                         Console.WriteLine("{0} <<< {1} bytes: {2}", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, content.Length, content);
 
-                    var command = content.Split(' ').First().TrimEnd('\r', '\n');
-                    if (_commandDirectory.ContainsKey(command))
+                    if (_inProcessCommand != null)
                     {
-                        try
-                        {
-                            var result = _commandDirectory[command].Invoke(connection, content);
-                            if (!result.IsHandled)
-                                Send(handler, "500 Unknown command\r\n");
-                            else if (result.IsQuitting)
-                                return;
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.WriteLine(ex.ToString());
-                        }
+                        // Ongoing read - don't parse it for commands
+                        var result = _inProcessCommand.MessageHandler.Invoke(connection, content, _inProcessCommand);
+                        if (result.IsQuitting)
+                            _inProcessCommand = null;
                     }
                     else
-                        Send(handler, "500 Unknown command\r\n");
+                    {
+                        var command = content.Split(' ').First().TrimEnd('\r', '\n');
+                        if (_commandDirectory.ContainsKey(command))
+                        {
+                            try
+                            {
+                                var result = _commandDirectory[command].Invoke(connection, content);
+
+                                if (!result.IsHandled)
+                                    Send(handler, "500 Unknown command\r\n");
+                                else if (result.MessageHandler != null)
+                                    _inProcessCommand = result;
+                                else if (result.IsQuitting)
+                                    return;
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine(ex.ToString());
+                            }
+                        }
+                        else
+                            Send(handler, "500 Unknown command\r\n");
+                    }
 
                     connection.sb.Clear();
 
@@ -500,6 +525,21 @@ namespace McNNTP.Server
             Send(connection.WorkSocket, sb.ToString());
             return new CommandProcessingResult(true);
         }
+
+        internal void ConsoleCreateGroup(string name, string desc)
+        {
+            using (var session = OpenSession())
+            {
+                session.Save(new Newsgroup
+                {
+                    Name = name,
+                    Description = desc,
+                    CreateDate = DateTime.UtcNow
+                });
+                session.Close();
+            }
+        }
+
         private CommandProcessingResult Date(Connection connection)
         {
             Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "111 {0:yyyyMMddHHmmss}\r\n", DateTime.UtcNow));
@@ -626,10 +666,10 @@ namespace McNNTP.Server
                         switch (parts[1].ToUpperInvariant())
                         {
                             case "DATE":
-                                headerFunction = a => a.Date;
+                                headerFunction = a => a.Date.ToString();
                                 break;
                             case "FROM":
-                                headerFunction = a => a.Author;
+                                headerFunction = a => a.From;
                                 break;
                             case "MESSAGE-ID":
                                 headerFunction = a => a.MessageId;
@@ -974,8 +1014,61 @@ namespace McNNTP.Server
                 return new CommandProcessingResult(true);
             }
 
-            //Send(connection.workSocket, "340 Send article to be posted\r\n");
-            throw new NotImplementedException();
+            Send(connection.WorkSocket, "340 Send article to be posted\r\n");
+
+            Func<Connection, string, CommandProcessingResult, CommandProcessingResult> messageAccumulator = null;
+            messageAccumulator = (conn, msg, prev) =>
+            {
+                if (msg != null && msg.EndsWith("\r\n.\r\n"))
+                {
+                    try
+                    {
+                        Article article;
+                        if (!Data.Article.TryParse(prev.Message == null ? msg : prev.Message + "\r\n" + msg, out article))
+                            Send(connection.WorkSocket, "441 Posting failed\r\n");
+                        else
+                        {
+                            using (var session = OpenSession())
+                            {
+                                foreach (var newsgroupName in article.Newsgroups.Split(' '))
+                                {
+                                    var newsgroupNameClosure = newsgroupName;
+                                    var newsgroup = session.QueryOver<Newsgroup>().Where(n => n.Name == newsgroupNameClosure).SingleOrDefault();
+                                    if (newsgroup == null)
+                                        continue;
+
+                                    article.Id = 0;
+                                    article.Newsgroup = newsgroup;
+                                    article.Path = ServerPath;
+                                    session.Save(article);
+                                }
+
+                                session.Close();
+                            }
+                        }
+
+                        Send(connection.WorkSocket, "240 Article received OK\r\n");
+
+                        return new CommandProcessingResult(true, true)
+                        {
+                            Message = prev.Message + msg
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(ex.ToString());
+                        Send(connection.WorkSocket, "441 Posting failed\r\n");
+                    }
+                }
+
+                return new CommandProcessingResult(true, false)
+                {
+                    MessageHandler = messageAccumulator,
+                    Message = prev == null ? msg : prev.Message == null ? msg : prev.Message + "\r\n" + msg
+                };
+            };
+
+            return messageAccumulator.Invoke(connection, null, null);
         }
 
         private CommandProcessingResult Stat(Connection connection, string content)
@@ -1136,7 +1229,7 @@ namespace McNNTP.Server
                                         Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
                                             string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0 ? article.Id : 0,
                                             unfold(article.Subject),
-                                            unfold(article.Author),
+                                            unfold(article.From),
                                             unfold(article.Date),
                                             unfold(article.MessageId),
                                             unfold(article.References),
@@ -1217,6 +1310,67 @@ namespace McNNTP.Server
                 return default(Tuple<int, int?>);
 
             return new Tuple<int, int?>(low, high);
+        }
+
+        public void InitializeDatabase()
+        {
+            var configuration = new Configuration();
+            configuration.AddAssembly(typeof(Newsgroup).Assembly);
+            configuration.Configure();
+
+            using (var connection = new SQLiteConnection(configuration.GetProperty("connection.connection_string")))
+            {
+                connection.Open();
+                try
+                {
+                    var update = new SchemaUpdate(configuration);
+                    update.Execute(false, true);
+
+                    // Update failed..  recreate it.
+                    if (!VerifyDatabase())
+                    {
+                        var export = new SchemaExport(configuration);
+                        export.Execute(false, true, false, connection, null);
+
+                        using (var session = OpenSession())
+                        {
+                            session.Save(new Newsgroup
+                            {
+                                CreateDate = DateTime.UtcNow,
+                                Description = "Control group for the repository",
+                                Name = "freenews.config"
+                            });
+                            session.Close();
+                        }
+                    }
+                }
+                finally
+                {
+                    connection.Close();
+                }
+
+            }
+        }
+
+        public bool VerifyDatabase()
+        {
+            try
+            {
+                using (var session = OpenSession())
+                {
+                    var articleCount =
+                        session.CreateCriteria<Article>()
+                            .SetProjection(Projections.Count(Projections.Id()))
+                            .UniqueResult<int>();
+
+                    session.Close();
+                    return true;
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
         }
     }
 }
