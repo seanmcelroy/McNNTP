@@ -84,6 +84,9 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Database\GenerateSchema.sql" />
+    <Content Include="HelpFile.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="x64\SQLite.Interop.dll">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>

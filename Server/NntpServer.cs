@@ -2,7 +2,9 @@
 using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Net;
@@ -808,10 +810,26 @@ namespace McNNTP.Server
         {
             var sb = new StringBuilder();
             sb.Append("100 Help text follows\r\n");
-            sb.Append("The list of commands understood by this server are:\r\n");
-            foreach (var cmd in _commandDirectory)
-                sb.AppendFormat(CultureInfo.InvariantCulture, "{0}\r\n", cmd.Key);
-            sb.Append(".\r\n");
+
+            var dirName = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            if (dirName != null && File.Exists(Path.Combine(dirName, "HelpFile.txt")))
+            {
+                using (var sr = new StreamReader(Path.Combine(dirName, "HelpFile.txt"), Encoding.UTF8))
+                {
+                    sb.Append(sr.ReadToEnd());
+                    sr.Close();
+                }
+            }
+            else
+            {
+                sb.Append("The list of commands understood by this server are:\r\n");
+                foreach (var cmd in _commandDirectory)
+                    sb.AppendFormat(CultureInfo.InvariantCulture, "{0}\r\n", cmd.Key);
+            }
+
+            if (!sb.ToString().EndsWith("\r\n.\r\n"))
+                sb.Append("\r\n.\r\n");
+            
             Send(connection.WorkSocket, sb.ToString());
             return new CommandProcessingResult(true);
         }
