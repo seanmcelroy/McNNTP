@@ -5,13 +5,13 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
-using System.Security.Cryptography;
 using System.Text;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using NHibernate;
 using NHibernate.Cfg;
+using NHibernate.Linq;
 using McNNTP.Server.Data;
 using System.Globalization;
 using NHibernate.Criterion;
@@ -55,6 +55,8 @@ namespace McNNTP.Server
 
             // TODO: Put this in a custom config section
             ServerPath = "freenews.localhost";
+
+            ShowData= true;
         }
 
 
@@ -129,7 +131,14 @@ namespace McNNTP.Server
             else
                 Send(handler, "201 Service available, posting prohibited\r\n");
 
-            handler.BeginReceive(state.Buffer, 0, Connection.BUFFER_SIZE, 0, ReadCallback, state);
+            try
+            {
+                handler.BeginReceive(state.Buffer, 0, Connection.BUFFER_SIZE, 0, ReadCallback, state);
+            }
+            catch (SocketException se)
+            {
+                Console.WriteLine(se.ToString());
+            }
         }
         private void ReadCallback(IAsyncResult ar)
         {
@@ -149,84 +158,84 @@ namespace McNNTP.Server
                 return;
             }
 
-            if (bytesRead > 0)
+            // There  might be more data, so store the data received so far.
+            connection.sb.Append(Encoding.ASCII.GetString(connection.Buffer, 0, bytesRead));
+
+            // Not all data received OR no more but not yet ending with the delimiter. Get more.
+            var content = connection.sb.ToString();
+            if (bytesRead == Connection.BUFFER_SIZE || (bytesRead == 0 && !content.EndsWith("\r\n", StringComparison.Ordinal)))
             {
-                // There  might be more data, so store the data received so far.
-                connection.sb.Append(Encoding.ASCII.GetString(
-                    connection.Buffer, 0, bytesRead));
+                if (!handler.Connected)
+                    return;
 
-                // Check for end-of-file tag. If it is not there, read 
-                // more data.
-                var content = connection.sb.ToString();
-                if (content.IndexOf("\r\n", StringComparison.Ordinal) > -1)
+                try
                 {
-                    // All the data has been read from the 
-                    // client. Display it on the console.
-                    if (ShowSummaries || ShowDetail)
-                        Console.WriteLine("{0} <<< {1} bytes: {2}", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, content.Length, content);
+                    handler.BeginReceive(connection.Buffer, 0, Connection.BUFFER_SIZE, 0, ReadCallback, connection);
+                }
+                catch (SocketException sex)
+                {
+                    Console.Write(sex.ToString());
+                }
+                return;
+            }
 
-                    if (_inProcessCommand != null)
-                    {
-                        // Ongoing read - don't parse it for commands
-                        var result = _inProcessCommand.MessageHandler.Invoke(connection, content, _inProcessCommand);
-                        if (result.IsQuitting)
-                            _inProcessCommand = null;
-                    }
-                    else
-                    {
-                        var command = content.Split(' ').First().TrimEnd('\r', '\n');
-                        if (_commandDirectory.ContainsKey(command))
-                        {
-                            try
-                            {
-                                var result = _commandDirectory[command].Invoke(connection, content);
+            // All the data has been read from the 
+            // client. Display it on the console.
+            if (ShowBytes && ShowData)
+                Console.WriteLine("{0}:{1} <<< {2} bytes: {3}", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Port, content.Length, content.TrimEnd('\r', '\n'));
+            else if (ShowBytes)
+                Console.WriteLine("{0}:{1} <<< {2} bytes", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Port, content.Length);
+            else if (ShowData)
+                Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
 
-                                if (!result.IsHandled)
-                                    Send(handler, "500 Unknown command\r\n");
-                                else if (result.MessageHandler != null)
-                                    _inProcessCommand = result;
-                                else if (result.IsQuitting)
-                                    return;
-                            }
-                            catch (Exception ex)
-                            {
-                                Console.WriteLine(ex.ToString());
-                            }
-                        }
-                        else
-                            Send(handler, "500 Unknown command\r\n");
-                    }
-
-                    connection.sb.Clear();
-
-                    if (!handler.Connected)
-                        return;
-
-                    // Not all data received. Get more.
+            if (_inProcessCommand != null)
+            {
+                // Ongoing read - don't parse it for commands
+                var result = _inProcessCommand.MessageHandler.Invoke(connection, content, _inProcessCommand);
+                if (result.IsQuitting)
+                    _inProcessCommand = null;
+            }
+            else
+            {
+                var command = content.Split(' ').First().TrimEnd('\r', '\n');
+                if (_commandDirectory.ContainsKey(command))
+                {
                     try
                     {
-                        handler.BeginReceive(connection.Buffer, 0, Connection.BUFFER_SIZE, 0, ReadCallback, connection);
+                        if (ShowCommands)
+                            Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
+                                
+                        var result = _commandDirectory[command].Invoke(connection, content);
+
+                        if (!result.IsHandled)
+                            Send(handler, "500 Unknown command\r\n");
+                        else if (result.MessageHandler != null)
+                            _inProcessCommand = result;
+                        else if (result.IsQuitting)
+                            return;
                     }
-                    catch (SocketException sex)
+                    catch (Exception ex)
                     {
-                        Console.WriteLine(sex.ToString());
+                        Console.WriteLine(ex.ToString());
                     }
                 }
                 else
-                {
-                    try
-                    {
-                        if (!handler.Connected)
-                            return;
+                    Send(handler, "500 Unknown command\r\n");
+            }
 
-                        // Not all data received. Get more.
-                        handler.BeginReceive(connection.Buffer, 0, Connection.BUFFER_SIZE, 0, ReadCallback, connection);
-                    }
-                    catch (SocketException sex)
-                    {
-                        Console.Write(sex.ToString());
-                    }
-                }
+            connection.sb.Clear();
+
+            if (!handler.Connected)
+                return;
+
+            // Not all data received. Get more.
+            try
+            {
+                handler.BeginReceive(connection.Buffer, 0, Connection.BUFFER_SIZE, 0, ReadCallback, connection);
+            }
+            catch (SocketException sex)
+            {
+                Console.WriteLine(sex.ToString());
             }
         }
         private void Send(Socket handler, string data)
@@ -240,20 +249,27 @@ namespace McNNTP.Server
 
             try
             {
-                if (ShowDetail)
-                    Console.WriteLine("{0} >>>\r\n{1}", ((IPEndPoint)handler.RemoteEndPoint).Address, data);
-
                 if (async)
                 {
                     // Begin sending the data to the remote device.
-                    handler.BeginSend(byteData, 0, byteData.Length, SocketFlags.None, SendCallback, handler);
+                    handler.BeginSend(byteData, 0, byteData.Length, SocketFlags.None, SendCallback,
+                        new SendAsyncState {Payload = data, Socket = handler});
                 }
                 else // Block
-                    handler.Send(byteData, 0, byteData.Length, SocketFlags.None);
+                {
+                    var bytesSent = handler.Send(byteData, 0, byteData.Length, SocketFlags.None);
+
+                    if (ShowBytes && ShowData)
+                        Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port, bytesSent, data.TrimEnd('\r', '\n'));
+                    else if (ShowBytes)
+                        Console.WriteLine("{0}:{1} >>> {2} bytes", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port, bytesSent);
+                    else if (ShowData)
+                        Console.WriteLine("{0}:{1} >>> {2}", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port, data.TrimEnd('\r', '\n'));
+                }
             }
-            catch (SocketException sex)
+            catch (SocketException)
             {
-                Console.WriteLine(sex.ToString());
+                Console.WriteLine("{0}:{1} XXX CONNECTION TERMINATED", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port);
             }
         }
         private void SendCallback(IAsyncResult ar)
@@ -261,12 +277,17 @@ namespace McNNTP.Server
             try
             {
                 // Retrieve the socket from the state object.
-                var handler = (Socket)ar.AsyncState;
+                var handler = (SendAsyncState)ar.AsyncState;
 
                 // Complete sending the data to the remote device.
-                var bytesSent = handler.EndSend(ar);
-                if (ShowSummaries || ShowDetail)
-                    Console.WriteLine(">>>>>>>> {1} bytes sent to {0}", ((IPEndPoint)handler.RemoteEndPoint).Address, bytesSent);
+                var bytesSent = handler.Socket.EndSend(ar);
+
+                if (ShowBytes && ShowData)
+                    Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", ((IPEndPoint)handler.Socket.RemoteEndPoint).Address, ((IPEndPoint)handler.Socket.RemoteEndPoint).Port, bytesSent, handler.Payload.TrimEnd('\r', '\n'));
+                else if (ShowBytes)
+                    Console.WriteLine("{0}:{1} >>> {2} bytes", ((IPEndPoint)handler.Socket.RemoteEndPoint).Address, ((IPEndPoint)handler.Socket.RemoteEndPoint).Port, bytesSent);
+                else if (ShowData)
+                    Console.WriteLine("{0}:{1} >>> {2}", ((IPEndPoint)handler.Socket.RemoteEndPoint).Address, ((IPEndPoint)handler.Socket.RemoteEndPoint).Port, handler.Payload.TrimEnd('\r','\n'));
             }
             catch (ObjectDisposedException)
             {
@@ -321,20 +342,16 @@ namespace McNNTP.Server
             
             using (var session = OpenSession())
             {
-                IQuery query;
+                Article article;
                 int type;
                 if (string.IsNullOrEmpty(param))
                 {
-                    query = session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id = :ArticleId")
-                                    .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                    .SetParameter("ArticleId", connection.CurrentArticleNumber);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id == connection.CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
                 {
-                    query = session.CreateQuery("FROM Article WHERE MessageID = :MessageID")
-                                    .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                    .SetParameter("MessageID", param);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.MessageId == param);
                     type = 1;
                 }
                 else
@@ -346,13 +363,10 @@ namespace McNNTP.Server
                         return new CommandProcessingResult(true);
                     }
 
-                    query = session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id = :ArticleId")
-                                   .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                   .SetParameter("ArticleId", articleId);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id == articleId);
                     type = 2;
                 }
 
-                var article = query.UniqueResult<Article>();
                 if (article == null)
                     switch (type)
                     {
@@ -376,21 +390,20 @@ namespace McNNTP.Server
                             case 1:
                                 Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n",
                                     (!string.IsNullOrEmpty(connection.CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0) ? article.Id : 0,
-                                    article.MessageId));
+                                    article.MessageId), false, Encoding.UTF8);
                                 break;
                             case 2:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Id, article.MessageId));
+                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Id, article.MessageId), false, Encoding.UTF8);
                                 break;
                             case 3:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Id, article.MessageId));
+                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Id, article.MessageId), false, Encoding.UTF8);
                                 break;
                         }
 
                         foreach (var line in article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None))
-                            Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line));
+                            Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line), false, Encoding.UTF8);
 
-                        if (!article.Body.EndsWith("\r\n.", StringComparison.Ordinal))
-                            Send(connection.WorkSocket, ".\r\n");
+                        Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
                     }
                 }
             }
@@ -488,7 +501,7 @@ namespace McNNTP.Server
                         }
 
                         foreach (var line in article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None))
-                            Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line));
+                            Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line), false, Encoding.UTF8);
 
                         if (!article.Body.EndsWith("\r\n.", StringComparison.Ordinal))
                             Send(connection.WorkSocket, ".\r\n");
@@ -499,7 +512,7 @@ namespace McNNTP.Server
                             if (!eoh && string.IsNullOrWhiteSpace(line))
                                 eoh = true;
                             else if (eoh)
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line));
+                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line), false, Encoding.UTF8);
                         }
 
                         if (!article.Body.EndsWith("\r\n.", StringComparison.Ordinal))
@@ -549,20 +562,20 @@ namespace McNNTP.Server
         }
         private CommandProcessingResult Group(Connection connection, string content)
         {
-            content = content.TrimEnd('\r', '\n');
+            content = content.TrimEnd('\r', '\n').Substring(content.IndexOf(' ') + 1).Split(' ')[0];
             Newsgroup ng;
             using (var session = OpenSession())
             {
-                ng = session.CreateQuery("FROM Newsgroup WHERE Name = :Name")
-                    .SetParameter("Name", content.Substring(content.IndexOf(' ') + 1))
-                    .UniqueResult<Newsgroup>();
+                ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == content);
             }
 
             if (ng == null)
-                Send(connection.WorkSocket, "411 No such newsgroup\r\n");
+                Send(connection.WorkSocket, string.Format("411 {0} is unknown\r\n", content));
             else
             {
                 connection.CurrentNewsgroup = ng.Name;
+                connection.CurrentArticleNumber = ng.LowWatermark;
+
 // ReSharper disable ConvertIfStatementToConditionalTernaryExpression
                 if (ng.PostCount == 0)
 // ReSharper restore ConvertIfStatementToConditionalTernaryExpression
@@ -622,7 +635,7 @@ namespace McNNTP.Server
                         break;
                     case 2:
                         var range = ParseRange(parts[2]);
-                        if (range.Equals(default(Tuple<int, int?>)))
+                        if (range.Equals(default(System.Tuple<int, int?>)))
                             return new CommandProcessingResult(false);
 
                         query = (range.Item2.HasValue)
@@ -691,11 +704,11 @@ namespace McNNTP.Server
                             if (type == 1)
                                 Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
                                     (!string.IsNullOrEmpty(connection.CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0) ? article.MessageId : "0",
-                                    headerFunction.Invoke(article)));
+                                    headerFunction.Invoke(article)), false, Encoding.UTF8);
                             else
                                 Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
                                     article.Id,
-                                    headerFunction.Invoke(article)));
+                                    headerFunction.Invoke(article)), false, Encoding.UTF8);
 
                         Send(connection.WorkSocket, ".\r\n");
                     }
@@ -797,7 +810,7 @@ namespace McNNTP.Server
                             if (string.IsNullOrWhiteSpace(line))
                                 break;
                             else
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line));
+                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line), false, Encoding.UTF8);
 
                         Send(connection.WorkSocket, ".\r\n");
                     }
@@ -850,7 +863,7 @@ namespace McNNTP.Server
                         }
                         foreach (var ng in newsGroups)
                             Send(connection.WorkSocket, string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark,
-                                connection.CanPost ? "y" : "n"));
+                                connection.CanPost ? "y" : "n"), false, Encoding.UTF8);
                     }
                     catch (MappingException mex)
                     {
@@ -877,7 +890,7 @@ namespace McNNTP.Server
                             newsGroups = session.CreateQuery("FROM Newsgroup ORDER BY Name").List<Newsgroup>();
                         }
                         foreach (var ng in newsGroups)
-                            Send(connection.WorkSocket, string.Format("{0}\t{1}\r\n", ng.Name, ng.Description));
+                            Send(connection.WorkSocket, string.Format("{0}\t{1}\r\n", ng.Name, ng.Description), false, Encoding.UTF8);
                     }
                     catch (MappingException mex)
                     {
@@ -925,11 +938,11 @@ namespace McNNTP.Server
 
                 lock (connection.SendLock)
                 {
-                    Send(connection.WorkSocket, "231 List of new newsgroups follows (multi-line)\r\n");
+                    Send(connection.WorkSocket, "231 List of new newsgroups follows (multi-line)\r\n", false, Encoding.UTF8);
                     foreach (var ng in newsGroups)
                         Send(connection.WorkSocket, string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark,
-                            connection.CanPost ? "y" : "n"));
-                    Send(connection.WorkSocket, ".\r\n");
+                            connection.CanPost ? "y" : "n"), false, Encoding.UTF8);
+                    Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
                 }
             }
             else
@@ -988,7 +1001,7 @@ namespace McNNTP.Server
                         else
                         {
                             var range = ParseRange(parts[2]);
-                            if (range.Equals(default(Tuple<int, int?>)))
+                            if (range.Equals(default(System.Tuple<int, int?>)))
                                 return new CommandProcessingResult(false);
 
                             if (!range.Item2.HasValue) // LOW-
@@ -1011,10 +1024,10 @@ namespace McNNTP.Server
 
                         lock (connection.SendLock)
                         {
-                            Send(connection.WorkSocket, string.Format("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name));
+                            Send(connection.WorkSocket, string.Format("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name), false, Encoding.UTF8);
                             foreach (var article in articles)
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", article.Id.ToString(CultureInfo.InvariantCulture)));
-                            Send(connection.WorkSocket, ".\r\n");
+                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", article.Id.ToString(CultureInfo.InvariantCulture)), false, Encoding.UTF8);
+                            Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
                         }
                     }
                 }
@@ -1051,7 +1064,7 @@ namespace McNNTP.Server
                                 foreach (var newsgroupName in article.Newsgroups.Split(' '))
                                 {
                                     var newsgroupNameClosure = newsgroupName;
-                                    var newsgroup = session.QueryOver<Newsgroup>().Where(n => n.Name == newsgroupNameClosure).SingleOrDefault();
+                                    var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == newsgroupNameClosure);
                                     if (newsgroup == null)
                                         continue;
 
@@ -1114,20 +1127,16 @@ namespace McNNTP.Server
             
             using (var session = OpenSession())
             {
-                IQuery query;
+                Article article;
                 int type;
                 if (string.IsNullOrEmpty(param))
                 {
-                    query = session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id = :ArticleId")
-                                    .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                    .SetParameter("ArticleId", connection.CurrentArticleNumber);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id == connection.CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
                 {
-                    query = session.CreateQuery("FROM Article WHERE MessageID = :MessageID")
-                                    .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                    .SetParameter("MessageID", param);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.MessageId == param);
                     type = 1;
                 }
                 else
@@ -1139,13 +1148,10 @@ namespace McNNTP.Server
                         return new CommandProcessingResult(true);
                     }
 
-                    query = session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id = :ArticleId")
-                                   .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                   .SetParameter("ArticleId", articleId);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id == articleId);
                     type = 2;
                 }
 
-                var article = query.UniqueResult<Article>();
                 if (article == null)
                     switch (type)
                     {
@@ -1212,7 +1218,7 @@ namespace McNNTP.Server
                             else
                             {
                                 var range = ParseRange(rangeExpression);
-                                if (range.Equals(default(Tuple<int, int?>)))
+                                if (range.Equals(default(System.Tuple<int, int?>)))
                                     return new CommandProcessingResult(false);
 
                                 if (!range.Item2.HasValue) // LOW-
@@ -1242,7 +1248,7 @@ namespace McNNTP.Server
 
                                 lock (connection.SendLock)
                                 {
-                                    Send(connection.WorkSocket, "224 Overview information follows\r\n");
+                                    Send(connection.WorkSocket, "224 Overview information follows\r\n", false, Encoding.UTF8);
                                     foreach (var article in articles)
                                         Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
                                             string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0 ? article.Id : 0,
@@ -1252,8 +1258,8 @@ namespace McNNTP.Server
                                             unfold(article.MessageId),
                                             unfold(article.References),
                                             unfold((article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
-                                            unfold(article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))));
-                                    Send(connection.WorkSocket, ".\r\n");
+                                            unfold(article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))), false, Encoding.UTF8);
+                                    Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
                                 }
                             }
                         }
@@ -1269,8 +1275,9 @@ namespace McNNTP.Server
         #endregion
 
         #region Interactivity
-        public bool ShowSummaries { get; set; }
-        public bool ShowDetail { get; set; }
+        public bool ShowBytes { get; set; }
+        public bool ShowCommands { get; set; }
+        public bool ShowData { get; set; }
 
         internal Dictionary<IPEndPoint, string> GetAllBuffs()
         {
@@ -1306,28 +1313,28 @@ namespace McNNTP.Server
             return _connections.ToDictionary(conn => (IPEndPoint) conn.WorkSocket.RemoteEndPoint, conn => conn.sb.ToString());
         }
         #endregion
-        private static Tuple<int, int?> ParseRange(string input)
+        private static System.Tuple<int, int?> ParseRange(string input)
         {
             int low, high;
             if (input.IndexOf('-') == -1)
             {
                 if (!int.TryParse(input, out low))
-                    return default(Tuple<int, int?>);
-                return new Tuple<int, int?>(low, low);
+                    return default(System.Tuple<int, int?>);
+                return new System.Tuple<int, int?>(low, low);
             }
             if (input.EndsWith("-", StringComparison.Ordinal))
             {
                 if (!int.TryParse(input, out low))
-                    return default(Tuple<int, int?>);
-                return new Tuple<int, int?>(low, null);
+                    return default(System.Tuple<int, int?>);
+                return new System.Tuple<int, int?>(low, null);
             }
 
             if (!int.TryParse(input.Substring(0, input.IndexOf('-')), NumberStyles.Integer, CultureInfo.InvariantCulture, out low))
-                return default(Tuple<int, int?>);
+                return default(System.Tuple<int, int?>);
             if (!int.TryParse(input.Substring(input.IndexOf('-') + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out high))
-                return default(Tuple<int, int?>);
+                return default(System.Tuple<int, int?>);
 
-            return new Tuple<int, int?>(low, high);
+            return new System.Tuple<int, int?>(low, high);
         }
 
         public void InitializeDatabase()

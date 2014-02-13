@@ -14,8 +14,9 @@ namespace McNNTP
             { "HELP", s => Help()},
             { "MAKEGROUP", MakeGroup},
             { "SHOWCONN", s => Help()},
-            { "TOGFULL", s => TogFull()},
-            { "TOGSUM", s => TogSum()},
+            { "TOGBYTES", s => TogBytes()},
+            { "TOGCMD", s => TogCommands()},
+            { "TOGDATA", s => TogData()},
             { "QUIT", s => Quit()}
         };
 
@@ -74,8 +75,9 @@ namespace McNNTP
             Console.WriteLine("DUMPBUFS                : Show current receiver buffers on all connections");
             Console.WriteLine("MAKEGROUP <name> <desc> : Creates a new news group on the server");
             Console.WriteLine("SHOWCONN                : Show active connections");
-            Console.WriteLine("TOGFULL                 : Toggle showing all data in and out");
-            Console.WriteLine("TOGSUM                  : Toggle showing summary data in and out");
+            Console.WriteLine("TOGBYTES                : Toggle showing bytes and destinations");
+            Console.WriteLine("TOGCMD                  : Toggle showing commands and responses");
+            Console.WriteLine("TOGDATA                 : Toggle showing all data in and out");
             Console.WriteLine("QUIT                    : Exit the program, klling all connections");
             return false;
         }
@@ -102,24 +104,37 @@ namespace McNNTP
             return false;
         }
 
-        private static bool TogFull()
+        private static bool TogBytes()
         {
-            _server.ShowDetail = !_server.ShowDetail;
-            Console.Write("[TOGFULL: ");
+            _server.ShowBytes = !_server.ShowBytes;
+            Console.Write("[TOGBYTES: ");
             var orig = Console.ForegroundColor;
-            Console.ForegroundColor = _server.ShowDetail ? ConsoleColor.Green : ConsoleColor.Red;
-            Console.Write(_server.ShowDetail ? "ON" : "OFF");
+            Console.ForegroundColor = _server.ShowBytes ? ConsoleColor.Green : ConsoleColor.Red;
+            Console.Write(_server.ShowBytes ? "ON" : "OFF");
             Console.ForegroundColor = orig;
             Console.Write("]");
             return false;
         }
-        private static bool TogSum()
+
+        private static bool TogCommands()
         {
-            _server.ShowSummaries = !_server.ShowSummaries;
-            Console.Write("[TOGSUM: ");
+            _server.ShowCommands = !_server.ShowCommands;
+            Console.Write("[TOGCMD: ");
             var orig = Console.ForegroundColor;
-            Console.ForegroundColor = _server.ShowSummaries ? ConsoleColor.Green : ConsoleColor.Red;
-            Console.Write(_server.ShowSummaries ? "ON" : "OFF");
+            Console.ForegroundColor = _server.ShowCommands ? ConsoleColor.Green : ConsoleColor.Red;
+            Console.Write(_server.ShowCommands ? "ON" : "OFF");
+            Console.ForegroundColor = orig;
+            Console.Write("]");
+            return false;
+        }
+
+        private static bool TogData()
+        {
+            _server.ShowData = !_server.ShowData;
+            Console.Write("[TOGDATA: ");
+            var orig = Console.ForegroundColor;
+            Console.ForegroundColor = _server.ShowData ? ConsoleColor.Green : ConsoleColor.Red;
+            Console.Write(_server.ShowData ? "ON" : "OFF");
             Console.ForegroundColor = orig;
             Console.Write("]");
             return false;
