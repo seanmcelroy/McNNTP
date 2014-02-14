@@ -400,8 +400,7 @@ namespace McNNTP.Server
                                 break;
                         }
 
-                        foreach (var line in article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None))
-                            Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line), false, Encoding.UTF8);
+                        Send(connection.WorkSocket, article.Body, false, Encoding.UTF8);
 
                         Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
                     }
@@ -500,23 +499,7 @@ namespace McNNTP.Server
                                 break;
                         }
 
-                        foreach (var line in article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None))
-                            Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line), false, Encoding.UTF8);
-
-                        if (!article.Body.EndsWith("\r\n.", StringComparison.Ordinal))
-                            Send(connection.WorkSocket, ".\r\n");
-
-                        var eoh = false;
-                        foreach (var line in article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None))
-                        {
-                            if (!eoh && string.IsNullOrWhiteSpace(line))
-                                eoh = true;
-                            else if (eoh)
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line), false, Encoding.UTF8);
-                        }
-
-                        if (!article.Body.EndsWith("\r\n.", StringComparison.Ordinal))
-                            Send(connection.WorkSocket, ".\r\n");
+                        Send(connection.WorkSocket, article.Body, false, Encoding.UTF8);
                     }
                 }
             }
@@ -696,8 +679,15 @@ namespace McNNTP.Server
                                 headerFunction = a => a.Subject;
                                 break;
                             default:
-                                headerFunction = a => string.Empty;
+                            {
+                                Dictionary<string, string> headers;
+                                headerFunction = a => Data.Article.TryParseHeaders(a.Headers, out headers) 
+                                    ? headers.Any(h => string.Compare(h.Key, parts[1], StringComparison.OrdinalIgnoreCase) == 0)
+                                        ? headers.Single(h => string.Compare(h.Key, parts[1], StringComparison.OrdinalIgnoreCase) == 0).Value
+                                        : null
+                                    : null;
                                 break;
+                            }
                         }
 
                         foreach (var article in articles)
@@ -806,13 +796,7 @@ namespace McNNTP.Server
                                 break;
                         }
 
-                        foreach (var line in article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None))
-                            if (string.IsNullOrWhiteSpace(line))
-                                break;
-                            else
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", line), false, Encoding.UTF8);
-
-                        Send(connection.WorkSocket, ".\r\n");
+                        Send(connection.WorkSocket, article.Headers + "\r\n.\r\n", false, Encoding.UTF8);
                     }
                 }
             }
