@@ -4,6 +4,7 @@ using System.Data.SQLite;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Configuration;
 using System.Reflection;
 using System.Text;
 using System.Net;
@@ -139,6 +140,7 @@ namespace McNNTP.Server
             }
             catch (SocketException se)
             {
+                Send(handler, "403 Archive server temporarily offline\r\n");
                 Console.WriteLine(se.ToString());
             }
         }
@@ -162,6 +164,7 @@ namespace McNNTP.Server
             }
             catch (SocketException)
             {
+                Send(handler, "403 Archive server temporarily offline\r\n");
                 return;
             }
 
@@ -181,6 +184,7 @@ namespace McNNTP.Server
                 }
                 catch (SocketException sex)
                 {
+                    Send(handler, "403 Archive server temporarily offline\r\n");
                     Console.Write(sex.ToString());
                 }
                 return;
@@ -223,6 +227,7 @@ namespace McNNTP.Server
                     }
                     catch (Exception ex)
                     {
+                        Send(handler, "403 Archive server temporarily offline\r\n");
                         Console.WriteLine(ex.ToString());
                     }
                 }
@@ -242,6 +247,7 @@ namespace McNNTP.Server
             }
             catch (SocketException sex)
             {
+                Send(handler, "403 Archive server temporarily offline\r\n");
                 Console.WriteLine(sex.ToString());
             }
         }
@@ -276,6 +282,7 @@ namespace McNNTP.Server
             }
             catch (SocketException)
             {
+                // Don't send 403 - the sending socket isn't working.
                 Console.WriteLine("{0}:{1} XXX CONNECTION TERMINATED", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port);
             }
         }
@@ -298,9 +305,11 @@ namespace McNNTP.Server
             }
             catch (ObjectDisposedException)
             {
+                // Don't send 403 - the sending socket isn't working
             }
             catch (Exception e)
             {
+                // Don't send 403 - the sending socket isn't working
                 Console.WriteLine(e.ToString());
                 throw;
             }
@@ -825,55 +834,66 @@ namespace McNNTP.Server
             if (string.Compare(content, "LIST\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
                 string.Compare(content, "LIST ACTIVE\r\n", StringComparison.OrdinalIgnoreCase) == 0)
             {
+                IList<Newsgroup> newsGroups;
+
+                try
+                {
+                    using (var session = OpenSession())
+                    {
+                        newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
+                    }
+                }
+                catch (MappingException mex)
+                {
+                    Console.WriteLine(mex.ToString());
+                    Send(connection.WorkSocket, "403 Archive server temporarily offline\r\n");
+                    return new CommandProcessingResult(true);
+                }
+                catch (Exception)
+                {
+                    Send(connection.WorkSocket, "403 Archive server temporarily offline\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
                 lock (connection.SendLock)
                 {
                     Send(connection.WorkSocket, "215 list of newsgroups follows\r\n");
-                    try
-                    {
-                        IList<Newsgroup> newsGroups;
-                        using (var session = OpenSession())
-                        {
-                            newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
-                        }
-                        foreach (var ng in newsGroups)
-                            Send(connection.WorkSocket, string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark,
-                                connection.CanPost ? "y" : "n"), false, Encoding.UTF8);
-                    }
-                    catch (MappingException mex)
-                    {
-                        Console.WriteLine(mex.ToString());
-                    }
-                    finally
-                    {
-                        Send(connection.WorkSocket, ".\r\n");
-                    }
+                    foreach (var ng in newsGroups)
+                        Send(connection.WorkSocket, string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, connection.CanPost ? "y" : "n"), false, Encoding.UTF8);
+                    Send(connection.WorkSocket, ".\r\n");
                 }
                 return new CommandProcessingResult(true);
             }
 
             if (string.Compare(content, "LIST NEWSGROUPS\r\n", StringComparison.OrdinalIgnoreCase) == 0)
             {
+                IList<Newsgroup> newsGroups;
+
+                try
+                {
+                    using (var session = OpenSession())
+                    {
+                        newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
+                    }
+                }
+                catch (MappingException mex)
+                {
+                    Console.WriteLine(mex.ToString());
+                    Send(connection.WorkSocket, "403 Archive server temporarily offline\r\n");
+                    return new CommandProcessingResult(true);
+                }
+                catch (Exception)
+                {
+                    Send(connection.WorkSocket, "403 Archive server temporarily offline\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
                 lock (connection.SendLock)
                 {
                     Send(connection.WorkSocket, "215 information follows\r\n");
-                    try
-                    {
-                        IList<Newsgroup> newsGroups;
-                        using (var session = OpenSession())
-                        {
-                            newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
-                        }
-                        foreach (var ng in newsGroups)
-                            Send(connection.WorkSocket, string.Format("{0}\t{1}\r\n", ng.Name, ng.Description), false, Encoding.UTF8);
-                    }
-                    catch (MappingException mex)
-                    {
-                        Console.WriteLine(mex.ToString());
-                    }
-                    finally
-                    {
-                        Send(connection.WorkSocket, ".\r\n");
-                    }
+                    foreach (var ng in newsGroups)
+                        Send(connection.WorkSocket, string.Format("{0}\t{1}\r\n", ng.Name, ng.Description), false, Encoding.UTF8);
+                    Send(connection.WorkSocket, ".\r\n");
                 }
                 return new CommandProcessingResult(true);
             }
@@ -1165,71 +1185,94 @@ namespace McNNTP.Server
                 Send(connection.WorkSocket, "412 No news group current selected\r\n");
             else
             {
-                using (var session = OpenSession())
+                Newsgroup ng;
+                IList<Article> articles;
+
+                try
                 {
-                    var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == connection.CurrentNewsgroup);
-
-                    if (ng == null)
-                        Send(connection.WorkSocket, "411 No such newsgroup\r\n");
-                    else
+                    using (var session = OpenSession())
                     {
-                        try
+                        ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == connection.CurrentNewsgroup);
+
+                        if (string.IsNullOrEmpty(rangeExpression))
+                            articles =
+                                session.Query<Article>()
+                                    .Fetch(a => a.Newsgroup)
+                                    .Where(a => a.Newsgroup.Name == ng.Name)
+                                    .OrderBy(a => a.Id)
+                                    .ToList();
+                        else
                         {
-                            IList<Article> articles;
-
-                            if (string.IsNullOrEmpty(rangeExpression))
-                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name).OrderBy(a => a.Id).ToList();
-                            else
+                            var range = ParseRange(rangeExpression);
+                            if (range.Equals(default(System.Tuple<int, int?>)))
                             {
-                                var range = ParseRange(rangeExpression);
-                                if (range.Equals(default(System.Tuple<int, int?>)))
-                                {
-                                    Send(connection.WorkSocket, "501 Syntax Error\r\n");
-                                    return new CommandProcessingResult(true);
-                                }
-
-                                if (!range.Item2.HasValue) // LOW-
-                                {
-                                    articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1).OrderBy(a => a.Id).ToList();
-                                }
-                                else // LOW-HIGH
-                                {
-                                    articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1 && a.Id <= range.Item2.Value).OrderBy(a => a.Id).ToList();
-                                }
+                                Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                                return new CommandProcessingResult(true);
                             }
 
-                            if (!articles.Any())
-                                Send(connection.WorkSocket, "420 No article(s) selected\r\n");
-                            else
+                            if (!range.Item2.HasValue) // LOW-
                             {
-                                connection.CurrentArticleNumber = articles.First().Id;
-
-                                Func<string, string> unfold = i => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", "").Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
-
-                                lock (connection.SendLock)
-                                {
-                                    Send(connection.WorkSocket, "224 Overview information follows\r\n", false, Encoding.UTF8);
-                                    foreach (var article in articles)
-                                        Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
-                                            string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0 ? article.Id : 0,
-                                            unfold(article.Subject),
-                                            unfold(article.From),
-                                            unfold(article.Date),
-                                            unfold(article.MessageId),
-                                            unfold(article.References),
-                                            unfold((article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
-                                            unfold(article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))), false, Encoding.UTF8);
-                                    Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
-                                }
+                                articles =
+                                    session.Query<Article>()
+                                        .Fetch(a => a.Newsgroup)
+                                        .Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1)
+                                        .OrderBy(a => a.Id)
+                                        .ToList();
                             }
-                        }
-                        catch (Exception mex)
-                        {
-                            Console.WriteLine(mex.ToString());
+                            else // LOW-HIGH
+                            {
+                                articles =
+                                    session.Query<Article>()
+                                        .Fetch(a => a.Newsgroup)
+                                        .Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1 && a.Id <= range.Item2.Value)
+                                        .OrderBy(a => a.Id)
+                                        .ToList();
+                            }
                         }
                     }
                 }
+                catch (Exception ex)
+                {
+                    Send(connection.WorkSocket, "403 Archive server temporarily offline\r\n");
+                    Console.WriteLine(ex.ToString());
+                    return new CommandProcessingResult(true);
+                }
+
+                if (ng == null)
+                {
+                    Send(connection.WorkSocket, "411 No such newsgroup\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
+                if (!articles.Any())
+                {
+                    Send(connection.WorkSocket, "420 No article(s) selected\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
+                connection.CurrentArticleNumber = articles.First().Id;
+                Func<string, string> unfold = i => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", "").Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
+
+                lock (connection.SendLock)
+                {
+                    Send(connection.WorkSocket, "224 Overview information follows\r\n", false, Encoding.UTF8);
+                    foreach (var article in articles)
+                        Send(connection.WorkSocket,
+                            string.Format(CultureInfo.InvariantCulture,
+                                "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
+                                string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0 ? article.Id : 0,
+                                unfold(article.Subject),
+                                unfold(article.From),
+                                unfold(article.Date),
+                                unfold(article.MessageId),
+                                unfold(article.References),
+                                unfold((article.Body.Length*2).ToString(CultureInfo.InvariantCulture)),
+                                unfold(article.Body.Split(new[] {"\r\n"}, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))), false,
+                            Encoding.UTF8);
+                    Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
+                }
             }
+
             return new CommandProcessingResult(true);
         }
         #endregion
