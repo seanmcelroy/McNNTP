@@ -14,7 +14,6 @@ using NHibernate.Cfg;
 using NHibernate.Linq;
 using McNNTP.Server.Data;
 using System.Globalization;
-using NHibernate.Criterion;
 using NHibernate.Tool.hbm2ddl;
 
 namespace McNNTP.Server
@@ -148,7 +147,12 @@ namespace McNNTP.Server
             // Retrieve the state object and the handler socket
             // from the asynchronous state object.
             var connection = (Connection)ar.AsyncState;
+            if (connection.WorkSocket == null)
+                return;
+
             var handler = connection.WorkSocket;
+            if (handler == null)
+                return;
 
             // Read data from the client socket.
             int bytesRead;
@@ -162,10 +166,10 @@ namespace McNNTP.Server
             }
 
             // There  might be more data, so store the data received so far.
-            connection.sb.Append(Encoding.ASCII.GetString(connection.Buffer, 0, bytesRead));
+            connection.Builder.Append(Encoding.ASCII.GetString(connection.Buffer, 0, bytesRead));
 
             // Not all data received OR no more but not yet ending with the delimiter. Get more.
-            var content = connection.sb.ToString();
+            var content = connection.Builder.ToString();
             if (bytesRead == Connection.BUFFER_SIZE || (bytesRead == 0 && !content.EndsWith("\r\n", StringComparison.Ordinal)))
             {
                 if (!handler.Connected)
@@ -191,7 +195,7 @@ namespace McNNTP.Server
             else if (ShowData)
                 Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
 
-            if (_inProcessCommand != null)
+            if (_inProcessCommand != null && _inProcessCommand.MessageHandler != null)
             {
                 // Ongoing read - don't parse it for commands
                 var result = _inProcessCommand.MessageHandler.Invoke(connection, content, _inProcessCommand);
@@ -226,7 +230,7 @@ namespace McNNTP.Server
                     Send(handler, "500 Unknown command\r\n");
             }
 
-            connection.sb.Clear();
+            connection.Builder.Clear();
 
             if (!handler.Connected)
                 return;
@@ -433,20 +437,16 @@ namespace McNNTP.Server
 
             using (var session = OpenSession())
             {
-                IQuery query;
                 int type;
+                Article article;
                 if (string.IsNullOrEmpty(param))
                 {
-                    query = session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id = :ArticleId")
-                                    .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                    .SetParameter("ArticleId", connection.CurrentArticleNumber);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id == connection.CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
                 {
-                    query = session.CreateQuery("FROM Article WHERE MessageID = :MessageID")
-                                    .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                    .SetParameter("MessageID", param);
+                    article = session.Query<Article>().Single(a => a.MessageId == param);
                     type = 1;
                 }
                 else
@@ -458,13 +458,10 @@ namespace McNNTP.Server
                         return new CommandProcessingResult(true);
                     }
 
-                    query = session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id = :ArticleId")
-                                   .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                   .SetParameter("ArticleId", articleId);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id == articleId);
                     type = 2;
                 }
 
-                var article = query.UniqueResult<Article>();
                 if (article == null)
                     switch (type)
                     {
@@ -607,40 +604,30 @@ namespace McNNTP.Server
 
             using (var session = OpenSession())
             {
-                IQuery query;
+                IEnumerable<Article> articles;
                 switch (type)
                 {
                     case 1:
-                        query = session.CreateQuery("FROM Article WHERE MessageID = :MessageID")
-                                   .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                   .SetParameter("MessageID", parts[2]);
+                        articles = new[] { session.Query<Article>().SingleOrDefault(a => a.MessageId == parts[2]) };
                         break;
                     case 2:
                         var range = ParseRange(parts[2]);
                         if (range.Equals(default(System.Tuple<int, int?>)))
                             return new CommandProcessingResult(false);
 
-                        query = (range.Item2.HasValue)
-                            ? session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id BETWEEN :Low AND :High")
-                                   .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                   .SetParameter("Low", range.Item1)
-                                   .SetParameter("High", range.Item2)
-                            : session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id >= :Low")
-                                   .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                   .SetParameter("Low", range.Item1);
+                        articles = (range.Item2.HasValue)
+                            ? session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id >= range.Item1 && a.Id <= range.Item2)
+                            : session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id >= range.Item1);
                         break;
                     case 3:
                         Debug.Assert(connection.CurrentArticleNumber.HasValue);
-                        query = session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id = :ArticleId")
-                                   .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                   .SetParameter("ArticleId", connection.CurrentArticleNumber.Value);
+                        articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id == connection.CurrentArticleNumber.Value);
                         break;
                     default:
                         return new CommandProcessingResult(false); // Unrecognized..
                 }
 
-                var articles = query.List<Article>();
-                if (articles == null || articles.Count == 0)
+                if (!articles.Any())
                     switch (type)
                     {
                         case 1:
@@ -663,7 +650,7 @@ namespace McNNTP.Server
                         switch (parts[1].ToUpperInvariant())
                         {
                             case "DATE":
-                                headerFunction = a => a.Date.ToString();
+                                headerFunction = a => a.Date;
                                 break;
                             case "FROM":
                                 headerFunction = a => a.From;
@@ -731,20 +718,16 @@ namespace McNNTP.Server
             
             using (var session = OpenSession())
             {
-                IQuery query;
+                Article article;
                 int type;
                 if (string.IsNullOrEmpty(param))
                 {
-                    query = session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id = :ArticleId")
-                                    .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                    .SetParameter("ArticleId", connection.CurrentArticleNumber);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id == connection.CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
                 {
-                    query = session.CreateQuery("FROM Article WHERE MessageID = :MessageID")
-                                    .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                    .SetParameter("MessageID", param);
+                    article = session.Query<Article>().FirstOrDefault(a => a.MessageId == param);
                     type = 1;
                 }
                 else
@@ -756,13 +739,10 @@ namespace McNNTP.Server
                         return new CommandProcessingResult(true);
                     }
 
-                    query = session.CreateQuery("FROM Article WHERE Newsgroup.Name = :NewsgroupName AND Id = :ArticleId")
-                                   .SetParameter("NewsgroupName", connection.CurrentNewsgroup)
-                                   .SetParameter("ArticleId", articleId);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id == articleId);
                     type = 2;
                 }
 
-                var article = query.UniqueResult<Article>();
                 if (article == null)
                     switch (type)
                     {
@@ -842,7 +822,7 @@ namespace McNNTP.Server
                         IList<Newsgroup> newsGroups;
                         using (var session = OpenSession())
                         {
-                            newsGroups = session.CreateQuery("FROM Newsgroup ORDER BY Name").List<Newsgroup>();
+                            newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
                         }
                         foreach (var ng in newsGroups)
                             Send(connection.WorkSocket, string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark,
@@ -870,7 +850,7 @@ namespace McNNTP.Server
                         IList<Newsgroup> newsGroups;
                         using (var session = OpenSession())
                         {
-                            newsGroups = session.CreateQuery("FROM Newsgroup ORDER BY Name").List<Newsgroup>();
+                            newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
                         }
                         foreach (var ng in newsGroups)
                             Send(connection.WorkSocket, string.Format("{0}\t{1}\r\n", ng.Name, ng.Description), false, Encoding.UTF8);
@@ -887,7 +867,8 @@ namespace McNNTP.Server
                 return new CommandProcessingResult(true);
             }
 
-            return new CommandProcessingResult(false);
+            Send(connection.WorkSocket, "501 Syntax Error\r\n");
+            return new CommandProcessingResult(true);
         }
         private CommandProcessingResult Mode(Connection connection, string content)
         {
@@ -914,9 +895,7 @@ namespace McNNTP.Server
                 IList<Newsgroup> newsGroups;
                 using (var session = OpenSession())
                 {
-                    newsGroups = session.CreateQuery("FROM Newsgroup WHERE CreateDate >= :AfterDate ORDER BY Name")
-                        .SetParameter("AfterDate", afterDate)
-                        .List<Newsgroup>();
+                    newsGroups = session.Query<Newsgroup>().Where(n => n.CreateDate >= afterDate).OrderBy(n => n.Name).ToList();
                 }
 
                 lock (connection.SendLock)
@@ -944,8 +923,11 @@ namespace McNNTP.Server
             lock (connection.SendLock)
             {
                 Send(connection.WorkSocket, "205 closing connection\r\n", false, Encoding.UTF8); // Block.
-                connection.WorkSocket.Shutdown(SocketShutdown.Both);
-                connection.WorkSocket.Close();
+                if (connection.WorkSocket != null)
+                {
+                    connection.WorkSocket.Shutdown(SocketShutdown.Both);
+                    connection.WorkSocket.Close();
+                }
             }
             return new CommandProcessingResult(true, true);
         }
@@ -958,9 +940,8 @@ namespace McNNTP.Server
 
             using (var session = OpenSession())
             {
-                var ng = session.CreateQuery("FROM Newsgroup WHERE Name = :Name")
-                    .SetParameter("Name", parts.Length == 2 ? parts[1] : connection.CurrentNewsgroup)
-                    .UniqueResult<Newsgroup>();
+                var name = (parts.Length == 2) ? parts[1] : connection.CurrentNewsgroup;
+                var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
 
                 if (ng == null)
                     Send(connection.WorkSocket, "411 No such newsgroup\r\n");
@@ -976,11 +957,9 @@ namespace McNNTP.Server
                     }
                     else
                     {
-                        IQuery query;
-
+                        IList<Article> articles;
                         if (parts.Length < 3)
-                            query = session.CreateQuery("FROM Article WHERE Newsgroup = :Newsgroup ORDER BY Id")
-                                .SetParameter("Newsgroup", ng);
+                            articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name).OrderBy(a => a.Id).ToList();
                         else
                         {
                             var range = ParseRange(parts[2]);
@@ -988,22 +967,12 @@ namespace McNNTP.Server
                                 return new CommandProcessingResult(false);
 
                             if (!range.Item2.HasValue) // LOW-
-                            {
-                                query = session.CreateQuery("FROM Article WHERE Newsgroup = :Newsgroup AND Id >= :Low ORDER BY Id")
-                                    .SetParameter("Newsgroup", ng)
-                                    .SetParameter("Low", range.Item1);
-                            }
+                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1).OrderBy(a => a.Id).ToList();
                             else // LOW-HIGH
-                            {
-                                query = session.CreateQuery("FROM Article WHERE Newsgroup = :Newsgroup AND Id BETWEEN :Low AND :High ORDER BY Id")
-                                   .SetParameter("Newsgroup", ng)
-                                   .SetParameter("Low", range.Item1)
-                                   .SetParameter("High", range.Item2.Value);
-                            }
+                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1 && a.Id <= range.Item2.Value).ToList();
                         }
 
-                        var articles = query.List<Article>();
-                        connection.CurrentArticleNumber = articles.FirstOrDefault() == null ? default(long?) : articles.First().Id;
+                        connection.CurrentArticleNumber = !articles.Any() ? default(long?) : articles.First().Id;
 
                         lock (connection.SendLock)
                         {
@@ -1183,9 +1152,7 @@ namespace McNNTP.Server
             {
                 using (var session = OpenSession())
                 {
-                    var ng = session.CreateQuery("FROM Newsgroup WHERE Name = :Name")
-                                          .SetParameter("Name", connection.CurrentNewsgroup)
-                                          .UniqueResult<Newsgroup>();
+                    var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == connection.CurrentNewsgroup);
 
                     if (ng == null)
                         Send(connection.WorkSocket, "411 No such newsgroup\r\n");
@@ -1193,11 +1160,10 @@ namespace McNNTP.Server
                     {
                         try
                         {
-                            IQuery query;
+                            IList<Article> articles;
 
                             if (string.IsNullOrEmpty(rangeExpression))
-                                query = session.CreateQuery("FROM Article WHERE Newsgroup = :Newsgroup ORDER BY Id")
-                                    .SetParameter("Newsgroup", ng);
+                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name).OrderBy(a => a.Id).ToList();
                             else
                             {
                                 var range = ParseRange(rangeExpression);
@@ -1206,22 +1172,15 @@ namespace McNNTP.Server
 
                                 if (!range.Item2.HasValue) // LOW-
                                 {
-                                    query = session.CreateQuery("FROM Article WHERE Newsgroup = :Newsgroup AND Id >= :Low ORDER BY Id")
-                                        .SetParameter("Newsgroup", ng)
-                                        .SetParameter("Low", range.Item1);
+                                    articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1).OrderBy(a => a.Id).ToList();
                                 }
                                 else // LOW-HIGH
                                 {
-                                    query = session.CreateQuery("FROM Article WHERE Newsgroup = :Newsgroup AND Id BETWEEN :Low AND :High ORDER BY Id")
-                                       .SetParameter("Newsgroup", ng)
-                                       .SetParameter("Low", range.Item1)
-                                       .SetParameter("High", range.Item2.Value);
+                                    articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1 && a.Id <= range.Item2.Value).OrderBy(a => a.Id).ToList();
                                 }
                             }
 
-                            var articles = query.List<Article>();
-
-                            if (articles.Count == 0)
+                            if (!articles.Any())
                                 Send(connection.WorkSocket, "420 No article(s) selected\r\n");
                             else
                             {
@@ -1270,7 +1229,7 @@ namespace McNNTP.Server
                 {
                     try
                     {
-                        if (!conn.WorkSocket.Connected)
+                        if (conn.WorkSocket != null && !conn.WorkSocket.Connected)
                         {
                             _connections.Remove(conn);
                             conn.WorkSocket.Shutdown(SocketShutdown.Both);
@@ -1293,7 +1252,8 @@ namespace McNNTP.Server
                     }
                 }
 
-            return _connections.ToDictionary(conn => (IPEndPoint) conn.WorkSocket.RemoteEndPoint, conn => conn.sb.ToString());
+            // ReSharper disable once PossibleNullReferenceException
+            return _connections.Where(c => c.WorkSocket != null).ToDictionary(conn => (IPEndPoint) conn.WorkSocket.RemoteEndPoint, conn => conn.Builder.ToString());
         }
         #endregion
         private static System.Tuple<int, int?> ParseRange(string input)

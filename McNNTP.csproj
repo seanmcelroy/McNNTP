@@ -96,6 +96,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Annotations.cs" />
     <Compile Include="Client\NntpClient.cs" />
     <Compile Include="Client\NntpException.cs" />
     <Compile Include="GlobalSuppressions.cs" />

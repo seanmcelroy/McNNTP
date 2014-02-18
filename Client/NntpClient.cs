@@ -11,12 +11,19 @@ namespace McNNTP.Client
     {
         public bool CanPost { get; private set; }
 
+        public int Port { get; set; }
+
+        public NntpClient()
+        {
+            Port = 119;
+        }
 
         #region Connections
         public void Connect(string hostName)
         {
-            Connect(hostName, 119);
+            Connect(hostName, Port);
         }
+
         public new void Connect(string hostName, int port)
         {
             base.Connect(hostName, port);
@@ -74,7 +81,6 @@ namespace McNNTP.Client
                 .Where(x => x != ".")
                 .ToList());
         }
-
 
         public ReadOnlyCollection<string> GetNewsgroups()
         {

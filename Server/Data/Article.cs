@@ -2,19 +2,27 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using JetBrains.Annotations;
 
 namespace McNNTP.Server.Data
 {
     public class Article
     {
         public virtual long Id { get; set; }
+        [NotNull]
         public virtual Newsgroup Newsgroup { get; set; }
         // MANDATORY FIELDS
+        [NotNull]
         public virtual string Date { get; set; }
+        [NotNull]
         public virtual string From { get; set; }
+        [NotNull]
         public virtual string MessageId { get; set; }
+        [NotNull]
         public virtual string Newsgroups { get; set; }
+        [NotNull]
         public virtual string Path { get; set; }
+        [NotNull]
         public virtual string Subject { get; set; }
         // OPTIONAL FIELDS
 
@@ -25,6 +33,7 @@ namespace McNNTP.Server.Data
         /// and in group control messages; see [RFC5537].
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5536#section-3.2"/>
+        [CanBeNull]
         public virtual string Approved { get; set; }
         /// <summary>
         /// The Archive header field provides an indication of the poster's
@@ -32,10 +41,15 @@ namespace McNNTP.Server.Data
         /// long-term or permanent storage.
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5536#section-3.2"/>
+        [CanBeNull]
         public virtual string Archive { get; set; }
+        [CanBeNull]
         public virtual string ContentDisposition { get; set; }
+        [CanBeNull]
         public virtual string ContentLanguage { get; set; }
+        [CanBeNull]
         public virtual string ContentTransferEncoding { get; set; }
+        [CanBeNull]
         public virtual string ContentType { get; set; }
         /// <summary>
         /// The Control header field marks the article as a control message and
@@ -43,12 +57,14 @@ namespace McNNTP.Server.Data
         /// storing and/or relaying the article).
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5536#section-3.2"/>
+        [CanBeNull]
         public virtual string Control { get; set; }
         /// <summary>
         /// The Distribution header field specifies geographic or organizational
         /// limits on an article's propagation.
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5536#section-3.2"/>
+        [CanBeNull]
         public virtual string Distribution { get; set; }
         /// <summary>
         /// The Expires header field specifies a date and time when the poster
@@ -56,6 +72,7 @@ namespace McNNTP.Server.Data
         /// removed ("expired").
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5536#section-3.2"/>
+        [CanBeNull]
         public virtual string Expires { get; set; }
         /// <summary>
         /// The Followup-To header field specifies to which newsgroup(s) the
@@ -64,22 +81,27 @@ namespace McNNTP.Server.Data
         /// content is different from the content of the Newsgroups header field.
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5536#section-3.2"/>
+        [CanBeNull]
         public virtual string FollowupTo { get; set; }
         /// <summary>
         /// The Injection-Date header field contains the date and time that the
         /// article was injected into the network.  Its purpose is to enable news
-        /// servers, when checking for "stale" articles, to use a <date-time>
+        /// servers, when checking for "stale" articles, to use a &gt;date-time&lt;
         /// that was added by a news server at injection time rather than one
         /// added by the user agent at message composition time.
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5536#section-3.2"/>
+        [CanBeNull]
         public virtual string InjectionDate { get; set; }
+        [CanBeNull]
         public virtual string InjectionInfo { get; set; }
+        [CanBeNull]
         public virtual string MIMEVersion { get; set; }
         /// <summary>
         /// The Organization header field is a short phrase identifying the
         /// poster's organization.
         /// </summary>
+        [CanBeNull]
         public virtual string Organization { get; set; }
         /// <summary>
         /// The message identifier of the original
@@ -89,12 +111,14 @@ namespace McNNTP.Server.Data
         /// conversation.
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5322"/>
+        [CanBeNull]
         public virtual string References { get; set; }
         /// <summary>
         /// The Summary header field is a short phrase summarizing the article's
         /// content.
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5536#section-3.2"/>
+        [CanBeNull]
         public virtual string Summary { get; set; }
         /// <summary>
         /// The Supersedes header field contains a message identifier specifying
@@ -104,6 +128,7 @@ namespace McNNTP.Server.Data
         /// immediately by the new article without the Supersedes header field.
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5536#section-3.2"/>
+        [CanBeNull]
         public virtual string Supersedes { get; set; }
         /// <summary>
         /// The User-Agent header field contains information about the user agent
@@ -112,6 +137,7 @@ namespace McNNTP.Server.Data
         /// need of correction.
         /// </summary>
         /// <seealso cref="http://tools.ietf.org/html/rfc5536#section-3.2"/>
+        [CanBeNull]
         public virtual string UserAgent { get; set; }
         /// <summary>
         /// The Xref header field indicates where an article was filed by the
@@ -119,12 +145,16 @@ namespace McNNTP.Server.Data
         /// information in the Xref header field to avoid multiple processing of
         /// crossposted articles.
         /// </summary>
-        public virtual string Xref  { get; set; }
+        [CanBeNull]
+        public virtual string Xref { get; set; }
         // FULL HEADERS AND BODY
+        [NotNull]
         public virtual string Headers { get; set; }
+        [NotNull]
         public virtual string Body { get; set; }
 
-        internal static bool TryParse(string block, bool fromPeer, out Article article)
+        [Pure]
+        internal static bool TryParse([NotNull] string block, bool fromPeer, out Article article)
         {
             article = null;
 
@@ -194,7 +224,8 @@ namespace McNNTP.Server.Data
             return true;
         }
 
-        internal static bool TryParseHeaders(string headerBlock, out Dictionary<string, string> headers)
+        [Pure]
+        internal static bool TryParseHeaders([NotNull] string headerBlock, out Dictionary<string, string> headers)
         {
             var headerLines = headerBlock
                    .SeekThroughDelimiters("\r\n")
@@ -204,7 +235,8 @@ namespace McNNTP.Server.Data
             return TryParseHeaders(headerLines, out headers);
         }
 
-        internal static bool TryParseHeaders(string[] headerLines, out Dictionary<string, string> headers)
+        [Pure]
+        internal static bool TryParseHeaders([NotNull] string[] headerLines, out Dictionary<string, string> headers)
         {
             headers = new Dictionary<string, string>();
 

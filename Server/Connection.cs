@@ -1,5 +1,6 @@
 ﻿using System.Text;
 using System.Net.Sockets;
+using JetBrains.Annotations;
 
 namespace McNNTP.Server
 {
@@ -7,17 +8,22 @@ namespace McNNTP.Server
     internal class Connection
     {
         // Client  socket.
-        public Socket WorkSocket = null;
-        public object SendLock = new object();
+        [CanBeNull]
+        public Socket WorkSocket;
+        [NotNull]
+        public readonly object SendLock = new object();
         // Size of receive buffer.
         public const int BUFFER_SIZE = 1024;
         // Receive buffer.
-        public byte[] Buffer = new byte[BUFFER_SIZE];
+        [NotNull]
+        public readonly byte[] Buffer = new byte[BUFFER_SIZE];
         // Received data string.
-        public StringBuilder sb = new StringBuilder();
+        [NotNull]
+        public readonly StringBuilder Builder = new StringBuilder();
 
         public bool CanPost { get; set; }
 
+        [CanBeNull]
         public string CurrentNewsgroup { get; set; }
         public long? CurrentArticleNumber { get; set; }
     }

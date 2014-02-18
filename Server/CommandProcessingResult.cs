@@ -1,4 +1,5 @@
 ﻿using System;
+using JetBrains.Annotations;
 
 namespace McNNTP.Server
 {
@@ -12,6 +13,7 @@ namespace McNNTP.Server
         /// start of a message that should be read until its end,
         /// at which time this function should be invoked on the result.
         /// </summary>
+        [CanBeNull]
         public Func<Connection, string, CommandProcessingResult, CommandProcessingResult> MessageHandler { get; set; }
 
         public string Message { get; set; }

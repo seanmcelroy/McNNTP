@@ -1,9 +1,10 @@
 ﻿using System;
 using System.Runtime.Serialization;
+using JetBrains.Annotations;
 
 namespace McNNTP.Client
 {
-    [Serializable]
+    [Serializable, PublicAPI]
     public class NntpException : Exception
     {
         public NntpException()
