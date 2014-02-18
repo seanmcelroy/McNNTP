@@ -4,7 +4,7 @@
     <id name="Id">
       <generator class="native" />
     </id>
-    <property name="Name" not-null="true" type="String" length="8192" />
+    <property name="Name" not-null="true" type="String" length="8192" unique="true" update="false" />
     <property name="Description" />
     <property name="PostCount" formula="(SELECT count(a.ID) FROM Article a WHERE a.NewsGroupID = ID)"/>
     <property name="LowWatermark" formula="(SELECT min(a.ID) FROM Article a WHERE a.NewsGroupID = ID)" />

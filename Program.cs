@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security;
 using McNNTP.Server;
 using System.Threading.Tasks;
 
@@ -8,16 +9,18 @@ namespace McNNTP
 {
     class Program
     {
-        private static readonly Dictionary<string, Func<string, bool>> _commandDirectory = new Dictionary<string, Func<string, bool>>
+        private static readonly Dictionary<string, Func<string, bool>> _commandDirectory = new Dictionary
+            <string, Func<string, bool>>
         {
-            { "DUMPBUFS", s => DumpBufs()},
-            { "HELP", s => Help()},
-            { "MAKEGROUP", MakeGroup},
-            { "SHOWCONN", s => Help()},
-            { "TOGBYTES", s => TogBytes()},
-            { "TOGCMD", s => TogCommands()},
-            { "TOGDATA", s => TogData()},
-            { "QUIT", s => Quit()}
+            {"DUMPBUFS", s => DumpBufs()},
+            {"HELP", s => Help()},
+            {"MAKEADMIN", MakeAdmin},
+            {"MAKEGROUP", MakeGroup},
+            {"SHOWCONN", s => Help()},
+            {"TOGBYTES", s => TogBytes()},
+            {"TOGCMD", s => TogCommands()},
+            {"TOGDATA", s => TogData()},
+            {"QUIT", s => Quit()}
         };
 
         private static NntpServer _server;
@@ -51,13 +54,17 @@ namespace McNNTP
                     return 0;
                 }
             }
-            catch (AggregateException)
+            catch (AggregateException ae)
             {
+                foreach (var ex in ae.InnerExceptions)
+                    Console.WriteLine(ex.ToString());
+                Console.ReadLine();
                 return -2;
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex.ToString());
+                Console.ReadLine();
                 return -1;
             }
         }
@@ -73,12 +80,31 @@ namespace McNNTP
         private static bool Help()
         {
             Console.WriteLine("DUMPBUFS                : Show current receiver buffers on all connections");
+            Console.WriteLine("MAKEADMIN <name> <pass> : Creates a new news administrator on the server");
             Console.WriteLine("MAKEGROUP <name> <desc> : Creates a new news group on the server");
             Console.WriteLine("SHOWCONN                : Show active connections");
             Console.WriteLine("TOGBYTES                : Toggle showing bytes and destinations");
             Console.WriteLine("TOGCMD                  : Toggle showing commands and responses");
             Console.WriteLine("TOGDATA                 : Toggle showing all data in and out");
             Console.WriteLine("QUIT                    : Exit the program, klling all connections");
+            return false;
+        }
+
+        private static bool MakeAdmin(string input)
+        {
+            var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 3)
+            {
+                Console.WriteLine("Two parameters are required.");
+                return false;
+            }
+
+            var name = parts[1].ToLowerInvariant();
+            var pass = new SecureString();
+            foreach (var c in parts.Skip(2).Aggregate((c, n) => c + " " + n))
+                pass.AppendChar(c);
+
+            NntpServer.ConsoleCreateAdministrator(name, pass);
             return false;
         }
 
@@ -100,7 +126,7 @@ namespace McNNTP
             }
 
             var desc = parts.Skip(2).Aggregate((c, n) => c + " " + n);
-            _server.ConsoleCreateGroup(name, desc);
+            NntpServer.ConsoleCreateGroup(name, desc);
             return false;
         }
 

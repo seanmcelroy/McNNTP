@@ -104,6 +104,7 @@
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Server\CommandProcessingResult.cs" />
+    <Compile Include="Server\Data\Administrator.cs" />
     <Compile Include="Server\Data\Article.cs" />
     <Compile Include="Server\Data\Newsgroup.cs" />
     <Compile Include="Server\NntpServer.cs" />
@@ -128,6 +129,9 @@
     <Content Include="HelpFile.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <EmbeddedResource Include="Server\Data\Administrator.hbm.xml">
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
     <Content Include="x64\SQLite.Interop.dll">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </Content>

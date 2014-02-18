@@ -6,12 +6,12 @@
     </id>
     <many-to-one name="Newsgroup" column="NewsgroupId" not-null="true" />
     
-    <property name="Date" not-null="true" length="100" />
-    <property name="From" column="FromHeader" not-null="true" length="1000" />
-    <property name="MessageId" not-null="true" length="500" />
-    <property name="Newsgroups" not-null="true" length="1000" />
-    <property name="Path" not-null="true" length="1000" />
-    <property name="Subject" not-null="true" length="1000" />
+    <property name="Date" not-null="true" length="100" update="false" />
+    <property name="From" column="FromHeader" not-null="true" length="1000" update="false" />
+    <property name="MessageId" not-null="true" length="500" unique="true" update="false" />
+    <property name="Newsgroups" not-null="true" length="1000" update="false" />
+    <property name="Path" not-null="true" length="1000" update="false" />
+    <property name="Subject" not-null="true" length="1000" update="false" />
 
     <property name="Approved" />
     <property name="Archive" />
@@ -21,14 +21,14 @@
     <property name="FollowupTo" />
     <property name="InjectionDate" />
     <property name="InjectionInfo" />
-    <property name="Organization" />
+    <property name="Organization" update="false" />
     <property name="References" column="ReferencesHeader" />
     <property name="Summary" />
     <property name="Supersedes" />
-    <property name="UserAgent" />
+    <property name="UserAgent" update="false" />
     <property name="Xref" />
 
     <property name="Headers" />
-    <property name="Body" />
+    <property name="Body" update="false" />
   </class>
 </hibernate-mapping>

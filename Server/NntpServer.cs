@@ -6,6 +6,9 @@ using System.IO;
 using System.Linq;
 using System.Net.Configuration;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Security;
+using System.Security.Cryptography;
 using System.Text;
 using System.Net;
 using System.Net.Sockets;
@@ -529,7 +532,38 @@ namespace McNNTP.Server
             return new CommandProcessingResult(true);
         }
 
-        internal void ConsoleCreateGroup(string name, string desc)
+        internal static void ConsoleCreateAdministrator(string name, SecureString password)
+        {
+            var saltBytes = new byte[64];
+            var rng = RandomNumberGenerator.Create();
+            rng.GetNonZeroBytes(saltBytes);
+            var salt = Convert.ToBase64String(saltBytes);
+
+            var bstr = Marshal.SecureStringToBSTR(password);
+            try
+            {
+                using (var session = OpenSession())
+                {
+                    session.Save(new Administrator
+                    {
+                        Username = name,
+                        PasswordHash = Convert.ToBase64String(new SHA512CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(string.Concat(salt, Marshal.PtrToStringBSTR(bstr))))),
+                        PasswordSalt = salt,
+                        CanCancel = true,
+                        CanCheckGroups = true,
+                        CanCreateGroup = true,
+                        CanDeleteGroup = true
+                    });
+                    session.Close();
+                }
+            }
+            finally
+            {
+                Marshal.FreeBSTR(bstr);
+            }
+        }
+
+        internal static void ConsoleCreateGroup(string name, string desc)
         {
             using (var session = OpenSession())
             {
@@ -1387,8 +1421,15 @@ namespace McNNTP.Server
             {
                 using (var session = OpenSession())
                 {
+                    var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
+                    Console.WriteLine("Verified database has {0} newsgroups", newsgroupCount);
+
                     var articleCount = session.Query<Article>().Count(a => a.Headers != null);
                     Console.WriteLine("Verified database has {0} articles", articleCount);
+
+                    var adminCount = session.Query<Administrator>().Count(a => a.CanCancel);
+                    Console.WriteLine("Verified database has {0} local admins", adminCount);
+
                     session.Close();
                     return true;
                 }
