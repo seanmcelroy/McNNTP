@@ -28,6 +28,7 @@
     <property name="UserAgent" />
     <property name="Xref" />
 
+    <property name="Headers" />
     <property name="Body" />
   </class>
 </hibernate-mapping>

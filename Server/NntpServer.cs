@@ -75,7 +75,10 @@ namespace McNNTP.Server
             var localEndPoint = new IPEndPoint(IPAddress.Any, port);
 
             // Create a TCP/IP socket.
-            var listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+            var listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
+            {
+                Blocking = false
+            };
 
             // Bind the socket to the local endpoint and listen for incoming connections.
             try
@@ -331,13 +334,10 @@ namespace McNNTP.Server
                     return new CommandProcessingResult(true);
                 }
             }
-            else
+            else if (string.IsNullOrEmpty(connection.CurrentNewsgroup) && !param.StartsWith("<", StringComparison.Ordinal))
             {
-                if (string.IsNullOrEmpty(connection.CurrentNewsgroup))
-                {
-                    Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
-                    return new CommandProcessingResult(true);
-                }
+                Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                return new CommandProcessingResult(true);
             }
             
             using (var session = OpenSession())
@@ -351,7 +351,7 @@ namespace McNNTP.Server
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
                 {
-                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.MessageId == param);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.MessageId == param);
                     type = 1;
                 }
                 else
@@ -400,9 +400,8 @@ namespace McNNTP.Server
                                 break;
                         }
 
-                        Send(connection.WorkSocket, article.Body, false, Encoding.UTF8);
-
-                        Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
+                        Send(connection.WorkSocket, article.Headers + "\r\n", false, Encoding.UTF8);
+                        Send(connection.WorkSocket, article.Body + "\r\n.\r\n", false, Encoding.UTF8);
                     }
                 }
             }
@@ -1039,7 +1038,7 @@ namespace McNNTP.Server
                     try
                     {
                         Article article;
-                        if (!Data.Article.TryParse(prev.Message == null ? msg : prev.Message + "\r\n" + msg, out article))
+                        if (!Data.Article.TryParse(prev.Message == null ? msg.Substring(0, msg.Length - 5) : prev.Message + "\r\n" + msg, out article))
                             Send(connection.WorkSocket, "441 Posting failed\r\n");
                         else
                         {
@@ -1367,11 +1366,7 @@ namespace McNNTP.Server
             {
                 using (var session = OpenSession())
                 {
-                    var articleCount =
-                        session.CreateCriteria<Article>()
-                            .SetProjection(Projections.Count(Projections.Id()))
-                            .UniqueResult<int>();
-
+                    var articleCount = session.Query<Article>().Count(a => a.Headers != null);
                     session.Close();
                     return true;
                 }
