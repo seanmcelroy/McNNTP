@@ -10,6 +10,7 @@ namespace McNNTP.Server.Data
         public virtual string Name { get; set; }
         [CanBeNull]
         public virtual string Description { get; set; }
+        public virtual bool Moderated { get; set; }
         public virtual int PostCount { get; set; }
         public virtual int? LowWatermark { get; set; }
         public virtual int? HighWatermark { get; set; }

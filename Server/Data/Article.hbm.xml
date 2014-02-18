@@ -15,6 +15,10 @@
 
     <property name="Approved" />
     <property name="Archive" />
+    <property name="ContentDisposition" />
+    <property name="ContentLanguage" />
+    <property name="ContentTransferEncoding" />
+    <property name="ContentType" />
     <property name="Control" />
     <property name="Distribution" />
     <property name="Expires" />

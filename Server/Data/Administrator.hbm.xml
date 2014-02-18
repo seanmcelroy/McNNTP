@@ -9,9 +9,11 @@
     <property name="PasswordHash" not-null="true" length="1000" />
     <property name="PasswordSalt" not-null="true" length="1000" />
 
+    <property name="CanApproveGroups" />
     <property name="CanCancel" not-null="true" />
     <property name="CanCreateGroup" not-null="true" />
     <property name="CanDeleteGroup" not-null="true" />
     <property name="CanCheckGroups" not-null="true" />
+    <property name="CanInject" not-null="true" />
   </class>
 </hibernate-mapping>

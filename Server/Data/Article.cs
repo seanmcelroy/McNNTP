@@ -86,7 +86,7 @@ namespace McNNTP.Server.Data
         /// <summary>
         /// The Injection-Date header field contains the date and time that the
         /// article was injected into the network.  Its purpose is to enable news
-        /// servers, when checking for "stale" articles, to use a &gt;date-time&lt;
+        /// servers, when checking for "stale" articles, to use a &lt;date-time&gt;
         /// that was added by a news server at injection time rather than one
         /// added by the user agent at message composition time.
         /// </summary>
@@ -152,9 +152,9 @@ namespace McNNTP.Server.Data
         public virtual string Headers { get; set; }
         [NotNull]
         public virtual string Body { get; set; }
-
+        
         [Pure]
-        internal static bool TryParse([NotNull] string block, bool fromPeer, out Article article)
+        internal static bool TryParse([NotNull] string block, out Article article)
         {
             article = null;
 
@@ -163,8 +163,8 @@ namespace McNNTP.Server.Data
                     .TakeWhile(s => !string.IsNullOrEmpty(s))
                     .ToArray();
 
-            Dictionary<string, string> headers;
-            if (!TryParseHeaders(headerLines, out headers))
+            Dictionary<string, string> headers, headersAndFullLines;
+            if (!TryParseHeaders(headerLines, out headers, out headersAndFullLines))
                 return false;
 
             var headerLength = headerLines.Sum(hl => hl.Length + 2);
@@ -187,58 +187,57 @@ namespace McNNTP.Server.Data
             }
             else
                 msgId = "<" + Guid.NewGuid().ToString("N").ToUpperInvariant() + "@mcnttp.auto>";
-
+            
+            var newsgroups = headers.Single(h => string.Compare(h.Key, "Newsgroups", StringComparison.OrdinalIgnoreCase) == 0).Value;
+            
             article = new Article
             {
-                Approved = fromPeer ? headers.Where(h => string.Compare(h.Key, "Approved", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault() : null,
+                Approved = headers.Where(h => string.Compare(h.Key, "Approved", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Archive = headers.Where(h => string.Compare(h.Key, "Archive", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Body = block.Substring(headerLength),
+                ContentDisposition = headers.Where(h => string.Compare(h.Key, "Content-Disposition", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
+                ContentLanguage = headers.Where(h => string.Compare(h.Key, "Content-Language", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 ContentTransferEncoding = headers.Where(h => string.Compare(h.Key, "Content-Transfer-Encoding", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 ContentType = headers.Where(h => string.Compare(h.Key, "Content-Type", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
-                Control = fromPeer ? headers.Where(h => string.Compare(h.Key, "Control", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault() : null,
+                Control = headers.Where(h => string.Compare(h.Key, "Control", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value.Trim()).SingleOrDefault(),
                 Date = DateTime.UtcNow.ToString("r"),
                 Distribution = headers.Where(h => string.Compare(h.Key, "Distribution", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Expires = headers.Where(h => string.Compare(h.Key, "Expires", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 FollowupTo = headers.Where(h => string.Compare(h.Key, "Followup-To", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 From = headers.Single(h => string.Compare(h.Key, "From", StringComparison.OrdinalIgnoreCase) == 0).Value,
                 Headers = block.Substring(0, headerLength - 2),
-                InjectionDate = fromPeer ? headers.Where(h => string.Compare(h.Key, "Injection-Date", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault() : DateTime.UtcNow.ToString("r"),
+                InjectionDate = headers.Where(h => string.Compare(h.Key, "Injection-Date", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 MessageId = msgId,
                 MIMEVersion = headers.Where(h => string.Compare(h.Key, "MIME-Version", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
-                Newsgroups = headers.Single(h => string.Compare(h.Key, "Newsgroups", StringComparison.OrdinalIgnoreCase) == 0).Value,
+                Newsgroups = newsgroups,
                 Organization = headers.Where(h => string.Compare(h.Key, "Organization", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 References = headers.Where(h => string.Compare(h.Key, "References", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Subject = headers.Single(h => string.Compare(h.Key, "Subject", StringComparison.OrdinalIgnoreCase) == 0).Value,
                 Summary = headers.Where(h => string.Compare(h.Key, "Summary", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
-                Supersedes = fromPeer ? headers.Where(h => string.Compare(h.Key, "Supersedes", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault() : null,
+                Supersedes = headers.Where(h => string.Compare(h.Key, "Supersedes", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 UserAgent = headers.Where(h => string.Compare(h.Key, "User-Agent", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
-                Xref = fromPeer ? headers.Where(h => string.Compare(h.Key, "Supersedes", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault() : null
+                Xref = headers.Where(h => string.Compare(h.Key, "Xref", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault()
             };
-
-            // RFC 5536 3.2.6. The Followup-To header field SHOULD NOT appear in a message, unless its content is different from the content of the Newsgroups header field.
-            if (!fromPeer && !string.IsNullOrWhiteSpace(article.FollowupTo) &&
-                string.Compare(article.FollowupTo, article.Newsgroups, StringComparison.OrdinalIgnoreCase) == 0)
-                article.FollowupTo = null;
-
-
+            
             return true;
         }
 
         [Pure]
-        internal static bool TryParseHeaders([NotNull] string headerBlock, out Dictionary<string, string> headers)
+        internal static bool TryParseHeaders([NotNull] string headerBlock, out Dictionary<string, string> headers, out Dictionary<string, string> headersAndFullLines)
         {
             var headerLines = headerBlock
                    .SeekThroughDelimiters("\r\n")
                    .TakeWhile(s => !string.IsNullOrEmpty(s))
                    .ToArray();
 
-            return TryParseHeaders(headerLines, out headers);
+            return TryParseHeaders(headerLines, out headers, out headersAndFullLines);
         }
 
         [Pure]
-        internal static bool TryParseHeaders([NotNull] string[] headerLines, out Dictionary<string, string> headers)
+        internal static bool TryParseHeaders([NotNull] string[] headerLines, out Dictionary<string, string> headers, out Dictionary<string, string> headersAndFullLines)
         {
             headers = new Dictionary<string, string>();
+            headersAndFullLines = new Dictionary<string, string>();
 
             // Parse headers
             for (var i = 0; i < headerLines.Length; i++)
@@ -258,6 +257,7 @@ namespace McNNTP.Server.Data
                     return false;
 
                 headers.Add(match.Groups["key"].Value, match.Groups["value"].Value);
+                headersAndFullLines.Add(match.Groups["key"].Value, headerLine);
             }
 
             return true;

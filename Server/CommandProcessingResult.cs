@@ -16,6 +16,7 @@ namespace McNNTP.Server
         [CanBeNull]
         public Func<Connection, string, CommandProcessingResult, CommandProcessingResult> MessageHandler { get; set; }
 
+        [CanBeNull]
         public string Message { get; set; }
 
         public CommandProcessingResult(bool isHandled)

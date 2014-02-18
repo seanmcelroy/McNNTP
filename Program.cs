@@ -105,6 +105,10 @@ namespace McNNTP
                 pass.AppendChar(c);
 
             NntpServer.ConsoleCreateAdministrator(name, pass);
+
+            Console.Clear();
+            Console.WriteLine("Administrator created.");
+
             return false;
         }
 

@@ -23,6 +23,19 @@ namespace McNNTP.Server
 
         public bool CanPost { get; set; }
 
+        #region Administrator functions
+        [CanBeNull]
+        public virtual string CanApproveGroups { get; set; }
+        public bool CanCancel { get; set; }
+        public bool CanCreateGroup { get; set; }
+        public bool CanDeleteGroup { get; set; }
+        public bool CanCheckGroups { get; set; }
+        /// <summary>
+        /// Indicates the connection can operate as a server, such as usiing the IHAVE command
+        /// </summary>
+        public virtual bool CanInject { get; set; }
+        #endregion
+
         [CanBeNull]
         public string CurrentNewsgroup { get; set; }
         public long? CurrentArticleNumber { get; set; }

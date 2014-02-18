@@ -4,7 +4,6 @@ using System.Data.SQLite;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net.Configuration;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
@@ -549,10 +548,12 @@ namespace McNNTP.Server
                         Username = name,
                         PasswordHash = Convert.ToBase64String(new SHA512CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(string.Concat(salt, Marshal.PtrToStringBSTR(bstr))))),
                         PasswordSalt = salt,
+                        CanApproveGroups = "*",
                         CanCancel = true,
                         CanCheckGroups = true,
                         CanCreateGroup = true,
-                        CanDeleteGroup = true
+                        CanDeleteGroup = true,
+                        CanInject = false
                     });
                     session.Close();
                 }
@@ -720,8 +721,8 @@ namespace McNNTP.Server
                                 break;
                             default:
                             {
-                                Dictionary<string, string> headers;
-                                headerFunction = a => Data.Article.TryParseHeaders(a.Headers, out headers) 
+                                Dictionary<string, string> headers, headersAndFullLines;
+                                headerFunction = a => Data.Article.TryParseHeaders(a.Headers, out headers, out headersAndFullLines) 
                                     ? headers.Any(h => string.Compare(h.Key, parts[1], StringComparison.OrdinalIgnoreCase) == 0)
                                         ? headers.Single(h => string.Compare(h.Key, parts[1], StringComparison.OrdinalIgnoreCase) == 0).Value
                                         : null
@@ -988,9 +989,9 @@ namespace McNNTP.Server
         {
             lock (connection.SendLock)
             {
-                Send(connection.WorkSocket, "205 closing connection\r\n", false, Encoding.UTF8); // Block.
                 if (connection.WorkSocket != null)
                 {
+                    Send(connection.WorkSocket, "205 closing connection\r\n", false, Encoding.UTF8); // Block.
                     connection.WorkSocket.Shutdown(SocketShutdown.Both);
                     connection.WorkSocket.Close();
                 }
@@ -1071,15 +1072,64 @@ namespace McNNTP.Server
             Func<Connection, string, CommandProcessingResult, CommandProcessingResult> messageAccumulator = null;
             messageAccumulator = (conn, msg, prev) =>
             {
-                if (msg != null && (msg.EndsWith("\r\n.\r\n") || (prev.Message.EndsWith("\r\n") && msg.EndsWith(".\r\n"))))
+                if (msg != null && (msg.EndsWith("\r\n.\r\n") || (prev.Message != null && prev.Message.EndsWith("\r\n") && msg.EndsWith(".\r\n"))))
                 {
                     try
                     {
                         Article article;
-                        if (!Data.Article.TryParse(prev.Message == null ? msg.Substring(0, msg.Length - 5) : prev.Message + msg, false, out article))
+                        if (!Data.Article.TryParse(prev.Message == null ? msg.Substring(0, msg.Length - 5) : prev.Message + msg, out article))
                             Send(connection.WorkSocket, "441 Posting failed\r\n");
                         else
                         {
+                            bool canApprove;
+                            if (connection.CanInject)
+                                canApprove = true;
+                            else if (string.IsNullOrWhiteSpace(connection.CanApproveGroups))
+                                canApprove = false;
+                            else if (connection.CanApproveGroups == "*")
+                                canApprove = true;
+                            else
+                            {
+                                // ReSharper disable once PossibleNullReferenceException
+                                canApprove = article.Newsgroups.Split(' ').All(n => connection.CanApproveGroups.Split(' ').Contains(n));
+                            }
+
+                            if (!canApprove)
+                            {
+                                article.Approved = null;
+                                article.RemoveHeader("Approved");
+                            }
+                            if (!connection.CanCancel)
+                            {
+                                article.Supersedes = null;
+                                article.RemoveHeader("Supersedes");
+                            }
+                            if (!connection.CanInject)
+                            {
+                                article.InjectionDate = DateTime.UtcNow.ToString("r");
+                                article.ChangeHeader("Injection-Date", DateTime.UtcNow.ToString("r"));
+                                article.InjectionInfo = null;
+                                article.RemoveHeader("Injection-Info");
+                                article.Xref = null;
+                                article.RemoveHeader("Xref");
+
+                                // RFC 5536 3.2.6. The Followup-To header field SHOULD NOT appear in a message, unless its content is different from the content of the Newsgroups header field.
+                                if (!string.IsNullOrWhiteSpace(article.FollowupTo) &&
+                                    string.Compare(article.FollowupTo, article.Newsgroups, StringComparison.OrdinalIgnoreCase) == 0)
+                                    article.FollowupTo = null;
+                            }
+
+                            if ((article.Control != null && article.Control.StartsWith("cancel ", StringComparison.OrdinalIgnoreCase) && !connection.CanCancel) ||
+                                (article.Control != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !connection.CanCreateGroup) ||
+                                (article.Control != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !connection.CanDeleteGroup) ||
+                                (article.Control != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !connection.CanCheckGroups))
+                            {
+                                Send(connection.WorkSocket, "480 Permission to issue control message denied.\r\n");
+                                return new CommandProcessingResult(true);
+                            }
+                             
+                            article.Control = null;
+
                             using (var session = OpenSession())
                             {
                                 foreach (var newsgroupName in article.Newsgroups.Split(' '))
@@ -1406,12 +1456,26 @@ namespace McNNTP.Server
                             session.Close();
                         }
                     }
+                    else
+                    {
+                        // Ensure placeholder data is there.
+                        using (var session = OpenSession())
+                        {
+                            var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
+                            if (newsgroupCount > 0)
+                                session.Save(new Newsgroup
+                                {
+                                    CreateDate = DateTime.UtcNow,
+                                    Description = "Control group for the repository",
+                                    Name = "freenews.config"
+                                });
+                        }
+                    }
                 }
                 finally
                 {
                     connection.Close();
                 }
-
             }
         }
 
@@ -1427,11 +1491,12 @@ namespace McNNTP.Server
                     var articleCount = session.Query<Article>().Count(a => a.Headers != null);
                     Console.WriteLine("Verified database has {0} articles", articleCount);
 
-                    var adminCount = session.Query<Administrator>().Count(a => a.CanCancel);
+                    var adminCount = session.Query<Administrator>().Count(a => a.CanInject);
                     Console.WriteLine("Verified database has {0} local admins", adminCount);
 
                     session.Close();
-                    return true;
+
+                    return newsgroupCount > 0;
                 }
             }
             catch (Exception)
