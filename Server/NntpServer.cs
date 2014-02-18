@@ -1033,12 +1033,12 @@ namespace McNNTP.Server
             Func<Connection, string, CommandProcessingResult, CommandProcessingResult> messageAccumulator = null;
             messageAccumulator = (conn, msg, prev) =>
             {
-                if (msg != null && msg.EndsWith("\r\n.\r\n"))
+                if (msg != null && (msg.EndsWith("\r\n.\r\n") || (prev.Message.EndsWith("\r\n") && msg.EndsWith(".\r\n"))))
                 {
                     try
                     {
                         Article article;
-                        if (!Data.Article.TryParse(prev.Message == null ? msg.Substring(0, msg.Length - 5) : prev.Message + "\r\n" + msg, out article))
+                        if (!Data.Article.TryParse(prev.Message == null ? msg.Substring(0, msg.Length - 5) : prev.Message + msg, false, out article))
                             Send(connection.WorkSocket, "441 Posting failed\r\n");
                         else
                         {
