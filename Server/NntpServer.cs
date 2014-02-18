@@ -568,7 +568,10 @@ namespace McNNTP.Server
         {
             var parts = content.TrimEnd('\r', '\n').Split(' ');
             if (parts.Length < 2 || parts.Length > 3)
-                return new CommandProcessingResult(false);
+            {
+                Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                return new CommandProcessingResult(true);
+            }
             
             int type;
 
@@ -579,7 +582,10 @@ namespace McNNTP.Server
                 type = 2;
                 int articleId;
                 if (!int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out articleId))
-                    return new CommandProcessingResult(false);
+                {
+                    Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                    return new CommandProcessingResult(true);
+                }
 
                 if (string.IsNullOrEmpty(connection.CurrentNewsgroup))
                 {
@@ -613,7 +619,10 @@ namespace McNNTP.Server
                     case 2:
                         var range = ParseRange(parts[2]);
                         if (range.Equals(default(System.Tuple<int, int?>)))
-                            return new CommandProcessingResult(false);
+                        {
+                            Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                            return new CommandProcessingResult(true);
+                        }
 
                         articles = (range.Item2.HasValue)
                             ? session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id >= range.Item1 && a.Id <= range.Item2)
@@ -624,7 +633,9 @@ namespace McNNTP.Server
                         articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id == connection.CurrentArticleNumber.Value);
                         break;
                     default:
-                        return new CommandProcessingResult(false); // Unrecognized..
+                        // Unrecognized...
+                        Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                        return new CommandProcessingResult(true);
                 }
 
                 if (!articles.Any())
@@ -878,7 +889,8 @@ namespace McNNTP.Server
                 return new CommandProcessingResult(true);
             }
 
-            return new CommandProcessingResult(false);
+            Send(connection.WorkSocket, "501 Syntax Error\r\n");
+            return new CommandProcessingResult(true);
         }
         private CommandProcessingResult Newgroups(Connection connection, string content)
         {
@@ -964,7 +976,10 @@ namespace McNNTP.Server
                         {
                             var range = ParseRange(parts[2]);
                             if (range.Equals(default(System.Tuple<int, int?>)))
-                                return new CommandProcessingResult(false);
+                            {
+                                Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                                return new CommandProcessingResult(true);
+                            }
 
                             if (!range.Item2.HasValue) // LOW-
                                 articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1).OrderBy(a => a.Id).ToList();
@@ -1168,7 +1183,10 @@ namespace McNNTP.Server
                             {
                                 var range = ParseRange(rangeExpression);
                                 if (range.Equals(default(System.Tuple<int, int?>)))
-                                    return new CommandProcessingResult(false);
+                                {
+                                    Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                                    return new CommandProcessingResult(true);
+                                }
 
                                 if (!range.Item2.HasValue) // LOW-
                                 {
@@ -1327,6 +1345,7 @@ namespace McNNTP.Server
                 using (var session = OpenSession())
                 {
                     var articleCount = session.Query<Article>().Count(a => a.Headers != null);
+                    Console.WriteLine("Verified database has {0} articles", articleCount);
                     session.Close();
                     return true;
                 }
