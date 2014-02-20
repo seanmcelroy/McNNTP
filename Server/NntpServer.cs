@@ -12,6 +12,7 @@ using System.Text;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using MoreLinq;
 using NHibernate;
 using NHibernate.Cfg;
 using NHibernate.Linq;
@@ -39,16 +40,18 @@ namespace McNNTP.Server
                 {
                     {"ARTICLE", Article},
                     {"BODY", Body},
-                    {"DATE", (s, c) => Date(s)},
                     {"CAPABILITIES", (s, c) => Capabilities(s)},
+                    {"DATE", (s, c) => Date(s)},
+                    {"GROUP", Group},
                     {"HDR", Hdr},
                     {"HEAD", Head},
                     {"HELP", (s, c) => Help(s)},
+                    {"LAST", Last},
                     {"LIST", List},
                     {"LISTGROUP", ListGroup},
-                    {"GROUP", Group},
                     {"MODE", Mode},
                     {"NEWGROUPS", Newgroups},
+                    {"NEXT", Next},
                     {"POST", Post},
                     {"STAT", Stat},
                     {"XOVER", XOver},
@@ -864,6 +867,44 @@ namespace McNNTP.Server
             Send(connection.WorkSocket, sb.ToString());
             return new CommandProcessingResult(true);
         }
+        private CommandProcessingResult Last(Connection connection, string content)
+        {
+            // If the currently selected newsgroup is invalid, a 412 response MUST be returned.
+            if (string.IsNullOrWhiteSpace(connection.CurrentNewsgroup))
+            {
+                Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            var currentArticleNumber = connection.CurrentArticleNumber;
+
+            Article previousArticle;
+
+            if (!currentArticleNumber.HasValue)
+            {
+                Send(connection.WorkSocket, "420 Current article number is invalid\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            using (var session = OpenSession())
+            {
+                previousArticle = session.Query<Article>().Fetch(a => a.Newsgroup)
+                    .Where(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id < currentArticleNumber.Value)
+                    .MaxBy(a => a.Id);
+            }
+
+            // If the current article number is already the first article of the newsgroup, a 422 response MUST be returned.
+            if (previousArticle == null)
+            {
+                Send(connection.WorkSocket, "422 No previous article in this group\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            connection.CurrentArticleNumber = previousArticle.Id;
+
+            Send(connection.WorkSocket, string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
+            return new CommandProcessingResult(true);
+        }
         private CommandProcessingResult List(Connection connection, string content)
         {
             if (string.Compare(content, "LIST\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
@@ -983,6 +1024,44 @@ namespace McNNTP.Server
                 }
             }
 
+            return new CommandProcessingResult(true);
+        }
+        private CommandProcessingResult Next(Connection connection, string content)
+        {
+            // If the currently selected newsgroup is invalid, a 412 response MUST be returned.
+            if (string.IsNullOrWhiteSpace(connection.CurrentNewsgroup))
+            {
+                Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            var currentArticleNumber = connection.CurrentArticleNumber;
+
+            Article previousArticle;
+
+            if (!currentArticleNumber.HasValue)
+            {
+                Send(connection.WorkSocket, "420 Current article number is invalid\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            using (var session = OpenSession())
+            {
+                previousArticle = session.Query<Article>().Fetch(a => a.Newsgroup)
+                    .Where(a => a.Newsgroup.Name == connection.CurrentNewsgroup && a.Id > currentArticleNumber.Value)
+                    .MinBy(a => a.Id);
+            }
+
+            // If the current article number is already the last article of the newsgroup, a 421 response MUST be returned.
+            if (previousArticle == null)
+            {
+                Send(connection.WorkSocket, "421 No next article in this group\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            connection.CurrentArticleNumber = previousArticle.Id;
+
+            Send(connection.WorkSocket, string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
             return new CommandProcessingResult(true);
         }
         private CommandProcessingResult Quit(Connection connection)
@@ -1124,7 +1203,7 @@ namespace McNNTP.Server
                                 (article.Control != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !connection.CanDeleteGroup) ||
                                 (article.Control != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !connection.CanCheckGroups))
                             {
-                                Send(connection.WorkSocket, "480 Permission to issue control message denied.\r\n");
+                                Send(connection.WorkSocket, "480 Permission to issue control message denied\r\n");
                                 return new CommandProcessingResult(true);
                             }
                              
