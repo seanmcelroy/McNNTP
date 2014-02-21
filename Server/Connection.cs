@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using System.IO;
+using System.Text;
 using System.Net.Sockets;
 using JetBrains.Annotations;
 
@@ -8,7 +9,9 @@ namespace McNNTP.Server
     internal class Connection
     {
         // Client  socket.
-        [CanBeNull] public Socket WorkSocket;
+        [CanBeNull] public TcpClient Client;
+        [CanBeNull] public Stream Stream;
+
         [NotNull] public readonly object SendLock = new object();
         // Size of receive buffer.
         public const int BUFFER_SIZE = 1024;
@@ -22,7 +25,7 @@ namespace McNNTP.Server
         #region Administrator functions
 
         [CanBeNull]
-        public virtual string CanApproveGroups { get; set; }
+        public string CanApproveGroups { get; set; }
 
         public bool CanCancel { get; set; }
         public bool CanCreateGroup { get; set; }
@@ -32,7 +35,7 @@ namespace McNNTP.Server
         /// <summary>
         /// Indicates the connection can operate as a server, such as usiing the IHAVE command
         /// </summary>
-        public virtual bool CanInject { get; set; }
+        public bool CanInject { get; set; }
 
         #endregion
 
@@ -40,6 +43,7 @@ namespace McNNTP.Server
         [CanBeNull]
         public string Username { get; set; }
         public bool Authenticated { get; set; }
+        public bool TLS { get; set; }
         #endregion
 
         [CanBeNull]

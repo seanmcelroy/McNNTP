@@ -72,7 +72,7 @@ namespace McNNTP
         #region Commands
         private static bool DumpBufs()
         {
-            foreach (var kvp in _server.GetAllBuffs())
+            foreach (var kvp in NntpServer.GetAllBuffs())
                 Console.WriteLine("{0}:{1} |=> {2}", kvp.Key.Address, kvp.Key.Port, kvp.Value);
             Console.Write("[DUMPBUFS: DONE]");
             return false;

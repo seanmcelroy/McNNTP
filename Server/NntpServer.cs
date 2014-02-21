@@ -4,6 +4,7 @@ using System.Data.SQLite;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Security;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security;
@@ -32,6 +33,7 @@ namespace McNNTP.Server
         private CommandProcessingResult _inProcessCommand;
 
         public bool AllowPosting { get; set; }
+        public bool AllowStartTLS { get; set; }
         public string ServerPath { get; set; }
 
         public NntpServer()
@@ -62,7 +64,8 @@ namespace McNNTP.Server
             // TODO: Put this in a custom config section
             ServerPath = "freenews.localhost";
 
-            ShowData= true;
+            AllowStartTLS = true;
+            ShowData = true;
         }
 
 
@@ -81,16 +84,12 @@ namespace McNNTP.Server
             var localEndPoint = new IPEndPoint(IPAddress.Any, port);
 
             // Create a TCP/IP socket.
-            var listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
-            {
-                Blocking = false
-            };
+            var listener = new TcpListener(localEndPoint);
 
             // Bind the socket to the local endpoint and listen for incoming connections.
             try
             {
-                listener.Bind(localEndPoint);
-                listener.Listen(100);
+                listener.Start(100);
 
                 while (true)
                 {
@@ -99,7 +98,7 @@ namespace McNNTP.Server
 
                     // Start an asynchronous socket to listen for connections.
                     Console.WriteLine("Waiting for a connection on interface {0}:{1}... ", localEndPoint.Address, localEndPoint.Port);
-                    listener.BeginAccept(AcceptCallback, listener);
+                    listener.BeginAcceptTcpClient(AcceptCallback, listener);
 
                     // Wait until a connection is made before continuing.
                     _allDone.WaitOne();
@@ -121,32 +120,43 @@ namespace McNNTP.Server
             _allDone.Set();
 
             // Get the socket that handles the client request.
-            var listener = (Socket)ar.AsyncState;
-            var handler = listener.EndAccept(ar);
+            var listener = (TcpListener)ar.AsyncState;
+            var handler = listener.EndAcceptTcpClient(ar);
             //Thread.CurrentThread.Name = string.Format("{0}:{1}", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port);
-
+            
             // Create the state object.
             var state = new Connection
             {
                 CanPost = AllowPosting,
-                WorkSocket = handler
+                Client = handler,
+                Stream = handler.GetStream()
             };
+
+            //var sslStream = new SslStream(state.Stream);
+            //sslStream.AuthenticateAsServer();
+            //state.Stream = sslStream;
+
             _connections.Add(state);
 
 // ReSharper disable ConvertIfStatementToConditionalTernaryExpression
             if (state.CanPost)
 // ReSharper restore ConvertIfStatementToConditionalTernaryExpression
-                Send(handler, "200 Service available, posting allowed\r\n");
+                Send(state, "200 Service available, posting allowed\r\n");
             else
-                Send(handler, "201 Service available, posting prohibited\r\n");
+                Send(state, "201 Service available, posting prohibited\r\n");
 
             try
             {
-                handler.BeginReceive(state.Buffer, 0, Connection.BUFFER_SIZE, 0, ReadCallback, state);
+                state.Stream.BeginRead(state.Buffer, 0, Connection.BUFFER_SIZE, ReadCallback, state);
+            }
+            catch (IOException se)
+            {
+                Send(state, "403 Archive server temporarily offline\r\n");
+                Console.WriteLine(se.ToString());
             }
             catch (SocketException se)
             {
-                Send(handler, "403 Archive server temporarily offline\r\n");
+                Send(state, "403 Archive server temporarily offline\r\n");
                 Console.WriteLine(se.ToString());
             }
         }
@@ -155,22 +165,23 @@ namespace McNNTP.Server
             // Retrieve the state object and the handler socket
             // from the asynchronous state object.
             var connection = (Connection)ar.AsyncState;
-            if (connection.WorkSocket == null)
-                return;
-
-            var handler = connection.WorkSocket;
-            if (handler == null)
+            if (connection.Client == null)
                 return;
 
             // Read data from the client socket.
             int bytesRead;
             try
             {
-                bytesRead = handler.EndReceive(ar);
+                bytesRead = connection.Stream.EndRead(ar);
+            }
+            catch (IOException)
+            {
+                Send(connection, "403 Archive server temporarily offline\r\n");
+                return;
             }
             catch (SocketException)
             {
-                Send(handler, "403 Archive server temporarily offline\r\n");
+                Send(connection, "403 Archive server temporarily offline\r\n");
                 return;
             }
 
@@ -181,16 +192,21 @@ namespace McNNTP.Server
             var content = connection.Builder.ToString();
             if (bytesRead == Connection.BUFFER_SIZE || (bytesRead == 0 && !content.EndsWith("\r\n", StringComparison.Ordinal)))
             {
-                if (!handler.Connected)
+                if (!connection.Client.Connected)
                     return;
 
                 try
                 {
-                    handler.BeginReceive(connection.Buffer, 0, Connection.BUFFER_SIZE, 0, ReadCallback, connection);
+                    connection.Stream.BeginRead(connection.Buffer, 0, Connection.BUFFER_SIZE, ReadCallback, connection);
+                }
+                catch (IOException sex)
+                {
+                    Send(connection, "403 Archive server temporarily offline\r\n");
+                    Console.Write(sex.ToString());
                 }
                 catch (SocketException sex)
                 {
-                    Send(handler, "403 Archive server temporarily offline\r\n");
+                    Send(connection, "403 Archive server temporarily offline\r\n");
                     Console.Write(sex.ToString());
                 }
                 return;
@@ -199,11 +215,11 @@ namespace McNNTP.Server
             // All the data has been read from the 
             // client. Display it on the console.
             if (ShowBytes && ShowData)
-                Console.WriteLine("{0}:{1} <<< {2} bytes: {3}", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Port, content.Length, content.TrimEnd('\r', '\n'));
+                Console.WriteLine("{0}:{1} <<< {2} bytes: {3}", ((IPEndPoint)connection.Client.Client.RemoteEndPoint).Address, ((IPEndPoint)connection.Client.Client.RemoteEndPoint).Port, content.Length, content.TrimEnd('\r', '\n'));
             else if (ShowBytes)
-                Console.WriteLine("{0}:{1} <<< {2} bytes", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Port, content.Length);
+                Console.WriteLine("{0}:{1} <<< {2} bytes", ((IPEndPoint)connection.Client.Client.RemoteEndPoint).Address, ((IPEndPoint)connection.Client.Client.RemoteEndPoint).Port, content.Length);
             else if (ShowData)
-                Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
+                Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)connection.Client.Client.RemoteEndPoint).Address, ((IPEndPoint)connection.Client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
 
             if (_inProcessCommand != null && _inProcessCommand.MessageHandler != null)
             {
@@ -220,12 +236,12 @@ namespace McNNTP.Server
                     try
                     {
                         if (ShowCommands)
-                            Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Address, ((IPEndPoint)connection.WorkSocket.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
+                            Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)connection.Client.Client.RemoteEndPoint).Address, ((IPEndPoint)connection.Client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
                                 
                         var result = _commandDirectory[command].Invoke(connection, content);
 
                         if (!result.IsHandled)
-                            Send(handler, "500 Unknown command\r\n");
+                            Send(connection, "500 Unknown command\r\n");
                         else if (result.MessageHandler != null)
                             _inProcessCommand = result;
                         else if (result.IsQuitting)
@@ -233,63 +249,72 @@ namespace McNNTP.Server
                     }
                     catch (Exception ex)
                     {
-                        Send(handler, "403 Archive server temporarily offline\r\n");
+                        Send(connection, "403 Archive server temporarily offline\r\n");
                         Console.WriteLine(ex.ToString());
                     }
                 }
                 else
-                    Send(handler, "500 Unknown command\r\n");
+                    Send(connection, "500 Unknown command\r\n");
             }
 
             connection.Builder.Clear();
 
-            if (!handler.Connected)
+            if (!connection.Client.Connected)
                 return;
 
             // Not all data received. Get more.
             try
             {
-                handler.BeginReceive(connection.Buffer, 0, Connection.BUFFER_SIZE, 0, ReadCallback, connection);
+                connection.Stream.BeginRead(connection.Buffer, 0, Connection.BUFFER_SIZE, ReadCallback, connection);
+            }
+            catch (IOException sex)
+            {
+                Send(connection, "403 Archive server temporarily offline\r\n");
+                Console.WriteLine(sex.ToString());
             }
             catch (SocketException sex)
             {
-                Send(handler, "403 Archive server temporarily offline\r\n");
+                Send(connection, "403 Archive server temporarily offline\r\n");
                 Console.WriteLine(sex.ToString());
             }
         }
-        private void Send(Socket handler, string data)
+        private void Send(Connection connection, string data)
         {
-            Send(handler, data, true, Encoding.UTF8);
+            Send(connection, data, true, Encoding.UTF8);
         }
-        private void Send(Socket handler, string data, bool async, Encoding encoding)
+        private void Send(Connection connection, string data, bool async, Encoding encoding)
         {
             // Convert the string data to byte data using ASCII encoding.
             var byteData = encoding.GetBytes(data);
+            var remoteEndPoint = (IPEndPoint)connection.Client.Client.RemoteEndPoint;
 
             try
             {
                 if (async)
                 {
                     // Begin sending the data to the remote device.
-                    handler.BeginSend(byteData, 0, byteData.Length, SocketFlags.None, SendCallback,
-                        new SendAsyncState {Payload = data, Socket = handler});
+                    connection.Stream.BeginWrite(byteData, 0, byteData.Length, SendCallback, new SendAsyncState {Payload = data, Connection = connection});
                 }
                 else // Block
                 {
-                    var bytesSent = handler.Send(byteData, 0, byteData.Length, SocketFlags.None);
-
+                    connection.Stream.Write(byteData, 0, byteData.Length);
                     if (ShowBytes && ShowData)
-                        Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port, bytesSent, data.TrimEnd('\r', '\n'));
+                        Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length, data.TrimEnd('\r', '\n'));
                     else if (ShowBytes)
-                        Console.WriteLine("{0}:{1} >>> {2} bytes", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port, bytesSent);
+                        Console.WriteLine("{0}:{1} >>> {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length);
                     else if (ShowData)
-                        Console.WriteLine("{0}:{1} >>> {2}", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port, data.TrimEnd('\r', '\n'));
+                        Console.WriteLine("{0}:{1} >>> {2}", remoteEndPoint.Address, remoteEndPoint.Port, data.TrimEnd('\r', '\n'));
                 }
+            }
+            catch (IOException)
+            {
+                // Don't send 403 - the sending socket isn't working.
+                Console.WriteLine("{0}:{1} XXX CONNECTION TERMINATED", remoteEndPoint.Address, remoteEndPoint.Port);
             }
             catch (SocketException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Console.WriteLine("{0}:{1} XXX CONNECTION TERMINATED", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port);
+                Console.WriteLine("{0}:{1} XXX CONNECTION TERMINATED", remoteEndPoint.Address, remoteEndPoint.Port);
             }
         }
         private void SendCallback(IAsyncResult ar)
@@ -300,14 +325,16 @@ namespace McNNTP.Server
                 var handler = (SendAsyncState)ar.AsyncState;
 
                 // Complete sending the data to the remote device.
-                var bytesSent = handler.Socket.EndSend(ar);
+                handler.Connection.Stream.EndWrite(ar);
 
-                if (ShowBytes && ShowData)
-                    Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", ((IPEndPoint)handler.Socket.RemoteEndPoint).Address, ((IPEndPoint)handler.Socket.RemoteEndPoint).Port, bytesSent, handler.Payload.TrimEnd('\r', '\n'));
-                else if (ShowBytes)
-                    Console.WriteLine("{0}:{1} >>> {2} bytes", ((IPEndPoint)handler.Socket.RemoteEndPoint).Address, ((IPEndPoint)handler.Socket.RemoteEndPoint).Port, bytesSent);
-                else if (ShowData)
-                    Console.WriteLine("{0}:{1} >>> {2}", ((IPEndPoint)handler.Socket.RemoteEndPoint).Address, ((IPEndPoint)handler.Socket.RemoteEndPoint).Port, handler.Payload.TrimEnd('\r','\n'));
+                var remoteEndPoint = (IPEndPoint)handler.Connection.Client.Client.RemoteEndPoint;
+                //if (ShowBytes && ShowData)
+                //    Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent, handler.Payload.TrimEnd('\r', '\n'));
+                //else if (ShowBytes)
+                //    Console.WriteLine("{0}:{1} >>> {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent);
+                //else 
+                if (ShowData)
+                    Console.WriteLine("{0}:{1} >>> {2}", remoteEndPoint.Address, remoteEndPoint.Port, handler.Payload.TrimEnd('\r', '\n'));
             }
             catch (ObjectDisposedException)
             {
@@ -349,13 +376,13 @@ namespace McNNTP.Server
             {
                 if (!connection.CurrentArticleNumber.HasValue)
                 {
-                    Send(connection.WorkSocket, "430 No article with that message-id\r\n");
+                    Send(connection, "430 No article with that message-id\r\n");
                     return new CommandProcessingResult(true);
                 }
             }
             else if (string.IsNullOrEmpty(connection.CurrentNewsgroup) && !param.StartsWith("<", StringComparison.Ordinal))
             {
-                Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                Send(connection, "412 No newsgroup selected\r\n");
                 return new CommandProcessingResult(true);
             }
             
@@ -378,7 +405,7 @@ namespace McNNTP.Server
                     int articleId;
                     if (!int.TryParse(param, out articleId))
                     {
-                        Send(connection.WorkSocket, "423 No article with that number\r\n");
+                        Send(connection, "423 No article with that number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
@@ -390,13 +417,13 @@ namespace McNNTP.Server
                     switch (type)
                     {
                         case 1:
-                            Send(connection.WorkSocket, "430 No article with that message-id\r\n");
+                            Send(connection, "430 No article with that message-id\r\n");
                             break;
                         case 2:
-                            Send(connection.WorkSocket, "423 No article with that number\r\n");
+                            Send(connection, "423 No article with that number\r\n");
                             break;
                         case 3:
-                            Send(connection.WorkSocket, "420 Current article number is invalid\r\n");
+                            Send(connection, "420 Current article number is invalid\r\n");
                             break;
 
                     }
@@ -407,20 +434,20 @@ namespace McNNTP.Server
                         switch (type)
                         {
                             case 1:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n",
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n",
                                     (!string.IsNullOrEmpty(connection.CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0) ? article.Id : 0,
                                     article.MessageId), false, Encoding.UTF8);
                                 break;
                             case 2:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Id, article.MessageId), false, Encoding.UTF8);
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Id, article.MessageId), false, Encoding.UTF8);
                                 break;
                             case 3:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Id, article.MessageId), false, Encoding.UTF8);
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Id, article.MessageId), false, Encoding.UTF8);
                                 break;
                         }
 
-                        Send(connection.WorkSocket, article.Headers + "\r\n", false, Encoding.UTF8);
-                        Send(connection.WorkSocket, article.Body + "\r\n.\r\n", false, Encoding.UTF8);
+                        Send(connection, article.Headers + "\r\n", false, Encoding.UTF8);
+                        Send(connection, article.Body + "\r\n.\r\n", false, Encoding.UTF8);
                     }
                 }
             }
@@ -436,27 +463,21 @@ namespace McNNTP.Server
 
             if (string.IsNullOrWhiteSpace(param))
             {
-                Send(connection.WorkSocket, "481 Authentication failed/rejected\r\n");
+                Send(connection, "481 Authentication failed/rejected\r\n");
                 return new CommandProcessingResult(true);
             }
 
             var args = param.Split(' ');
             if (args.Length != 2)
             {
-                Send(connection.WorkSocket, "481 Authentication failed/rejected\r\n");
+                Send(connection, "481 Authentication failed/rejected\r\n");
                 return new CommandProcessingResult(true);
             }
 
             if (string.Compare(args[0], "USER", StringComparison.OrdinalIgnoreCase) == 0)
             {
-                if (connection.Username != null)
-                {
-                    Send(connection.WorkSocket, "502 Command unavailable\r\n");
-                    return new CommandProcessingResult(true);
-                }
-
                 connection.Username = args.Skip(1).Aggregate((c,n) => c + " " + n);
-                Send(connection.WorkSocket, "381 Password required\r\n");
+                Send(connection, "381 Password required\r\n");
                 return new CommandProcessingResult(true);
             }
 
@@ -464,13 +485,13 @@ namespace McNNTP.Server
             {
                 if (connection.Username == null)
                 {
-                    Send(connection.WorkSocket, "482 Authentication commands issued out of sequence\r\n");
+                    Send(connection, "482 Authentication commands issued out of sequence\r\n");
                     return new CommandProcessingResult(true);
                 }
 
                 if (connection.Authenticated)
                 {
-                    Send(connection.WorkSocket, "502 Command unavailable\r\n");
+                    Send(connection, "502 Command unavailable\r\n");
                     return new CommandProcessingResult(true);
                 }
 
@@ -494,7 +515,7 @@ namespace McNNTP.Server
                 
                 if (admin == null)
                 {
-                    Send(connection.WorkSocket, "481 Authentication failed/rejected\r\n");
+                    Send(connection, "481 Authentication failed/rejected\r\n");
                     return new CommandProcessingResult(true);
                 }
 
@@ -507,7 +528,7 @@ namespace McNNTP.Server
                 
                 connection.Authenticated = true;
                 
-                Send(connection.WorkSocket, "281 Authentication accepted\r\n");
+                Send(connection, "281 Authentication accepted\r\n");
                 return new CommandProcessingResult(true);
             }
 
@@ -523,7 +544,7 @@ namespace McNNTP.Server
             {
                 if (!connection.CurrentArticleNumber.HasValue)
                 {
-                    Send(connection.WorkSocket, "430 No article with that message-id\r\n");
+                    Send(connection, "430 No article with that message-id\r\n");
                     return new CommandProcessingResult(true);
                 }
             }
@@ -531,7 +552,7 @@ namespace McNNTP.Server
             {
                 if (string.IsNullOrEmpty(connection.CurrentNewsgroup))
                 {
-                    Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                    Send(connection, "412 No newsgroup selected\r\n");
                     return new CommandProcessingResult(true);
                 }
             }
@@ -555,7 +576,7 @@ namespace McNNTP.Server
                     int articleId;
                     if (!int.TryParse(param, out articleId))
                     {
-                        Send(connection.WorkSocket, "423 No article with that number\r\n");
+                        Send(connection, "423 No article with that number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
@@ -567,13 +588,13 @@ namespace McNNTP.Server
                     switch (type)
                     {
                         case 1:
-                            Send(connection.WorkSocket, "430 No article with that message-id\r\n");
+                            Send(connection, "430 No article with that message-id\r\n");
                             break;
                         case 2:
-                            Send(connection.WorkSocket, "423 No article with that number\r\n");
+                            Send(connection, "423 No article with that number\r\n");
                             break;
                         case 3:
-                            Send(connection.WorkSocket, "420 Current article number is invalid\r\n");
+                            Send(connection, "420 Current article number is invalid\r\n");
                             break;
 
                     }
@@ -584,19 +605,19 @@ namespace McNNTP.Server
                         switch (type)
                         {
                             case 1:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n",
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n",
                                     (!string.IsNullOrEmpty(connection.CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0) ? article.Id : 0,
                                     article.MessageId));
                                 break;
                             case 2:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n", article.Id, article.MessageId));
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n", article.Id, article.MessageId));
                                 break;
                             case 3:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n", article.Id, article.MessageId));
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n", article.Id, article.MessageId));
                                 break;
                         }
 
-                        Send(connection.WorkSocket, article.Body, false, Encoding.UTF8);
+                        Send(connection, article.Body, false, Encoding.UTF8);
                     }
                 }
             }
@@ -608,16 +629,18 @@ namespace McNNTP.Server
             var sb = new StringBuilder();
             sb.Append("101 Capability list:\r\n");
             sb.Append("VERSION 2\r\n");
-            sb.Append("IHAVE\r\n");
+            //sb.Append("IHAVE\r\n");
             sb.Append("HDR\r\n");
             sb.Append("LIST ACTIVE NEWSGROUPS\r\n");
-            sb.Append("NEWNEWS\r\n");
-            sb.Append("OVER\r\n");
+            //sb.Append("NEWNEWS\r\n");
+            //sb.Append("OVER\r\n");
             sb.Append("POST\r\n");
             sb.Append("READER\r\n");
+            if (AllowStartTLS)
+                sb.Append("STARTTLS\r\n");
             sb.Append("IMPLEMENTATION McNNTP 1.0.0\r\n");
             sb.Append(".\r\n");
-            Send(connection.WorkSocket, sb.ToString());
+            Send(connection, sb.ToString());
             return new CommandProcessingResult(true);
         }
 
@@ -670,7 +693,7 @@ namespace McNNTP.Server
 
         private CommandProcessingResult Date(Connection connection)
         {
-            Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "111 {0:yyyyMMddHHmmss}\r\n", DateTime.UtcNow));
+            Send(connection, string.Format(CultureInfo.InvariantCulture, "111 {0:yyyyMMddHHmmss}\r\n", DateTime.UtcNow));
             return new CommandProcessingResult(true);
         }
         private CommandProcessingResult Group(Connection connection, string content)
@@ -683,7 +706,7 @@ namespace McNNTP.Server
             }
 
             if (ng == null)
-                Send(connection.WorkSocket, string.Format("411 {0} is unknown\r\n", content));
+                Send(connection, string.Format("411 {0} is unknown\r\n", content));
             else
             {
                 connection.CurrentNewsgroup = ng.Name;
@@ -692,9 +715,9 @@ namespace McNNTP.Server
 // ReSharper disable ConvertIfStatementToConditionalTernaryExpression
                 if (ng.PostCount == 0)
 // ReSharper restore ConvertIfStatementToConditionalTernaryExpression
-                    Send(connection.WorkSocket, string.Format("211 0 0 0 {0}\r\n", ng.Name));
+                    Send(connection, string.Format("211 0 0 0 {0}\r\n", ng.Name));
                 else
-                    Send(connection.WorkSocket, string.Format("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name));
+                    Send(connection, string.Format("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name));
             }
             return new CommandProcessingResult(true);
         }
@@ -703,7 +726,7 @@ namespace McNNTP.Server
             var parts = content.TrimEnd('\r', '\n').Split(' ');
             if (parts.Length < 2 || parts.Length > 3)
             {
-                Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                Send(connection, "501 Syntax Error\r\n");
                 return new CommandProcessingResult(true);
             }
             
@@ -717,13 +740,13 @@ namespace McNNTP.Server
                 int articleId;
                 if (!int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out articleId))
                 {
-                    Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                    Send(connection, "501 Syntax Error\r\n");
                     return new CommandProcessingResult(true);
                 }
 
                 if (string.IsNullOrEmpty(connection.CurrentNewsgroup))
                 {
-                    Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                    Send(connection, "412 No newsgroup selected\r\n");
                     return new CommandProcessingResult(true);
                 }
             }
@@ -732,12 +755,12 @@ namespace McNNTP.Server
                 type = 3;
                 if (string.IsNullOrEmpty(connection.CurrentNewsgroup))
                 {
-                    Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                    Send(connection, "412 No newsgroup selected\r\n");
                     return new CommandProcessingResult(true);
                 }
                 if (!connection.CurrentArticleNumber.HasValue)
                 {
-                    Send(connection.WorkSocket, "420 Current article number is invalid\r\n");
+                    Send(connection, "420 Current article number is invalid\r\n");
                     return new CommandProcessingResult(true);
                 }
             }
@@ -754,7 +777,7 @@ namespace McNNTP.Server
                         var range = ParseRange(parts[2]);
                         if (range.Equals(default(System.Tuple<int, int?>)))
                         {
-                            Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                            Send(connection, "501 Syntax Error\r\n");
                             return new CommandProcessingResult(true);
                         }
 
@@ -768,7 +791,7 @@ namespace McNNTP.Server
                         break;
                     default:
                         // Unrecognized...
-                        Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                        Send(connection, "501 Syntax Error\r\n");
                         return new CommandProcessingResult(true);
                 }
 
@@ -776,20 +799,20 @@ namespace McNNTP.Server
                     switch (type)
                     {
                         case 1:
-                            Send(connection.WorkSocket, "430 No article with that message-id\r\n");
+                            Send(connection, "430 No article with that message-id\r\n");
                             break;
                         case 2:
-                            Send(connection.WorkSocket, "423 No articles in that range\r\n");
+                            Send(connection, "423 No articles in that range\r\n");
                             break;
                         case 3:
-                            Send(connection.WorkSocket, "420 Current article number is invalid\r\n");
+                            Send(connection, "420 Current article number is invalid\r\n");
                             break;
                     }
                 else
                 {
                     lock (connection.SendLock)
                     {
-                        Send(connection.WorkSocket, "225 Headers follow (multi-line)\r\n");
+                        Send(connection, "225 Headers follow (multi-line)\r\n");
 
                         Func<Article, string> headerFunction;
                         switch (parts[1].ToUpperInvariant())
@@ -823,15 +846,15 @@ namespace McNNTP.Server
 
                         foreach (var article in articles)
                             if (type == 1)
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
                                     (!string.IsNullOrEmpty(connection.CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0) ? article.MessageId : "0",
                                     headerFunction.Invoke(article)), false, Encoding.UTF8);
                             else
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
                                     article.Id,
                                     headerFunction.Invoke(article)), false, Encoding.UTF8);
 
-                        Send(connection.WorkSocket, ".\r\n");
+                        Send(connection, ".\r\n");
                     }
                 }
             }
@@ -848,7 +871,7 @@ namespace McNNTP.Server
             {
                 if (!connection.CurrentArticleNumber.HasValue)
                 {
-                    Send(connection.WorkSocket, "430 No article with that message-id\r\n");
+                    Send(connection, "430 No article with that message-id\r\n");
                     return new CommandProcessingResult(true);
                 }
             }
@@ -856,7 +879,7 @@ namespace McNNTP.Server
             {
                 if (string.IsNullOrEmpty(connection.CurrentNewsgroup))
                 {
-                    Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                    Send(connection, "412 No newsgroup selected\r\n");
                     return new CommandProcessingResult(true);
                 }
             }
@@ -880,7 +903,7 @@ namespace McNNTP.Server
                     int articleId;
                     if (!int.TryParse(param, out articleId))
                     {
-                        Send(connection.WorkSocket, "423 No article with that number\r\n");
+                        Send(connection, "423 No article with that number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
@@ -892,13 +915,13 @@ namespace McNNTP.Server
                     switch (type)
                     {
                         case 1:
-                            Send(connection.WorkSocket, "430 No article with that message-id\r\n");
+                            Send(connection, "430 No article with that message-id\r\n");
                             break;
                         case 2:
-                            Send(connection.WorkSocket, "423 No article with that number\r\n");
+                            Send(connection, "423 No article with that number\r\n");
                             break;
                         case 3:
-                            Send(connection.WorkSocket, "420 Current article number is invalid\r\n");
+                            Send(connection, "420 Current article number is invalid\r\n");
                             break;
 
                     }
@@ -909,18 +932,18 @@ namespace McNNTP.Server
                         switch (type)
                         {
                             case 1:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n",
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n",
                                     (string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0) ? article.Id : 0, article.MessageId));
                                 break;
                             case 2:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n", article.Id, article.MessageId));
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n", article.Id, article.MessageId));
                                 break;
                             case 3:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n", article.Id, article.MessageId));
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n", article.Id, article.MessageId));
                                 break;
                         }
 
-                        Send(connection.WorkSocket, article.Headers + "\r\n.\r\n", false, Encoding.UTF8);
+                        Send(connection, article.Headers + "\r\n.\r\n", false, Encoding.UTF8);
                     }
                 }
             }
@@ -951,7 +974,7 @@ namespace McNNTP.Server
             if (!sb.ToString().EndsWith("\r\n.\r\n"))
                 sb.Append("\r\n.\r\n");
             
-            Send(connection.WorkSocket, sb.ToString());
+            Send(connection, sb.ToString());
             return new CommandProcessingResult(true);
         }
         private CommandProcessingResult Last(Connection connection, string content)
@@ -959,7 +982,7 @@ namespace McNNTP.Server
             // If the currently selected newsgroup is invalid, a 412 response MUST be returned.
             if (string.IsNullOrWhiteSpace(connection.CurrentNewsgroup))
             {
-                Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                Send(connection, "412 No newsgroup selected\r\n");
                 return new CommandProcessingResult(true);
             }
 
@@ -969,7 +992,7 @@ namespace McNNTP.Server
 
             if (!currentArticleNumber.HasValue)
             {
-                Send(connection.WorkSocket, "420 Current article number is invalid\r\n");
+                Send(connection, "420 Current article number is invalid\r\n");
                 return new CommandProcessingResult(true);
             }
 
@@ -983,13 +1006,13 @@ namespace McNNTP.Server
             // If the current article number is already the first article of the newsgroup, a 422 response MUST be returned.
             if (previousArticle == null)
             {
-                Send(connection.WorkSocket, "422 No previous article in this group\r\n");
+                Send(connection, "422 No previous article in this group\r\n");
                 return new CommandProcessingResult(true);
             }
 
             connection.CurrentArticleNumber = previousArticle.Id;
 
-            Send(connection.WorkSocket, string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
+            Send(connection, string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
             return new CommandProcessingResult(true);
         }
         private CommandProcessingResult List(Connection connection, string content)
@@ -1009,21 +1032,21 @@ namespace McNNTP.Server
                 catch (MappingException mex)
                 {
                     Console.WriteLine(mex.ToString());
-                    Send(connection.WorkSocket, "403 Archive server temporarily offline\r\n");
+                    Send(connection, "403 Archive server temporarily offline\r\n");
                     return new CommandProcessingResult(true);
                 }
                 catch (Exception)
                 {
-                    Send(connection.WorkSocket, "403 Archive server temporarily offline\r\n");
+                    Send(connection, "403 Archive server temporarily offline\r\n");
                     return new CommandProcessingResult(true);
                 }
 
                 lock (connection.SendLock)
                 {
-                    Send(connection.WorkSocket, "215 list of newsgroups follows\r\n");
+                    Send(connection, "215 list of newsgroups follows\r\n");
                     foreach (var ng in newsGroups)
-                        Send(connection.WorkSocket, string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, connection.CanPost ? "y" : "n"), false, Encoding.UTF8);
-                    Send(connection.WorkSocket, ".\r\n");
+                        Send(connection, string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, connection.CanPost ? "y" : "n"), false, Encoding.UTF8);
+                    Send(connection, ".\r\n");
                 }
                 return new CommandProcessingResult(true);
             }
@@ -1042,37 +1065,97 @@ namespace McNNTP.Server
                 catch (MappingException mex)
                 {
                     Console.WriteLine(mex.ToString());
-                    Send(connection.WorkSocket, "403 Archive server temporarily offline\r\n");
+                    Send(connection, "403 Archive server temporarily offline\r\n");
                     return new CommandProcessingResult(true);
                 }
                 catch (Exception)
                 {
-                    Send(connection.WorkSocket, "403 Archive server temporarily offline\r\n");
+                    Send(connection, "403 Archive server temporarily offline\r\n");
                     return new CommandProcessingResult(true);
                 }
 
                 lock (connection.SendLock)
                 {
-                    Send(connection.WorkSocket, "215 information follows\r\n");
+                    Send(connection, "215 information follows\r\n");
                     foreach (var ng in newsGroups)
-                        Send(connection.WorkSocket, string.Format("{0}\t{1}\r\n", ng.Name, ng.Description), false, Encoding.UTF8);
-                    Send(connection.WorkSocket, ".\r\n");
+                        Send(connection, string.Format("{0}\t{1}\r\n", ng.Name, ng.Description), false, Encoding.UTF8);
+                    Send(connection, ".\r\n");
                 }
                 return new CommandProcessingResult(true);
             }
 
-            Send(connection.WorkSocket, "501 Syntax Error\r\n");
+            Send(connection, "501 Syntax Error\r\n");
+            return new CommandProcessingResult(true);
+        }
+        private CommandProcessingResult ListGroup(Connection connection, string content)
+        {
+            var parts = content.TrimEnd('\r', '\n').Split(' ');
+
+            if (parts.Length == 1 && connection.CurrentNewsgroup == null)
+                Send(connection, "412 No newsgroup selected\r\n");
+
+            using (var session = OpenSession())
+            {
+                var name = (parts.Length == 2) ? parts[1] : connection.CurrentNewsgroup;
+                var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
+
+                if (ng == null)
+                    Send(connection, "411 No such newsgroup\r\n");
+                else
+                {
+                    connection.CurrentNewsgroup = ng.Name;
+                    if (ng.PostCount == 0)
+                    {
+                        lock (connection.SendLock)
+                        {
+                            Send(connection, string.Format("211 0 0 0 {0}\r\n", ng.Name));
+                        }
+                    }
+                    else
+                    {
+                        IList<Article> articles;
+                        if (parts.Length < 3)
+                            articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name).OrderBy(a => a.Id).ToList();
+                        else
+                        {
+                            var range = ParseRange(parts[2]);
+                            if (range.Equals(default(System.Tuple<int, int?>)))
+                            {
+                                Send(connection, "501 Syntax Error\r\n");
+                                return new CommandProcessingResult(true);
+                            }
+
+                            if (!range.Item2.HasValue) // LOW-
+                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1).OrderBy(a => a.Id).ToList();
+                            else // LOW-HIGH
+                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1 && a.Id <= range.Item2.Value).ToList();
+                        }
+
+                        connection.CurrentArticleNumber = !articles.Any() ? default(long?) : articles.First().Id;
+
+                        lock (connection.SendLock)
+                        {
+                            Send(connection, string.Format("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name), false, Encoding.UTF8);
+                            foreach (var article in articles)
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", article.Id.ToString(CultureInfo.InvariantCulture)), false, Encoding.UTF8);
+                            Send(connection, ".\r\n", false, Encoding.UTF8);
+                        }
+                    }
+                }
+            }
+
+
             return new CommandProcessingResult(true);
         }
         private CommandProcessingResult Mode(Connection connection, string content)
         {
             if (content.StartsWith("MODE READER", StringComparison.OrdinalIgnoreCase))
             {
-                Send(connection.WorkSocket, "200 This server is not a mode-switching server, but whatever!\r\n");
+                Send(connection, "200 This server is not a mode-switching server, but whatever!\r\n");
                 return new CommandProcessingResult(true);
             }
 
-            Send(connection.WorkSocket, "501 Syntax Error\r\n");
+            Send(connection, "501 Syntax Error\r\n");
             return new CommandProcessingResult(true);
         }
         private CommandProcessingResult Newgroups(Connection connection, string content)
@@ -1095,19 +1178,19 @@ namespace McNNTP.Server
 
                 lock (connection.SendLock)
                 {
-                    Send(connection.WorkSocket, "231 List of new newsgroups follows (multi-line)\r\n", false, Encoding.UTF8);
+                    Send(connection, "231 List of new newsgroups follows (multi-line)\r\n", false, Encoding.UTF8);
                     foreach (var ng in newsGroups)
-                        Send(connection.WorkSocket, string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark,
+                        Send(connection, string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark,
                             connection.CanPost ? "y" : "n"), false, Encoding.UTF8);
-                    Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
+                    Send(connection, ".\r\n", false, Encoding.UTF8);
                 }
             }
             else
             {
                 lock (connection.SendLock)
                 {
-                    Send(connection.WorkSocket, "231 List of new newsgroups follows (multi-line)\r\n");
-                    Send(connection.WorkSocket, ".\r\n");
+                    Send(connection, "231 List of new newsgroups follows (multi-line)\r\n");
+                    Send(connection, ".\r\n");
                 }
             }
 
@@ -1118,7 +1201,7 @@ namespace McNNTP.Server
             // If the currently selected newsgroup is invalid, a 412 response MUST be returned.
             if (string.IsNullOrWhiteSpace(connection.CurrentNewsgroup))
             {
-                Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                Send(connection, "412 No newsgroup selected\r\n");
                 return new CommandProcessingResult(true);
             }
 
@@ -1128,7 +1211,7 @@ namespace McNNTP.Server
 
             if (!currentArticleNumber.HasValue)
             {
-                Send(connection.WorkSocket, "420 Current article number is invalid\r\n");
+                Send(connection, "420 Current article number is invalid\r\n");
                 return new CommandProcessingResult(true);
             }
 
@@ -1142,98 +1225,24 @@ namespace McNNTP.Server
             // If the current article number is already the last article of the newsgroup, a 421 response MUST be returned.
             if (previousArticle == null)
             {
-                Send(connection.WorkSocket, "421 No next article in this group\r\n");
+                Send(connection, "421 No next article in this group\r\n");
                 return new CommandProcessingResult(true);
             }
 
             connection.CurrentArticleNumber = previousArticle.Id;
 
-            Send(connection.WorkSocket, string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
+            Send(connection, string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Quit(Connection connection)
-        {
-            lock (connection.SendLock)
-            {
-                if (connection.WorkSocket != null)
-                {
-                    Send(connection.WorkSocket, "205 closing connection\r\n", false, Encoding.UTF8); // Block.
-                    connection.WorkSocket.Shutdown(SocketShutdown.Both);
-                    connection.WorkSocket.Close();
-                }
-            }
-            return new CommandProcessingResult(true, true);
-        }
-        private CommandProcessingResult ListGroup(Connection connection, string content)
-        {
-            var parts = content.TrimEnd('\r', '\n').Split(' ');
-
-            if (parts.Length == 1 && connection.CurrentNewsgroup == null)
-                Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
-
-            using (var session = OpenSession())
-            {
-                var name = (parts.Length == 2) ? parts[1] : connection.CurrentNewsgroup;
-                var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
-
-                if (ng == null)
-                    Send(connection.WorkSocket, "411 No such newsgroup\r\n");
-                else
-                {
-                    connection.CurrentNewsgroup = ng.Name;
-                    if (ng.PostCount == 0)
-                    {
-                        lock (connection.SendLock)
-                        {
-                            Send(connection.WorkSocket, string.Format("211 0 0 0 {0}\r\n", ng.Name));
-                        }
-                    }
-                    else
-                    {
-                        IList<Article> articles;
-                        if (parts.Length < 3)
-                            articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name).OrderBy(a => a.Id).ToList();
-                        else
-                        {
-                            var range = ParseRange(parts[2]);
-                            if (range.Equals(default(System.Tuple<int, int?>)))
-                            {
-                                Send(connection.WorkSocket, "501 Syntax Error\r\n");
-                                return new CommandProcessingResult(true);
-                            }
-
-                            if (!range.Item2.HasValue) // LOW-
-                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1).OrderBy(a => a.Id).ToList();
-                            else // LOW-HIGH
-                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1 && a.Id <= range.Item2.Value).ToList();
-                        }
-
-                        connection.CurrentArticleNumber = !articles.Any() ? default(long?) : articles.First().Id;
-
-                        lock (connection.SendLock)
-                        {
-                            Send(connection.WorkSocket, string.Format("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name), false, Encoding.UTF8);
-                            foreach (var article in articles)
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "{0}\r\n", article.Id.ToString(CultureInfo.InvariantCulture)), false, Encoding.UTF8);
-                            Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
-                        }
-                    }
-                }
-            }
-
-
-            return new CommandProcessingResult(true);
-        }
-
         private CommandProcessingResult Post(Connection connection, string content)
         {
             if (!connection.CanPost)
             {
-                Send(connection.WorkSocket, "440 Posting not permitted\r\n");
+                Send(connection, "440 Posting not permitted\r\n");
                 return new CommandProcessingResult(true);
             }
 
-            Send(connection.WorkSocket, "340 Send article to be posted\r\n");
+            Send(connection, "340 Send article to be posted\r\n");
 
             Func<Connection, string, CommandProcessingResult, CommandProcessingResult> messageAccumulator = null;
             messageAccumulator = (conn, msg, prev) =>
@@ -1244,7 +1253,7 @@ namespace McNNTP.Server
                     {
                         Article article;
                         if (!Data.Article.TryParse(prev.Message == null ? msg.Substring(0, msg.Length - 5) : prev.Message + msg, out article))
-                            Send(connection.WorkSocket, "441 Posting failed\r\n");
+                            Send(connection, "441 Posting failed\r\n");
                         else
                         {
                             bool canApprove;
@@ -1290,7 +1299,7 @@ namespace McNNTP.Server
                                 (article.Control != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !connection.CanDeleteGroup) ||
                                 (article.Control != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !connection.CanCheckGroups))
                             {
-                                Send(connection.WorkSocket, "480 Permission to issue control message denied\r\n");
+                                Send(connection, "480 Permission to issue control message denied\r\n");
                                 return new CommandProcessingResult(true);
                             }
                              
@@ -1315,7 +1324,7 @@ namespace McNNTP.Server
                             }
                         }
 
-                        Send(connection.WorkSocket, "240 Article received OK\r\n");
+                        Send(connection, "240 Article received OK\r\n");
 
                         return new CommandProcessingResult(true, true)
                         {
@@ -1325,7 +1334,7 @@ namespace McNNTP.Server
                     catch (Exception ex)
                     {
                         Console.WriteLine(ex.ToString());
-                        Send(connection.WorkSocket, "441 Posting failed\r\n");
+                        Send(connection, "441 Posting failed\r\n");
                     }
                 }
 
@@ -1338,6 +1347,30 @@ namespace McNNTP.Server
 
             return messageAccumulator.Invoke(connection, null, null);
         }
+        private CommandProcessingResult Quit(Connection connection)
+        {
+            lock (connection.SendLock)
+            {
+                if (connection.Client != null)
+                {
+                    Send(connection, "205 closing connection\r\n", false, Encoding.UTF8); // Block.
+                    connection.Client.Client.Shutdown(SocketShutdown.Both);
+                    connection.Client.Close();
+                }
+            }
+            return new CommandProcessingResult(true, true);
+        }
+        private CommandProcessingResult StartTLS(Connection connection, string content)
+        {
+            if (connection.TLS)
+            {
+                Send(connection, "502 Command unavailable\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            Send(connection, "580 Can not initiate TLS negotiation\r\n");
+            return new CommandProcessingResult(true);
+        }
 
         private CommandProcessingResult Stat(Connection connection, string content)
         {
@@ -1349,7 +1382,7 @@ namespace McNNTP.Server
             {
                 if (!connection.CurrentArticleNumber.HasValue)
                 {
-                    Send(connection.WorkSocket, "430 No article with that message-id\r\n");
+                    Send(connection, "430 No article with that message-id\r\n");
                     return new CommandProcessingResult(true);
                 }
             }
@@ -1357,7 +1390,7 @@ namespace McNNTP.Server
             {
                 if (string.IsNullOrEmpty(connection.CurrentNewsgroup))
                 {
-                    Send(connection.WorkSocket, "412 No newsgroup selected\r\n");
+                    Send(connection, "412 No newsgroup selected\r\n");
                     return new CommandProcessingResult(true);
                 }
             }
@@ -1381,7 +1414,7 @@ namespace McNNTP.Server
                     int articleId;
                     if (!int.TryParse(param, out articleId))
                     {
-                        Send(connection.WorkSocket, "423 No article with that number\r\n");
+                        Send(connection, "423 No article with that number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
@@ -1393,13 +1426,13 @@ namespace McNNTP.Server
                     switch (type)
                     {
                         case 1:
-                            Send(connection.WorkSocket, "430 No article with that message-id\r\n");
+                            Send(connection, "430 No article with that message-id\r\n");
                             break;
                         case 2:
-                            Send(connection.WorkSocket, "423 No article with that number\r\n");
+                            Send(connection, "423 No article with that number\r\n");
                             break;
                         case 3:
-                            Send(connection.WorkSocket, "420 Current article number is invalid\r\n");
+                            Send(connection, "420 Current article number is invalid\r\n");
                             break;
 
                     }
@@ -1410,15 +1443,15 @@ namespace McNNTP.Server
                         switch (type)
                         {
                             case 1:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n",
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n",
                                     (!string.IsNullOrEmpty(connection.CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0) ? article.Id : 0,
                                     article.MessageId));
                                 break;
                             case 2:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n", article.Id, article.MessageId));
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n", article.Id, article.MessageId));
                                 break;
                             case 3:
-                                Send(connection.WorkSocket, string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n", article.Id, article.MessageId));
+                                Send(connection, string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n", article.Id, article.MessageId));
                                 break;
                         }
                     }
@@ -1432,7 +1465,7 @@ namespace McNNTP.Server
             var rangeExpression = content.Substring(content.IndexOf(' ') + 1).TrimEnd('\r', '\n');
 
             if (connection.CurrentNewsgroup == null)
-                Send(connection.WorkSocket, "412 No news group current selected\r\n");
+                Send(connection, "412 No news group current selected\r\n");
             else
             {
                 Newsgroup ng;
@@ -1456,7 +1489,7 @@ namespace McNNTP.Server
                             var range = ParseRange(rangeExpression);
                             if (range.Equals(default(System.Tuple<int, int?>)))
                             {
-                                Send(connection.WorkSocket, "501 Syntax Error\r\n");
+                                Send(connection, "501 Syntax Error\r\n");
                                 return new CommandProcessingResult(true);
                             }
 
@@ -1483,20 +1516,20 @@ namespace McNNTP.Server
                 }
                 catch (Exception ex)
                 {
-                    Send(connection.WorkSocket, "403 Archive server temporarily offline\r\n");
+                    Send(connection, "403 Archive server temporarily offline\r\n");
                     Console.WriteLine(ex.ToString());
                     return new CommandProcessingResult(true);
                 }
 
                 if (ng == null)
                 {
-                    Send(connection.WorkSocket, "411 No such newsgroup\r\n");
+                    Send(connection, "411 No such newsgroup\r\n");
                     return new CommandProcessingResult(true);
                 }
 
                 if (!articles.Any())
                 {
-                    Send(connection.WorkSocket, "420 No article(s) selected\r\n");
+                    Send(connection, "420 No article(s) selected\r\n");
                     return new CommandProcessingResult(true);
                 }
 
@@ -1505,9 +1538,9 @@ namespace McNNTP.Server
 
                 lock (connection.SendLock)
                 {
-                    Send(connection.WorkSocket, "224 Overview information follows\r\n", false, Encoding.UTF8);
+                    Send(connection, "224 Overview information follows\r\n", false, Encoding.UTF8);
                     foreach (var article in articles)
-                        Send(connection.WorkSocket,
+                        Send(connection,
                             string.Format(CultureInfo.InvariantCulture,
                                 "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
                                 string.CompareOrdinal(article.Newsgroup.Name, connection.CurrentNewsgroup) == 0 ? article.Id : 0,
@@ -1519,7 +1552,7 @@ namespace McNNTP.Server
                                 unfold((article.Body.Length*2).ToString(CultureInfo.InvariantCulture)),
                                 unfold(article.Body.Split(new[] {"\r\n"}, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))), false,
                             Encoding.UTF8);
-                    Send(connection.WorkSocket, ".\r\n", false, Encoding.UTF8);
+                    Send(connection, ".\r\n", false, Encoding.UTF8);
                 }
             }
 
@@ -1532,7 +1565,7 @@ namespace McNNTP.Server
         public bool ShowCommands { get; set; }
         public bool ShowData { get; set; }
 
-        internal Dictionary<IPEndPoint, string> GetAllBuffs()
+        internal static Dictionary<IPEndPoint, string> GetAllBuffs()
         {
         again:
             foreach (var conn in _connections)
@@ -1540,31 +1573,37 @@ namespace McNNTP.Server
                 {
                     try
                     {
-                        if (conn.WorkSocket != null && !conn.WorkSocket.Connected)
+                        if (conn.Client.Client != null && !conn.Client.Client.Connected)
                         {
                             _connections.Remove(conn);
-                            conn.WorkSocket.Shutdown(SocketShutdown.Both);
-                            conn.WorkSocket.Dispose();
-                            conn.WorkSocket = null;
+                            conn.Client.Client.Shutdown(SocketShutdown.Both);
+                            conn.Client.Close();
+                            conn.Client = null;
                             goto again;
                         }
                     }
                     catch (ObjectDisposedException)
                     {
-                        conn.WorkSocket = null;
+                        conn.Client = null;
+                        _connections.Remove(conn);
+                        goto again;
+                    }
+                    catch (IOException)
+                    {
+                        conn.Client = null;
                         _connections.Remove(conn);
                         goto again;
                     }
                     catch (SocketException)
                     {
-                        conn.WorkSocket = null;
+                        conn.Client = null;
                         _connections.Remove(conn);
                         goto again;
                     }
                 }
 
             // ReSharper disable once PossibleNullReferenceException
-            return _connections.Where(c => c.WorkSocket != null).ToDictionary(conn => (IPEndPoint) conn.WorkSocket.RemoteEndPoint, conn => conn.Builder.ToString());
+            return _connections.Where(c => c.Client != null).ToDictionary(conn => (IPEndPoint)conn.Client.Client.RemoteEndPoint, conn => conn.Builder.ToString());
         }
         #endregion
         private static System.Tuple<int, int?> ParseRange(string input)
