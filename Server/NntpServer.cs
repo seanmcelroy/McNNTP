@@ -39,6 +39,7 @@ namespace McNNTP.Server
             _commandDirectory = new Dictionary<string, Func<Connection, string, CommandProcessingResult>>
                 {
                     {"ARTICLE", Article},
+                    {"AUTHINFO", AuthInfo},
                     {"BODY", Body},
                     {"CAPABILITIES", (s, c) => Capabilities(s)},
                     {"DATE", (s, c) => Date(s)},
@@ -425,6 +426,92 @@ namespace McNNTP.Server
             }
 
             return new CommandProcessingResult(true);
+        }
+        private CommandProcessingResult AuthInfo(Connection connection, string content)
+        {
+            // RFC 4643 - NNTP AUTHENTICATION
+            var param = (string.Compare(content, "AUTHINFO\r\n", StringComparison.OrdinalIgnoreCase) == 0)
+                ? null
+                : content.Substring(content.IndexOf(' ') + 1).TrimEnd('\r', '\n');
+
+            if (string.IsNullOrWhiteSpace(param))
+            {
+                Send(connection.WorkSocket, "481 Authentication failed/rejected\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            var args = param.Split(' ');
+            if (args.Length != 2)
+            {
+                Send(connection.WorkSocket, "481 Authentication failed/rejected\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            if (string.Compare(args[0], "USER", StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                if (connection.Username != null)
+                {
+                    Send(connection.WorkSocket, "502 Command unavailable\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
+                connection.Username = args.Skip(1).Aggregate((c,n) => c + " " + n);
+                Send(connection.WorkSocket, "381 Password required\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            if (string.Compare(args[0], "PASS", StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                if (connection.Username == null)
+                {
+                    Send(connection.WorkSocket, "482 Authentication commands issued out of sequence\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
+                if (connection.Authenticated)
+                {
+                    Send(connection.WorkSocket, "502 Command unavailable\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
+                var password = args.Skip(1).Aggregate((c, n) => c + " " + n);
+                var saltBytes = new byte[64];
+                var rng = RandomNumberGenerator.Create();
+                rng.GetNonZeroBytes(saltBytes);
+
+                Administrator[] allAdmins;
+                using (var session = OpenSession())
+                {
+                    allAdmins = session.Query<Administrator>().ToArray();
+                    session.Close();
+                }
+
+                var admin = allAdmins
+                        .SingleOrDefault(a =>
+                                a.Username == connection.Username &&
+                                a.PasswordHash ==
+                                Convert.ToBase64String(new SHA512CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(string.Concat(a.PasswordSalt, password)))));
+                
+                if (admin == null)
+                {
+                    Send(connection.WorkSocket, "481 Authentication failed/rejected\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
+                connection.CanApproveGroups = admin.CanApproveGroups;
+                connection.CanCancel = admin.CanCancel;
+                connection.CanCheckGroups = admin.CanCheckGroups;
+                connection.CanCreateGroup = admin.CanCreateGroup;
+                connection.CanDeleteGroup = admin.CanDeleteGroup;
+                connection.CanInject = admin.CanInject;
+                
+                connection.Authenticated = true;
+                
+                Send(connection.WorkSocket, "281 Authentication accepted\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            return new CommandProcessingResult(false);
         }
         private CommandProcessingResult Body(Connection connection, string content)
         {
