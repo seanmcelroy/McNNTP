@@ -11,10 +11,10 @@ to deliver information through the communication medium of the user's choice.  T
 under development is a full RFC-compliant NNTP (USENET) news server that adheres to:
 
 * RFC 3977 - Network News Transfer Protocol (NNTP)
-** RFC 4642 - Using TLS with NNTP (Implicit and Explicit TLS/SSL)
-** RFC 4643 - NNTP Extension for Authentication
-** RFC 5536 - Netnews Article Format
-** RFC 6048 - NNTP Additions to LIST Command
+* RFC 4642 - Using TLS with NNTP (Implicit and Explicit TLS/SSL)
+* RFC 4643 - NNTP Extension for Authentication
+* RFC 5536 - Netnews Article Format
+* RFC 6048 - NNTP Additions to LIST Command
 
 Other proprietary extensions such as GZIP compression, may be added at a later date.
 
