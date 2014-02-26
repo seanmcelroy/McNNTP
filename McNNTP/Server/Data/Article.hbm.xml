@@ -1,0 +1,38 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<hibernate-mapping xmlns="urn:nhibernate-mapping-2.2" auto-import="true" assembly="McNNTP" namespace="McNNTP.Server.Data">
+  <class name="Article" table="Article" lazy="true">
+    <id name="Id">
+      <generator class="native" />
+    </id>
+    <many-to-one name="Newsgroup" column="NewsgroupId" not-null="true" />
+    
+    <property name="Date" not-null="true" length="100" update="false" />
+    <property name="From" column="FromHeader" not-null="true" length="1000" update="false" />
+    <property name="MessageId" not-null="true" length="500" unique="true" update="false" />
+    <property name="Newsgroups" not-null="true" length="1000" update="false" />
+    <property name="Path" not-null="true" length="1000" update="false" />
+    <property name="Subject" not-null="true" length="1000" update="false" />
+
+    <property name="Approved" />
+    <property name="Archive" />
+    <property name="ContentDisposition" />
+    <property name="ContentLanguage" />
+    <property name="ContentTransferEncoding" />
+    <property name="ContentType" />
+    <property name="Control" />
+    <property name="Distribution" />
+    <property name="Expires" />
+    <property name="FollowupTo" />
+    <property name="InjectionDate" />
+    <property name="InjectionInfo" />
+    <property name="Organization" update="false" />
+    <property name="References" column="ReferencesHeader" />
+    <property name="Summary" />
+    <property name="Supersedes" />
+    <property name="UserAgent" update="false" />
+    <property name="Xref" />
+
+    <property name="Headers" />
+    <property name="Body" update="false" />
+  </class>
+</hibernate-mapping>
