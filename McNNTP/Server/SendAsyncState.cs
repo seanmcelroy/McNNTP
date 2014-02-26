@@ -2,7 +2,8 @@
 {
     internal sealed class SendAsyncState
     {
-        public Connection Connection;
         public string Payload;
+        public bool ShowBytes;
+        public bool ShowData;
     }
 }

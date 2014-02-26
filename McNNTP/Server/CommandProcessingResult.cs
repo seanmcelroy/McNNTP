@@ -14,7 +14,7 @@ namespace McNNTP.Server
         /// at which time this function should be invoked on the result.
         /// </summary>
         [CanBeNull]
-        public Func<Connection, string, CommandProcessingResult, CommandProcessingResult> MessageHandler { get; set; }
+        public Func<string, CommandProcessingResult, CommandProcessingResult> MessageHandler { get; set; }
 
         [CanBeNull]
         public string Message { get; set; }

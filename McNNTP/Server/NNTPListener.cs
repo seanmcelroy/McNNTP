@@ -1,7 +1,9 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
+using JetBrains.Annotations;
 
 namespace McNNTP.Server
 {
@@ -10,11 +12,13 @@ namespace McNNTP.Server
         // Thread signal.
         private readonly ManualResetEvent _allDone = new ManualResetEvent(false);
 
-        public NntpListener(IPEndPoint localEp)
+        private readonly NntpServer _server;
+
+        public NntpListener([NotNull] NntpServer server, [NotNull] IPEndPoint localEp)
             : base(localEp)
         {
+            _server = server;
         }
-        public AsyncCallback AcceptCallback { get; set; }
 
         public PortClass PortType { get; set; }
 
@@ -24,7 +28,7 @@ namespace McNNTP.Server
             var localEndPoint = new IPEndPoint(IPAddress.Any, ((IPEndPoint)LocalEndpoint).Port);
 
             // Create a TCP/IP socket.
-            var listener = new NntpListener(localEndPoint);
+            var listener = new NntpListener(_server, localEndPoint);
 
             // Bind the socket to the local endpoint and listen for incoming connections.
             try
@@ -48,6 +52,30 @@ namespace McNNTP.Server
             {
                 Console.WriteLine(e.ToString());
             }
+        }
+        
+        private void AcceptCallback(IAsyncResult ar)
+        {
+            var acceptState = (AcceptAsyncState)ar.AsyncState;
+
+            // Signal the main thread to continue.
+            acceptState.AcceptComplete.Set();
+
+            // Get the socket that handles the client request.
+            var listener = acceptState.Listener;
+            var handler = listener.EndAcceptTcpClient(ar);
+            //Thread.CurrentThread.Name = string.Format("{0}:{1}", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port);
+
+            // Create the state object.
+            var connection = new Connection(handler, _server._sessionProvider, _server.ServerPath, _server.AllowStartTLS, _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData);
+
+            //var sslStream = new SslStream(state.Stream);
+            //sslStream.AuthenticateAsServer();
+            //state.Stream = sslStream;
+
+            _server._connections.Add(connection);
+
+            connection.Process();
         }
     }
 }

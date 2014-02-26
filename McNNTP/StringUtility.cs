@@ -1,17 +1,20 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using JetBrains.Annotations;
 
 namespace McNNTP
 {
     public static class StringUtility
     {
-        public static IEnumerable<string> SeekThroughDelimiters(this string block, string delimiter)
+        [NotNull, Pure]
+        public static IEnumerable<string> SeekThroughDelimiters([NotNull] this string block, [NotNull] string delimiter)
         {
             return block.ToCharArray().SeekThroughDelimiters(delimiter.ToCharArray()).Select(s => new string(s));
         }
 
-        public static IEnumerable<T[]> SeekThroughDelimiters<T>(this T[] block, T[] delimiter)
+        [NotNull, Pure]
+        public static IEnumerable<T[]> SeekThroughDelimiters<T>([NotNull] this T[] block, [NotNull] T[] delimiter)
             where T : IComparable
         {
             var start = 0;

@@ -54,6 +54,7 @@ namespace McNNTP.Console
 
                 while (true)
                 {
+                    System.Console.Write("\r\n> ");
                     var input = System.Console.ReadLine();
                     if (input == null || !_commandDirectory.ContainsKey(input.Split(' ')[0].ToUpperInvariant()))
                         continue;
@@ -212,6 +213,7 @@ namespace McNNTP.Console
         }
         private static bool Quit()
         {
+            _server.Stop();
             return true;
         }
         #endregion
