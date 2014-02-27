@@ -4,8 +4,8 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using System.Threading.Tasks;
 using McNNTP.Server;
 using McNNTP.Server.Data;
 
@@ -35,7 +35,8 @@ namespace McNNTP.Console
                 _server = new NntpServer(Database.SessionUtility.OpenSession)
                 {
                     AllowPosting = true,
-                    ClearPorts = new [] { 119 }
+                    ClearPorts = new [] { 119 },
+                    ImplicitTLSPorts = new[] { 563 }
                 };
 
                 if (!_server.VerifyDatabase())

@@ -99,7 +99,9 @@ namespace McNNTP.Server
                 };
         }
 
-        public Connection([NotNull] TcpClient client,
+        public Connection(
+            [NotNull] TcpClient client,
+            [NotNull] Stream stream,
             Func<ISession> sessionProvider,
             string serverName = "freenews.local",
             bool allowStartTls = true,
@@ -116,7 +118,7 @@ namespace McNNTP.Server
             ShowBytes = showBytes;
             ShowCommands = showCommands;
             ShowData = showData;
-            _stream = client.GetStream();
+            _stream = stream;
         }
 
         #region IO and Connection Management
@@ -198,11 +200,11 @@ namespace McNNTP.Server
             // All the data has been read from the 
             // client. Display it on the console.
             if (ShowBytes && ShowData)
-                Console.WriteLine("{0}:{1} <<< {2} bytes: {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.Length, content.TrimEnd('\r', '\n'));
+                Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.Length, content.TrimEnd('\r', '\n'));
             else if (ShowBytes)
-                Console.WriteLine("{0}:{1} <<< {2} bytes", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.Length);
+                Console.WriteLine("{0}:{1} >>> {2} bytes", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.Length);
             else if (ShowData)
-                Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
+                Console.WriteLine("{0}:{1} >>> {2}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
 
             if (_inProcessCommand != null && _inProcessCommand.MessageHandler != null)
             {
@@ -219,7 +221,7 @@ namespace McNNTP.Server
                     try
                     {
                         if (ShowCommands)
-                            Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
+                            Console.WriteLine("{0}:{1} >>> {2}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
 
                         var result = _commandDirectory[command].Invoke(this, _sessionProvider, content);
 
@@ -282,11 +284,11 @@ namespace McNNTP.Server
                 {
                     _stream.Write(byteData, 0, byteData.Length);
                     if (ShowBytes && ShowData)
-                        Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length, data.TrimEnd('\r', '\n'));
+                        Console.WriteLine("{0}:{1} <<< {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length, data.TrimEnd('\r', '\n'));
                     else if (ShowBytes)
-                        Console.WriteLine("{0}:{1} >>> {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length);
+                        Console.WriteLine("{0}:{1} <<< {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length);
                     else if (ShowData)
-                        Console.WriteLine("{0}:{1} >>> {2}", remoteEndPoint.Address, remoteEndPoint.Port, data.TrimEnd('\r', '\n'));
+                        Console.WriteLine("{0}:{1} <<< {2}", remoteEndPoint.Address, remoteEndPoint.Port, data.TrimEnd('\r', '\n'));
                 }
             }
             catch (IOException)
@@ -312,12 +314,12 @@ namespace McNNTP.Server
 
                 var remoteEndPoint = (IPEndPoint)_client.Client.RemoteEndPoint;
                 //if (ShowBytes && ShowData)
-                //    Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent, handler.Payload.TrimEnd('\r', '\n'));
+                //    Console.WriteLine("{0}:{1} <<< {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent, handler.Payload.TrimEnd('\r', '\n'));
                 //else if (ShowBytes)
-                //    Console.WriteLine("{0}:{1} >>> {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent);
+                //    Console.WriteLine("{0}:{1} <<< {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent);
                 //else 
                 if (ShowData)
-                    Console.WriteLine("{0}:{1} >>> {2}", remoteEndPoint.Address, remoteEndPoint.Port, data.TrimEnd('\r', '\n'));
+                    Console.WriteLine("{0}:{1} <<< {2}", remoteEndPoint.Address, remoteEndPoint.Port, data.TrimEnd('\r', '\n'));
             }
             catch (ObjectDisposedException)
             {
@@ -1172,6 +1174,11 @@ namespace McNNTP.Server
                 Send("440 Posting not permitted\r\n");
                 return new CommandProcessingResult(true);
             }
+
+            //TEST
+            Send("382 Continue with TLS negotiation\r\n");
+            return new CommandProcessingResult(true);
+
 
             Send("340 Send article to be posted\r\n");
 

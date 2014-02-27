@@ -1,4 +1,5 @@
-﻿using JetBrains.Annotations;
+﻿using System.Security.Cryptography.X509Certificates;
+using JetBrains.Annotations;
 using McNNTP.Server.Data;
 using NHibernate;
 using NHibernate.Cfg;
@@ -22,6 +23,8 @@ namespace McNNTP.Server
 
         internal readonly ConcurrentBag<Connection> _connections = new ConcurrentBag<Connection>();
 
+        internal readonly X509Certificate2 _serverAuthenticationCertificate;
+
         public bool AllowPosting { get; set; }
         public bool AllowStartTLS { get; set; }
         public int[] ClearPorts { get; set; }
@@ -38,6 +41,19 @@ namespace McNNTP.Server
 
             AllowStartTLS = true;
             ShowData = true;
+
+            byte[] pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
+            _serverAuthenticationCertificate = new X509Certificate2(pfx, "password");
+            //var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+            //store.Open(OpenFlags.ReadWrite);
+            //try
+            //{
+            //    store.Add(cert);
+            //}
+            //finally
+            //{
+            //    store.Close();
+            //}
         }
 
         #region Connection and IO
@@ -59,6 +75,20 @@ namespace McNNTP.Server
                 _listeners.Add(new System.Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
             }
 
+            foreach (var implicitTlsPort in ImplicitTLSPorts)
+            {
+                // Establish the local endpoint for the socket.
+                var localEndPoint = new IPEndPoint(IPAddress.Any, implicitTlsPort);
+
+                // Create a TCP/IP socket.
+                var listener = new NntpListener(this, localEndPoint)
+                {
+                    PortType = PortClass.ImplicitTLS
+                };
+
+                _listeners.Add(new System.Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
+            }
+            
             foreach (var thread in _listeners)
                 thread.Item1.Start();
         }

@@ -8,7 +8,7 @@
     
     <property name="Date" not-null="true" length="100" update="false" />
     <property name="From" column="FromHeader" not-null="true" length="1000" update="false" />
-    <property name="MessageId" not-null="true" length="500" unique="true" update="false" />
+    <property name="MessageId" not-null="true" length="500" unique="true" update="false" unique-key="GloballyUniqueMessageId" />
     <property name="Newsgroups" not-null="true" length="1000" update="false" />
     <property name="Path" not-null="true" length="1000" update="false" />
     <property name="Subject" not-null="true" length="1000" update="false" />

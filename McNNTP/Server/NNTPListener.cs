@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Net;
+using System.Net.Security;
 using System.Net.Sockets;
 using System.Threading;
 using JetBrains.Annotations;
@@ -40,7 +41,7 @@ namespace McNNTP.Server
                     _allDone.Reset();
 
                     // Start an asynchronous socket to listen for connections.
-                    listener.BeginAcceptTcpClient(AcceptCallback, new AcceptAsyncState { Listener = listener, AcceptComplete = _allDone});
+                    listener.BeginAcceptTcpClient(AcceptCallback, new AcceptAsyncState { Listener = listener, AcceptComplete = _allDone });
 
                     // Wait until a connection is made before continuing.
                     _allDone.WaitOne();
@@ -66,11 +67,27 @@ namespace McNNTP.Server
             //Thread.CurrentThread.Name = string.Format("{0}:{1}", ((IPEndPoint)handler.RemoteEndPoint).Address, ((IPEndPoint)handler.RemoteEndPoint).Port);
 
             // Create the state object.
-            var connection = new Connection(handler, _server._sessionProvider, _server.ServerPath, _server.AllowStartTLS, _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData);
+            Connection connection;
 
-            //var sslStream = new SslStream(state.Stream);
-            //sslStream.AuthenticateAsServer();
-            //state.Stream = sslStream;
+            if (PortType == PortClass.ClearText ||
+                PortType == PortClass.ExplicitTLS)
+            {
+                var stream = handler.GetStream();
+
+                connection = new Connection(handler, stream, _server._sessionProvider, _server.ServerPath, _server.AllowStartTLS,
+                    _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData);
+            }
+            else
+            {
+                var stream = handler.GetStream();
+
+                var sslStream = new SslStream(stream);
+
+                sslStream.AuthenticateAsServer(_server._serverAuthenticationCertificate);
+
+                connection = new Connection(handler, sslStream, _server._sessionProvider, _server.ServerPath, _server.AllowStartTLS,
+                    _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData);
+            }
 
             _server._connections.Add(connection);
 
