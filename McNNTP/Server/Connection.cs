@@ -108,7 +108,8 @@ namespace McNNTP.Server
             bool canPost = true,
             bool showBytes = false,
             bool showCommands = false,
-            bool showData = false)
+            bool showData = false,
+            bool tls = false)
         {
             AllowStartTls = allowStartTls;
             CanPost = canPost;
@@ -119,6 +120,7 @@ namespace McNNTP.Server
             ShowCommands = showCommands;
             ShowData = showData;
             _stream = stream;
+            TLS = tls;
         }
 
         #region IO and Connection Management
@@ -200,11 +202,11 @@ namespace McNNTP.Server
             // All the data has been read from the 
             // client. Display it on the console.
             if (ShowBytes && ShowData)
-                Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.Length, content.TrimEnd('\r', '\n'));
+                Console.WriteLine("{0}:{1} >{2}> {3} bytes: {4}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.Length, content.TrimEnd('\r', '\n'));
             else if (ShowBytes)
-                Console.WriteLine("{0}:{1} >>> {2} bytes", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.Length);
+                Console.WriteLine("{0}:{1} >{2}> {3} bytes", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.Length);
             else if (ShowData)
-                Console.WriteLine("{0}:{1} >>> {2}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
+                Console.WriteLine("{0}:{1} >{2}> {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
 
             if (_inProcessCommand != null && _inProcessCommand.MessageHandler != null)
             {
@@ -221,7 +223,7 @@ namespace McNNTP.Server
                     try
                     {
                         if (ShowCommands)
-                            Console.WriteLine("{0}:{1} >>> {2}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
+                            Console.WriteLine("{0}:{1} >{2}> {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
 
                         var result = _commandDirectory[command].Invoke(this, _sessionProvider, content);
 
@@ -284,11 +286,11 @@ namespace McNNTP.Server
                 {
                     _stream.Write(byteData, 0, byteData.Length);
                     if (ShowBytes && ShowData)
-                        Console.WriteLine("{0}:{1} <<< {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length, data.TrimEnd('\r', '\n'));
+                        Console.WriteLine("{0}:{1} <{2}< {3} bytes: {4}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", byteData.Length, data.TrimEnd('\r', '\n'));
                     else if (ShowBytes)
-                        Console.WriteLine("{0}:{1} <<< {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length);
+                        Console.WriteLine("{0}:{1} <{2}< {3} bytes", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", byteData.Length);
                     else if (ShowData)
-                        Console.WriteLine("{0}:{1} <<< {2}", remoteEndPoint.Address, remoteEndPoint.Port, data.TrimEnd('\r', '\n'));
+                        Console.WriteLine("{0}:{1} <{2}< {3}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", data.TrimEnd('\r', '\n'));
                 }
             }
             catch (IOException)
@@ -319,7 +321,7 @@ namespace McNNTP.Server
                 //    Console.WriteLine("{0}:{1} <<< {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent);
                 //else 
                 if (ShowData)
-                    Console.WriteLine("{0}:{1} <<< {2}", remoteEndPoint.Address, remoteEndPoint.Port, data.TrimEnd('\r', '\n'));
+                    Console.WriteLine("{0}:{1} <{2}< {3}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", data.TrimEnd('\r', '\n'));
             }
             catch (ObjectDisposedException)
             {
