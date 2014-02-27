@@ -23,24 +23,24 @@ namespace McNNTP.Server
 
         // Client socket.
         [NotNull] 
-        private readonly TcpClient Client;
+        private readonly TcpClient _client;
         [NotNull] 
-        private readonly Stream Stream;
+        private readonly Stream _stream;
         [NotNull] 
-        private readonly object SendLock = new object();
+        private readonly object _sendLock = new object();
         // Size of receive buffer.
         private const int BUFFER_SIZE = 1024;
         // Receive buffer.
         [NotNull]
-        private readonly byte[] Buffer = new byte[BUFFER_SIZE];
+        private readonly byte[] _buffer = new byte[BUFFER_SIZE];
         // Received data string.
         [NotNull]
-        private readonly StringBuilder Builder = new StringBuilder();
+        private readonly StringBuilder _builder = new StringBuilder();
         [NotNull]
         private readonly Func<ISession> _sessionProvider;
 
         [CanBeNull]
-        private CommandProcessingResult InProcessCommand;
+        private CommandProcessingResult _inProcessCommand;
 
         public bool AllowStartTls { get; set; }
         public bool CanPost { get; private set; }
@@ -85,14 +85,14 @@ namespace McNNTP.Server
                     {"GROUP", (c, sp, data) => c.Group(sp, data)},
                     {"HDR", (c, sp, data) => c.Hdr(sp, data)},
                     {"HEAD", (c, sp, data) => c.Head(sp, data)},
-                    {"HELP", (c, sp, data) => c.Help(sp, data)},
-                    {"LAST", (c, sp, data) => c.Last(sp, data)},
+                    {"HELP", (c, sp, data) => c.Help()},
+                    {"LAST", (c, sp, data) => c.Last(sp)},
                     {"LIST", (c, sp, data) => c.List(sp, data)},
                     {"LISTGROUP", (c, sp, data) => c.ListGroup(sp, data)},
                     {"MODE", (c, sp, data) => c.Mode(data)},
                     {"NEWGROUPS", (c, sp, data) => c.Newgroups(sp, data)},
-                    {"NEXT", (c, sp, data) => c.Next(sp, data)},
-                    {"POST", (c, sp, data) => c.Post(sp, data)},
+                    {"NEXT", (c, sp, data) => c.Next(sp)},
+                    {"POST", (c, sp, data) => c.Post(sp)},
                     {"STAT", (c, sp, data) => c.Stat(sp, data)},
                     {"XOVER", (c, sp, data) => c.XOver(sp, data)},
                     {"QUIT", (c, sp, data) => c.Quit()}
@@ -110,13 +110,13 @@ namespace McNNTP.Server
         {
             AllowStartTls = allowStartTls;
             CanPost = canPost;
-            Client = client;
+            _client = client;
             ServerName = serverName;
             _sessionProvider = sessionProvider;
             ShowBytes = showBytes;
             ShowCommands = showCommands;
             ShowData = showData;
-            Stream = client.GetStream();
+            _stream = client.GetStream();
         }
 
         #region IO and Connection Management
@@ -129,12 +129,12 @@ namespace McNNTP.Server
             else
                 Send("201 Service available, posting prohibited\r\n");
 
-            System.Diagnostics.Debug.Assert(Stream != null);
+            System.Diagnostics.Debug.Assert(_stream != null);
             try
             {
-                Stream.BeginRead(Buffer, 0, Connection.BUFFER_SIZE, ReadCallback, null);
+                _stream.BeginRead(_buffer, 0, BUFFER_SIZE, ReadCallback, null);
             }
-            catch (System.IO.IOException se)
+            catch (IOException se)
             {
                 Send("403 Archive server temporarily offline\r\n");
                 Console.WriteLine(se.ToString());
@@ -147,16 +147,11 @@ namespace McNNTP.Server
         }
         private void ReadCallback(IAsyncResult ar)
         {
-            // Retrieve the state object and the handler socket
-            // from the asynchronous state object.
-            if (Client == null || Stream == null)
-                return;
-
             // Read data from the client socket.
             int bytesRead;
             try
             {
-                bytesRead = Stream.EndRead(ar);
+                bytesRead = _stream.EndRead(ar);
             }
             catch (IOException)
             {
@@ -168,20 +163,24 @@ namespace McNNTP.Server
                 Send("403 Archive server temporarily offline\r\n");
                 return;
             }
+            catch (ObjectDisposedException)
+            {
+                return;
+            }
 
             // There  might be more data, so store the data received so far.
-            Builder.Append(Encoding.ASCII.GetString(Buffer, 0, bytesRead));
+            _builder.Append(Encoding.ASCII.GetString(_buffer, 0, bytesRead));
 
             // Not all data received OR no more but not yet ending with the delimiter. Get more.
-            var content = Builder.ToString();
-            if (bytesRead == Connection.BUFFER_SIZE || (bytesRead == 0 && !content.EndsWith("\r\n", StringComparison.Ordinal)))
+            var content = _builder.ToString();
+            if (bytesRead == BUFFER_SIZE || (bytesRead == 0 && !content.EndsWith("\r\n", StringComparison.Ordinal)))
             {
-                if (!Client.Connected)
+                if (!_client.Connected)
                     return;
 
                 try
                 {
-                    Stream.BeginRead(Buffer, 0, Connection.BUFFER_SIZE, ReadCallback, null);
+                    _stream.BeginRead(_buffer, 0, BUFFER_SIZE, ReadCallback, null);
                 }
                 catch (IOException sex)
                 {
@@ -199,18 +198,18 @@ namespace McNNTP.Server
             // All the data has been read from the 
             // client. Display it on the console.
             if (ShowBytes && ShowData)
-                Console.WriteLine("{0}:{1} <<< {2} bytes: {3}", ((IPEndPoint)Client.Client.RemoteEndPoint).Address, ((IPEndPoint)Client.Client.RemoteEndPoint).Port, content.Length, content.TrimEnd('\r', '\n'));
+                Console.WriteLine("{0}:{1} <<< {2} bytes: {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.Length, content.TrimEnd('\r', '\n'));
             else if (ShowBytes)
-                Console.WriteLine("{0}:{1} <<< {2} bytes", ((IPEndPoint)Client.Client.RemoteEndPoint).Address, ((IPEndPoint)Client.Client.RemoteEndPoint).Port, content.Length);
+                Console.WriteLine("{0}:{1} <<< {2} bytes", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.Length);
             else if (ShowData)
-                Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)Client.Client.RemoteEndPoint).Address, ((IPEndPoint)Client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
+                Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
 
-            if (InProcessCommand != null && InProcessCommand.MessageHandler != null)
+            if (_inProcessCommand != null && _inProcessCommand.MessageHandler != null)
             {
                 // Ongoing read - don't parse it for commands
-                var result = InProcessCommand.MessageHandler.Invoke(content, InProcessCommand);
+                var result = _inProcessCommand.MessageHandler.Invoke(content, _inProcessCommand);
                 if (result.IsQuitting)
-                    InProcessCommand = null;
+                    _inProcessCommand = null;
             }
             else
             {
@@ -220,14 +219,14 @@ namespace McNNTP.Server
                     try
                     {
                         if (ShowCommands)
-                            Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)Client.Client.RemoteEndPoint).Address, ((IPEndPoint)Client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
+                            Console.WriteLine("{0}:{1} <<< {2}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, content.TrimEnd('\r', '\n'));
 
                         var result = _commandDirectory[command].Invoke(this, _sessionProvider, content);
 
                         if (!result.IsHandled)
                             Send("500 Unknown command\r\n");
                         else if (result.MessageHandler != null)
-                            InProcessCommand = result;
+                            _inProcessCommand = result;
                         else if (result.IsQuitting)
                             return;
                     }
@@ -241,15 +240,15 @@ namespace McNNTP.Server
                     Send("500 Unknown command\r\n");
             }
 
-            Builder.Clear();
+            _builder.Clear();
 
-            if (!Client.Connected)
+            if (!_client.Connected)
                 return;
 
             // Not all data received. Get more.
             try
             {
-                Stream.BeginRead(Buffer, 0, Connection.BUFFER_SIZE, ReadCallback, null);
+                _stream.BeginRead(_buffer, 0, BUFFER_SIZE, ReadCallback, null);
             }
             catch (IOException sex)
             {
@@ -268,29 +267,26 @@ namespace McNNTP.Server
         }
         public void Send([NotNull] string data, bool async, [NotNull] Encoding encoding)
         {
-            if (Client == null || Stream == null)
-                return;
-
             // Convert the string data to byte data using ASCII encoding.
             var byteData = encoding.GetBytes(data);
-            var remoteEndPoint = (IPEndPoint)Client.Client.RemoteEndPoint;
+            var remoteEndPoint = (IPEndPoint)_client.Client.RemoteEndPoint;
 
             try
             {
                 if (async)
                 {
                     // Begin sending the data to the remote device.
-                    Stream.BeginWrite(byteData, 0, byteData.Length, SendCallback, new SendAsyncState { Payload = data, ShowBytes = ShowBytes, ShowData = ShowData });
+                    _stream.BeginWrite(byteData, 0, byteData.Length, SendCallback, data);
                 }
                 else // Block
                 {
-                    Stream.Write(byteData, 0, byteData.Length);
+                    _stream.Write(byteData, 0, byteData.Length);
                     if (ShowBytes && ShowData)
-                        System.Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length, data.TrimEnd('\r', '\n'));
+                        Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length, data.TrimEnd('\r', '\n'));
                     else if (ShowBytes)
-                        System.Console.WriteLine("{0}:{1} >>> {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length);
+                        Console.WriteLine("{0}:{1} >>> {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, byteData.Length);
                     else if (ShowData)
-                        System.Console.WriteLine("{0}:{1} >>> {2}", remoteEndPoint.Address, remoteEndPoint.Port, data.TrimEnd('\r', '\n'));
+                        Console.WriteLine("{0}:{1} >>> {2}", remoteEndPoint.Address, remoteEndPoint.Port, data.TrimEnd('\r', '\n'));
                 }
             }
             catch (IOException)
@@ -309,25 +305,19 @@ namespace McNNTP.Server
             try
             {
                 // Retrieve the socket from the state object.
-                var handler = (SendAsyncState)ar.AsyncState;
+                var data = (string)ar.AsyncState;
 
                 // Complete sending the data to the remote device.
-                if (Stream == null)
-                    return;
+                _stream.EndWrite(ar);
 
-                Stream.EndWrite(ar);
-
-                if (Client == null)
-                    return;
-
-                var remoteEndPoint = (IPEndPoint)Client.Client.RemoteEndPoint;
+                var remoteEndPoint = (IPEndPoint)_client.Client.RemoteEndPoint;
                 //if (ShowBytes && ShowData)
                 //    Console.WriteLine("{0}:{1} >>> {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent, handler.Payload.TrimEnd('\r', '\n'));
                 //else if (ShowBytes)
                 //    Console.WriteLine("{0}:{1} >>> {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent);
                 //else 
-                if (handler.ShowData)
-                    Console.WriteLine("{0}:{1} >>> {2}", remoteEndPoint.Address, remoteEndPoint.Port, handler.Payload.TrimEnd('\r', '\n'));
+                if (ShowData)
+                    Console.WriteLine("{0}:{1} >>> {2}", remoteEndPoint.Address, remoteEndPoint.Port, data.TrimEnd('\r', '\n'));
             }
             catch (ObjectDisposedException)
             {
@@ -342,13 +332,13 @@ namespace McNNTP.Server
         }
         public void Shutdown()
         {
-            lock (SendLock)
+            lock (_sendLock)
             {
-                if (Client != null)
+                if (_client.Connected)
                 {
                     Send("205 closing connection\r\n", false, Encoding.UTF8); // Block.
-                    Client.Client.Shutdown(SocketShutdown.Both);
-                    Client.Close();
+                    _client.Client.Shutdown(SocketShutdown.Both);
+                    _client.Close();
                 }
             }
         }
@@ -418,7 +408,7 @@ namespace McNNTP.Server
                     }
                 else
                 {
-                    lock (SendLock)
+                    lock (_sendLock)
                     {
                         switch (type)
                         {
@@ -589,7 +579,7 @@ namespace McNNTP.Server
                     }
                 else
                 {
-                    lock (SendLock)
+                    lock (_sendLock)
                     {
                         switch (type)
                         {
@@ -752,7 +742,7 @@ namespace McNNTP.Server
                     }
                 else
                 {
-                    lock (SendLock)
+                    lock (_sendLock)
                     {
                         Send("225 Headers follow (multi-line)\r\n");
 
@@ -869,7 +859,7 @@ namespace McNNTP.Server
                     }
                 else
                 {
-                    lock (SendLock)
+                    lock (_sendLock)
                     {
                         switch (type)
                         {
@@ -892,7 +882,7 @@ namespace McNNTP.Server
 
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Help(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Help()
         {
             var sb = new StringBuilder();
             sb.Append("100 Help text follows\r\n");
@@ -919,7 +909,7 @@ namespace McNNTP.Server
             Send(sb.ToString());
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Last(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Last(Func<ISession> sessionProvider)
         {
             // If the currently selected newsgroup is invalid, a 412 response MUST be returned.
             if (string.IsNullOrWhiteSpace(CurrentNewsgroup))
@@ -983,7 +973,7 @@ namespace McNNTP.Server
                     return new CommandProcessingResult(true);
                 }
 
-                lock (SendLock)
+                lock (_sendLock)
                 {
                     Send("215 list of newsgroups follows\r\n");
                     foreach (var ng in newsGroups)
@@ -1016,7 +1006,7 @@ namespace McNNTP.Server
                     return new CommandProcessingResult(true);
                 }
 
-                lock (SendLock)
+                lock (_sendLock)
                 {
                     Send("215 information follows\r\n");
                     foreach (var ng in newsGroups)
@@ -1048,7 +1038,7 @@ namespace McNNTP.Server
                     CurrentNewsgroup = ng.Name;
                     if (ng.PostCount == 0)
                     {
-                        lock (SendLock)
+                        lock (_sendLock)
                         {
                             Send(string.Format("211 0 0 0 {0}\r\n", ng.Name));
                         }
@@ -1075,7 +1065,7 @@ namespace McNNTP.Server
 
                         CurrentArticleNumber = !articles.Any() ? default(long?) : articles.First().Id;
 
-                        lock (SendLock)
+                        lock (_sendLock)
                         {
                             Send(string.Format("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name), false, Encoding.UTF8);
                             foreach (var article in articles)
@@ -1118,7 +1108,7 @@ namespace McNNTP.Server
                     newsGroups = session.Query<Newsgroup>().Where(n => n.CreateDate >= afterDate).OrderBy(n => n.Name).ToList();
                 }
 
-                lock (SendLock)
+                lock (_sendLock)
                 {
                     Send("231 List of new newsgroups follows (multi-line)\r\n", false, Encoding.UTF8);
                     foreach (var ng in newsGroups)
@@ -1129,7 +1119,7 @@ namespace McNNTP.Server
             }
             else
             {
-                lock (SendLock)
+                lock (_sendLock)
                 {
                     Send("231 List of new newsgroups follows (multi-line)\r\n.\r\n");
                 }
@@ -1137,7 +1127,7 @@ namespace McNNTP.Server
 
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Next(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Next(Func<ISession> sessionProvider)
         {
             // If the currently selected newsgroup is invalid, a 412 response MUST be returned.
             if (string.IsNullOrWhiteSpace(CurrentNewsgroup))
@@ -1175,7 +1165,7 @@ namespace McNNTP.Server
             Send(string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Post(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Post(Func<ISession> sessionProvider)
         {
             if (!CanPost)
             {
@@ -1375,7 +1365,7 @@ namespace McNNTP.Server
                     }
                 else
                 {
-                    lock (SendLock)
+                    lock (_sendLock)
                     {
                         switch (type)
                         {
@@ -1473,7 +1463,7 @@ namespace McNNTP.Server
                 CurrentArticleNumber = articles.First().Id;
                 Func<string, string> unfold = i => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", "").Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
 
-                lock (SendLock)
+                lock (_sendLock)
                 {
                     Send("224 Overview information follows\r\n", false, Encoding.UTF8);
                     foreach (var article in articles)

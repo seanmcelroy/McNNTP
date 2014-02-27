@@ -107,6 +107,7 @@
     <Compile Include="Annotations.cs" />
     <Compile Include="Client\NntpClient.cs" />
     <Compile Include="Client\NntpException.cs" />
+    <Compile Include="Database\SessionUtility.cs" />
     <Compile Include="GlobalSuppressions.cs" />
     <Compile Include="InternetMessageFormatUtility.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -120,7 +121,6 @@
     <Compile Include="Server\NntpServer.cs" />
     <Compile Include="Server\Connection.cs" />
     <Compile Include="Server\PortClass.cs" />
-    <Compile Include="Server\SendAsyncState.cs" />
     <Compile Include="StringUtility.cs" />
   </ItemGroup>
   <ItemGroup>

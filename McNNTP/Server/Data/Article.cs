@@ -6,6 +6,7 @@ using JetBrains.Annotations;
 
 namespace McNNTP.Server.Data
 {
+    // ReSharper disable once ClassWithVirtualMembersNeverInherited.Global
     public class Article
     {
         public virtual long Id { get; set; }

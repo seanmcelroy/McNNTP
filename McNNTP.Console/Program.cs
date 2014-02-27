@@ -8,16 +8,12 @@ using System.Text;
 using System.Threading.Tasks;
 using McNNTP.Server;
 using McNNTP.Server.Data;
-using NHibernate;
-using NHibernate.Cfg;
 
 namespace McNNTP.Console
 {
     public static class Program
     {
         private static NntpServer _server;
-        private static readonly object _sessionFactoryLock = new object();
-        private static ISessionFactory _sessionFactory;
         
         private static readonly Dictionary<string, Func<string, bool>> _commandDirectory = new Dictionary
             <string, Func<string, bool>>
@@ -36,7 +32,7 @@ namespace McNNTP.Console
         {
             try
             {
-                _server = new NntpServer(OpenSession)
+                _server = new NntpServer(Database.SessionUtility.OpenSession)
                 {
                     AllowPosting = true,
                     ClearPorts = new [] { 119 }
@@ -48,7 +44,7 @@ namespace McNNTP.Console
                     _server.InitializeDatabase();
                 }
 
-                var listenerTask = Task.Factory.StartNew(() => _server.Start());
+                _server.Start();
 
                 System.Console.WriteLine("Type QUIT and press Enter to end the server.");
 
@@ -60,7 +56,8 @@ namespace McNNTP.Console
                         continue;
                     if (!_commandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input))
                         continue;
-                    listenerTask.Wait(1); // Kill me.
+
+                    _server.Stop();
                     return 0;
                 }
             }
@@ -115,7 +112,7 @@ namespace McNNTP.Console
             var bstr = Marshal.SecureStringToBSTR(pass);
             try
             {
-                using (var session = OpenSession())
+                using (var session = Database.SessionUtility.OpenSession())
                 {
                     session.Save(new Administrator
                     {
@@ -162,7 +159,7 @@ namespace McNNTP.Console
 
             var desc = parts.Skip(2).Aggregate((c, n) => c + " " + n);
 
-            using (var session = OpenSession())
+            using (var session = Database.SessionUtility.OpenSession())
             {
                 session.Save(new Newsgroup
                 {
@@ -215,23 +212,6 @@ namespace McNNTP.Console
         {
             _server.Stop();
             return true;
-        }
-        #endregion
-
-
-        #region Database
-        private static ISession OpenSession()
-        {
-            lock (_sessionFactoryLock)
-            {
-                if (_sessionFactory == null)
-                {
-                    var configuration = new Configuration();
-                    configuration.AddAssembly(typeof(Newsgroup).Assembly);
-                    _sessionFactory = configuration.BuildSessionFactory();
-                }
-            }
-            return _sessionFactory.OpenSession();
         }
         #endregion
     }
