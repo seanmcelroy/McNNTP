@@ -5,7 +5,8 @@
       <generator class="native" />
     </id>
     <many-to-one name="Newsgroup" column="NewsgroupId" not-null="true" />
-    
+    <property name="Number" not-null="true" update="false" />
+
     <property name="Date" not-null="true" length="100" update="false" />
     <property name="From" column="FromHeader" not-null="true" length="1000" update="false" />
     <property name="MessageId" not-null="true" length="500" unique="true" update="false" unique-key="GloballyUniqueMessageId" />

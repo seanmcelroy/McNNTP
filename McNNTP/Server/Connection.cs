@@ -13,13 +13,15 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using MoreLinq;
+using log4net;
 
 namespace McNNTP.Server
 {
     // State object for reading client data asynchronously
     internal class Connection
     {
-        private readonly static Dictionary<string, Func<Connection, Func<ISession>, string, CommandProcessingResult>> _commandDirectory;
+        private static readonly Dictionary<string, Func<Connection, string, CommandProcessingResult>> _commandDirectory;
+        private static readonly ILog _logger = LogManager.GetLogger(typeof(Connection));
 
         // Client socket.
         [NotNull] 
@@ -36,8 +38,6 @@ namespace McNNTP.Server
         // Received data string.
         [NotNull]
         private readonly StringBuilder _builder = new StringBuilder();
-        [NotNull]
-        private readonly Func<ISession> _sessionProvider;
 
         [CanBeNull]
         private CommandProcessingResult _inProcessCommand;
@@ -75,34 +75,33 @@ namespace McNNTP.Server
 
         static Connection()
         {
-            _commandDirectory = new Dictionary<string, Func<Connection, Func<ISession>, string, CommandProcessingResult>>
+            _commandDirectory = new Dictionary<string, Func<Connection, string, CommandProcessingResult>>
                 {
-                    {"ARTICLE", (c, sp, data) => c.Article(sp, data) },
-                    {"AUTHINFO", (c, sp, data) => c.AuthInfo(sp, data)},
-                    {"BODY", (c, sp, data) => c.Body(sp, data)},
-                    {"CAPABILITIES", (c, sp, data) => c.Capabilities() },
-                    {"DATE", (c, sp, data) => c.Date()},
-                    {"GROUP", (c, sp, data) => c.Group(sp, data)},
-                    {"HDR", (c, sp, data) => c.Hdr(sp, data)},
-                    {"HEAD", (c, sp, data) => c.Head(sp, data)},
-                    {"HELP", (c, sp, data) => c.Help()},
-                    {"LAST", (c, sp, data) => c.Last(sp)},
-                    {"LIST", (c, sp, data) => c.List(sp, data)},
-                    {"LISTGROUP", (c, sp, data) => c.ListGroup(sp, data)},
-                    {"MODE", (c, sp, data) => c.Mode(data)},
-                    {"NEWGROUPS", (c, sp, data) => c.Newgroups(sp, data)},
-                    {"NEXT", (c, sp, data) => c.Next(sp)},
-                    {"POST", (c, sp, data) => c.Post(sp)},
-                    {"STAT", (c, sp, data) => c.Stat(sp, data)},
-                    {"XOVER", (c, sp, data) => c.XOver(sp, data)},
-                    {"QUIT", (c, sp, data) => c.Quit()}
+                    {"ARTICLE", (c, data) => c.Article(data) },
+                    {"AUTHINFO", (c, data) => c.AuthInfo(data)},
+                    {"BODY", (c, data) => c.Body(data)},
+                    {"CAPABILITIES", (c, data) => c.Capabilities() },
+                    {"DATE", (c, data) => c.Date()},
+                    {"GROUP", (c, data) => c.Group(data)},
+                    {"HDR", (c, data) => c.Hdr(data)},
+                    {"HEAD", (c, data) => c.Head(data)},
+                    {"HELP", (c, data) => c.Help()},
+                    {"LAST", (c, data) => c.Last()},
+                    {"LIST", (c, data) => c.List(data)},
+                    {"LISTGROUP", (c, data) => c.ListGroup(data)},
+                    {"MODE", (c, data) => c.Mode(data)},
+                    {"NEWGROUPS", (c, data) => c.Newgroups(data)},
+                    {"NEXT", (c, data) => c.Next()},
+                    {"POST", (c, data) => c.Post()},
+                    {"STAT", (c, data) => c.Stat(data)},
+                    {"XOVER", (c, data) => c.XOver(data)},
+                    {"QUIT", (c, data) => c.Quit()}
                 };
         }
 
         public Connection(
             [NotNull] TcpClient client,
             [NotNull] Stream stream,
-            Func<ISession> sessionProvider,
             string serverName = "freenews.local",
             bool allowStartTls = true,
             bool canPost = true,
@@ -115,7 +114,6 @@ namespace McNNTP.Server
             CanPost = canPost;
             _client = client;
             ServerName = serverName;
-            _sessionProvider = sessionProvider;
             ShowBytes = showBytes;
             ShowCommands = showCommands;
             ShowData = showData;
@@ -141,12 +139,12 @@ namespace McNNTP.Server
             catch (IOException se)
             {
                 Send("403 Archive server temporarily offline\r\n");
-                Console.WriteLine(se.ToString());
+                _logger.Error("I/O Exception on BeginRead", se);
             }
             catch (SocketException se)
             {
                 Send("403 Archive server temporarily offline\r\n");
-                Console.WriteLine(se.ToString());
+                _logger.Error("Socket Exception on BeginRead", se);
             }
         }
         private void ReadCallback(IAsyncResult ar)
@@ -157,14 +155,16 @@ namespace McNNTP.Server
             {
                 bytesRead = _stream.EndRead(ar);
             }
-            catch (IOException)
+            catch (IOException ioe)
             {
                 Send("403 Archive server temporarily offline\r\n");
+                _logger.ErrorFormat("I/O Exception on EndRead", ioe);
                 return;
             }
-            catch (SocketException)
+            catch (SocketException sex)
             {
                 Send("403 Archive server temporarily offline\r\n");
+                _logger.ErrorFormat("Socket Exception on EndRead", sex);
                 return;
             }
             catch (ObjectDisposedException)
@@ -186,15 +186,15 @@ namespace McNNTP.Server
                 {
                     _stream.BeginRead(_buffer, 0, BUFFER_SIZE, ReadCallback, null);
                 }
-                catch (IOException sex)
+                catch (IOException ioe)
                 {
                     Send("403 Archive server temporarily offline\r\n");
-                    Console.Write(sex.ToString());
+                    _logger.ErrorFormat("I/O Exception on BeginRead", ioe);
                 }
                 catch (SocketException sex)
                 {
                     Send("403 Archive server temporarily offline\r\n");
-                    Console.Write(sex.ToString());
+                    _logger.ErrorFormat("Socket Exception on BeginRead", sex);
                 }
                 return;
             }
@@ -202,11 +202,11 @@ namespace McNNTP.Server
             // All the data has been read from the 
             // client. Display it on the console.
             if (ShowBytes && ShowData)
-                Console.WriteLine("{0}:{1} >{2}> {3} bytes: {4}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.Length, content.TrimEnd('\r', '\n'));
+                _logger.TraceFormat("{0}:{1} >{2}> {3} bytes: {4}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.Length, content.TrimEnd('\r', '\n'));
             else if (ShowBytes)
-                Console.WriteLine("{0}:{1} >{2}> {3} bytes", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.Length);
+                _logger.TraceFormat("{0}:{1} >{2}> {3} bytes", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.Length);
             else if (ShowData)
-                Console.WriteLine("{0}:{1} >{2}> {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
+                _logger.TraceFormat("{0}:{1} >{2}> {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
 
             if (_inProcessCommand != null && _inProcessCommand.MessageHandler != null)
             {
@@ -223,9 +223,9 @@ namespace McNNTP.Server
                     try
                     {
                         if (ShowCommands)
-                            Console.WriteLine("{0}:{1} >{2}> {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
+                            _logger.TraceFormat("{0}:{1} >{2}> {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
 
-                        var result = _commandDirectory[command].Invoke(this, _sessionProvider, content);
+                        var result = _commandDirectory[command].Invoke(this, content);
 
                         if (!result.IsHandled)
                             Send("500 Unknown command\r\n");
@@ -237,7 +237,7 @@ namespace McNNTP.Server
                     catch (Exception ex)
                     {
                         Send("403 Archive server temporarily offline\r\n");
-                        Console.WriteLine(ex.ToString());
+                        _logger.Error("Exception processing a command", ex);
                     }
                 }
                 else
@@ -257,12 +257,12 @@ namespace McNNTP.Server
             catch (IOException sex)
             {
                 Send("403 Archive server temporarily offline\r\n");
-                Console.WriteLine(sex.ToString());
+                _logger.Error("I/O Exception on BeginRead", sex);
             }
             catch (SocketException sex)
             {
                 Send("403 Archive server temporarily offline\r\n");
-                Console.WriteLine(sex.ToString());
+                _logger.Error("Socket Exception on BeginRead", sex);
             }
         }
         public void Send(string data)
@@ -286,22 +286,22 @@ namespace McNNTP.Server
                 {
                     _stream.Write(byteData, 0, byteData.Length);
                     if (ShowBytes && ShowData)
-                        Console.WriteLine("{0}:{1} <{2}< {3} bytes: {4}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", byteData.Length, data.TrimEnd('\r', '\n'));
+                        _logger.TraceFormat("{0}:{1} <{2}< {3} bytes: {4}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", byteData.Length, data.TrimEnd('\r', '\n'));
                     else if (ShowBytes)
-                        Console.WriteLine("{0}:{1} <{2}< {3} bytes", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", byteData.Length);
+                        _logger.TraceFormat("{0}:{1} <{2}< {3} bytes", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", byteData.Length);
                     else if (ShowData)
-                        Console.WriteLine("{0}:{1} <{2}< {3}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", data.TrimEnd('\r', '\n'));
+                        _logger.TraceFormat("{0}:{1} <{2}< {3}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", data.TrimEnd('\r', '\n'));
                 }
             }
             catch (IOException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Console.WriteLine("{0}:{1} XXX CONNECTION TERMINATED", remoteEndPoint.Address, remoteEndPoint.Port);
+                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", remoteEndPoint.Address, remoteEndPoint.Port);
             }
             catch (SocketException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Console.WriteLine("{0}:{1} XXX CONNECTION TERMINATED", remoteEndPoint.Address, remoteEndPoint.Port);
+                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", remoteEndPoint.Address, remoteEndPoint.Port);
             }
         }
         private void SendCallback(IAsyncResult ar)
@@ -316,12 +316,12 @@ namespace McNNTP.Server
 
                 var remoteEndPoint = (IPEndPoint)_client.Client.RemoteEndPoint;
                 //if (ShowBytes && ShowData)
-                //    Console.WriteLine("{0}:{1} <<< {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent, handler.Payload.TrimEnd('\r', '\n'));
+                //    _logger.TraceFormat("{0}:{1} <<< {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent, handler.Payload.TrimEnd('\r', '\n'));
                 //else if (ShowBytes)
-                //    Console.WriteLine("{0}:{1} <<< {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent);
+                //    _logger.TraceFormat("{0}:{1} <<< {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent);
                 //else 
                 if (ShowData)
-                    Console.WriteLine("{0}:{1} <{2}< {3}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", data.TrimEnd('\r', '\n'));
+                    _logger.TraceFormat("{0}:{1} <{2}< {3}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", data.TrimEnd('\r', '\n'));
             }
             catch (ObjectDisposedException)
             {
@@ -330,7 +330,7 @@ namespace McNNTP.Server
             catch (Exception e)
             {
                 // Don't send 403 - the sending socket isn't working
-                Console.WriteLine(e.ToString());
+                _logger.ErrorFormat("Exception on EndWrite", e);
                 throw;
             }
         }
@@ -349,7 +349,7 @@ namespace McNNTP.Server
         #endregion
 
         #region Commands
-        private CommandProcessingResult Article(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Article(string content)
         {
             var param = (string.Compare(content, "ARTICLE\r\n", StringComparison.OrdinalIgnoreCase) == 0)
                 ? null
@@ -369,13 +369,13 @@ namespace McNNTP.Server
                 return new CommandProcessingResult(true);
             }
 
-            using (var session = sessionProvider.Invoke())
+            using (var session = Database.SessionUtility.OpenSession())
             {
                 Article article;
                 int type;
                 if (string.IsNullOrEmpty(param))
                 {
-                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == CurrentNewsgroup && a.Id == CurrentArticleNumber);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == CurrentNewsgroup && a.Number == CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
@@ -437,7 +437,7 @@ namespace McNNTP.Server
 
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult AuthInfo(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult AuthInfo(string content)
         {
             // RFC 4643 - NNTP AUTHENTICATION
             var param = (string.Compare(content, "AUTHINFO\r\n", StringComparison.OrdinalIgnoreCase) == 0)
@@ -484,7 +484,7 @@ namespace McNNTP.Server
                 rng.GetNonZeroBytes(saltBytes);
 
                 Administrator[] allAdmins;
-                using (var session = sessionProvider.Invoke())
+                using (var session = Database.SessionUtility.OpenSession())
                 {
                     allAdmins = session.Query<Administrator>().ToArray();
                     session.Close();
@@ -517,7 +517,7 @@ namespace McNNTP.Server
 
             return new CommandProcessingResult(false);
         }
-        private CommandProcessingResult Body(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Body(string content)
         {
             var param = (string.Compare(content, "BODY\r\n", StringComparison.OrdinalIgnoreCase) == 0)
                 ? null
@@ -540,13 +540,13 @@ namespace McNNTP.Server
                 }
             }
 
-            using (var session = sessionProvider.Invoke())
+            using (var session = Database.SessionUtility.OpenSession())
             {
                 int type;
                 Article article;
                 if (string.IsNullOrEmpty(param))
                 {
-                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == CurrentNewsgroup && a.Id == CurrentArticleNumber);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == CurrentNewsgroup && a.Number == CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
@@ -556,14 +556,14 @@ namespace McNNTP.Server
                 }
                 else
                 {
-                    int articleId;
-                    if (!int.TryParse(param, out articleId))
+                    int articleNumber;
+                    if (!int.TryParse(param, out articleNumber))
                     {
                         Send("423 No article with that number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
-                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == CurrentNewsgroup && a.Id == articleId);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == CurrentNewsgroup && a.Number == articleNumber);
                     type = 2;
                 }
 
@@ -632,11 +632,11 @@ namespace McNNTP.Server
             Send(string.Format(CultureInfo.InvariantCulture, "111 {0:yyyyMMddHHmmss}\r\n", DateTime.UtcNow));
             return new CommandProcessingResult(true);
         }        
-        private CommandProcessingResult Group(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Group(string content)
         {
             content = content.TrimEnd('\r', '\n').Substring(content.IndexOf(' ') + 1).Split(' ')[0];
             Newsgroup ng;
-            using (var session = sessionProvider.Invoke())
+            using (var session = Database.SessionUtility.OpenSession())
             {
                 ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == content);
             }
@@ -657,7 +657,7 @@ namespace McNNTP.Server
             }
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Hdr(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Hdr(string content)
         {
             var parts = content.TrimEnd('\r', '\n').Split(' ');
             if (parts.Length < 2 || parts.Length > 3)
@@ -701,7 +701,7 @@ namespace McNNTP.Server
                 }
             }
 
-            using (var session = sessionProvider.Invoke())
+            using (var session = Database.SessionUtility.OpenSession())
             {
                 IEnumerable<Article> articles;
                 switch (type)
@@ -797,7 +797,7 @@ namespace McNNTP.Server
 
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Head(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Head(string content)
         {
             var param = (string.Compare(content, "HEAD\r\n", StringComparison.OrdinalIgnoreCase) == 0)
                 ? null
@@ -820,7 +820,7 @@ namespace McNNTP.Server
                 }
             }
 
-            using (var session = sessionProvider.Invoke())
+            using (var session = Database.SessionUtility.OpenSession())
             {
                 Article article;
                 int type;
@@ -913,7 +913,7 @@ namespace McNNTP.Server
             Send(sb.ToString());
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Last(Func<ISession> sessionProvider)
+        private CommandProcessingResult Last()
         {
             // If the currently selected newsgroup is invalid, a 412 response MUST be returned.
             if (string.IsNullOrWhiteSpace(CurrentNewsgroup))
@@ -932,7 +932,7 @@ namespace McNNTP.Server
                 return new CommandProcessingResult(true);
             }
 
-            using (var session = sessionProvider.Invoke())
+            using (var session = Database.SessionUtility.OpenSession())
             {
                 previousArticle = session.Query<Article>().Fetch(a => a.Newsgroup)
                     .Where(a => a.Newsgroup.Name == CurrentNewsgroup && a.Id < currentArticleNumber.Value)
@@ -951,7 +951,7 @@ namespace McNNTP.Server
             Send(string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult List(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult List(string content)
         {
             if (string.Compare(content, "LIST\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
                 string.Compare(content, "LIST ACTIVE\r\n", StringComparison.OrdinalIgnoreCase) == 0)
@@ -960,19 +960,20 @@ namespace McNNTP.Server
 
                 try
                 {
-                    using (var session = sessionProvider.Invoke())
+                    using (var session = Database.SessionUtility.OpenSession())
                     {
                         newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
                     }
                 }
                 catch (MappingException mex)
                 {
-                    Console.WriteLine(mex.ToString());
+                    _logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
                     Send("403 Archive server temporarily offline\r\n");
                     return new CommandProcessingResult(true);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    _logger.Error("Exception when trying to handle LIST", ex);
                     Send("403 Archive server temporarily offline\r\n");
                     return new CommandProcessingResult(true);
                 }
@@ -993,19 +994,20 @@ namespace McNNTP.Server
 
                 try
                 {
-                    using (var session = sessionProvider.Invoke())
+                    using (var session = Database.SessionUtility.OpenSession())
                     {
                         newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
                     }
                 }
                 catch (MappingException mex)
                 {
-                    Console.WriteLine(mex.ToString());
+                    _logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
                     Send("403 Archive server temporarily offline\r\n");
                     return new CommandProcessingResult(true);
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    _logger.Error("Exception when trying to handle LIST", ex);
                     Send("403 Archive server temporarily offline\r\n");
                     return new CommandProcessingResult(true);
                 }
@@ -1023,14 +1025,14 @@ namespace McNNTP.Server
             Send("501 Syntax Error\r\n");
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult ListGroup(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult ListGroup(string content)
         {
             var parts = content.TrimEnd('\r', '\n').Split(' ');
 
             if (parts.Length == 1 && CurrentNewsgroup == null)
                 Send("412 No newsgroup selected\r\n");
 
-            using (var session = sessionProvider.Invoke())
+            using (var session = Database.SessionUtility.OpenSession())
             {
                 var name = (parts.Length == 2) ? parts[1] : CurrentNewsgroup;
                 var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
@@ -1051,7 +1053,7 @@ namespace McNNTP.Server
                     {
                         IList<Article> articles;
                         if (parts.Length < 3)
-                            articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name).OrderBy(a => a.Id).ToList();
+                            articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name).OrderBy(a => a.Number).ToList();
                         else
                         {
                             var range = ParseRange(parts[2]);
@@ -1062,18 +1064,18 @@ namespace McNNTP.Server
                             }
 
                             if (!range.Item2.HasValue) // LOW-
-                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1).OrderBy(a => a.Id).ToList();
+                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Number >= range.Item1).OrderBy(a => a.Number).ToList();
                             else // LOW-HIGH
-                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1 && a.Id <= range.Item2.Value).ToList();
+                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == ng.Name && a.Number >= range.Item1 && a.Number <= range.Item2.Value).ToList();
                         }
 
-                        CurrentArticleNumber = !articles.Any() ? default(long?) : articles.First().Id;
+                        CurrentArticleNumber = !articles.Any() ? default(long?) : articles.First().Number;
 
                         lock (_sendLock)
                         {
                             Send(string.Format("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name), false, Encoding.UTF8);
                             foreach (var article in articles)
-                                Send(string.Format(CultureInfo.InvariantCulture, "{0}\r\n", article.Id.ToString(CultureInfo.InvariantCulture)), false, Encoding.UTF8);
+                                Send(string.Format(CultureInfo.InvariantCulture, "{0}\r\n", article.Number.ToString(CultureInfo.InvariantCulture)), false, Encoding.UTF8);
                             Send(".\r\n", false, Encoding.UTF8);
                         }
                     }
@@ -1094,7 +1096,7 @@ namespace McNNTP.Server
             Send("501 Syntax Error\r\n");
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Newgroups(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Newgroups(string content)
         {
             var parts = content.TrimEnd('\r', '\n').Split(' ');
 
@@ -1107,7 +1109,7 @@ namespace McNNTP.Server
             if (afterDate != DateTime.MinValue)
             {
                 IList<Newsgroup> newsGroups;
-                using (var session = sessionProvider.Invoke())
+                using (var session = Database.SessionUtility.OpenSession())
                 {
                     newsGroups = session.Query<Newsgroup>().Where(n => n.CreateDate >= afterDate).OrderBy(n => n.Name).ToList();
                 }
@@ -1131,7 +1133,7 @@ namespace McNNTP.Server
 
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Next(Func<ISession> sessionProvider)
+        private CommandProcessingResult Next()
         {
             // If the currently selected newsgroup is invalid, a 412 response MUST be returned.
             if (string.IsNullOrWhiteSpace(CurrentNewsgroup))
@@ -1150,11 +1152,11 @@ namespace McNNTP.Server
                 return new CommandProcessingResult(true);
             }
 
-            using (var session = sessionProvider.Invoke())
+            using (var session = Database.SessionUtility.OpenSession())
             {
                 previousArticle = session.Query<Article>().Fetch(a => a.Newsgroup)
-                    .Where(a => a.Newsgroup.Name == CurrentNewsgroup && a.Id > currentArticleNumber.Value)
-                    .MinBy(a => a.Id);
+                    .Where(a => a.Newsgroup.Name == CurrentNewsgroup && a.Number > currentArticleNumber.Value)
+                    .MinBy(a => a.Number);
             }
 
             // If the current article number is already the last article of the newsgroup, a 421 response MUST be returned.
@@ -1164,23 +1166,18 @@ namespace McNNTP.Server
                 return new CommandProcessingResult(true);
             }
 
-            CurrentArticleNumber = previousArticle.Id;
+            CurrentArticleNumber = previousArticle.Number;
 
-            Send(string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
+            Send(string.Format("223 {0} {1} retrieved\r\n", previousArticle.Number, previousArticle.MessageId));
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Post(Func<ISession> sessionProvider)
+        private CommandProcessingResult Post()
         {
             if (!CanPost)
             {
                 Send("440 Posting not permitted\r\n");
                 return new CommandProcessingResult(true);
             }
-
-            //TEST
-            Send("382 Continue with TLS negotiation\r\n");
-            return new CommandProcessingResult(true);
-
 
             Send("340 Send article to be posted\r\n");
 
@@ -1251,7 +1248,7 @@ namespace McNNTP.Server
 
                         article.Control = null;
 
-                        using (var session = sessionProvider.Invoke())
+                        using (var session = Database.SessionUtility.OpenSession())
                         {
                             foreach (var newsgroupName in article.Newsgroups.Split(' '))
                             {
@@ -1262,6 +1259,7 @@ namespace McNNTP.Server
 
                                 article.Id = 0;
                                 article.Newsgroup = newsgroup;
+                                article.Number = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == newsgroupName).Max(a => a.Number) + 1;
                                 article.Path = ServerName;
                                 session.Save(article);
                             }
@@ -1277,7 +1275,7 @@ namespace McNNTP.Server
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine(ex.ToString());
+                        _logger.Error("Exception when trying to handle POST", ex);
                         Send("441 Posting failed\r\n");
                         return new CommandProcessingResult(true);
                     }
@@ -1308,7 +1306,7 @@ namespace McNNTP.Server
             Send("580 Can not initiate TLS negotiation\r\n");
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult Stat(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult Stat(string content)
         {
             var param = (string.Compare(content, "STAT\r\n", StringComparison.OrdinalIgnoreCase) == 0)
                 ? null
@@ -1331,13 +1329,13 @@ namespace McNNTP.Server
                 }
             }
 
-            using (var session = sessionProvider.Invoke())
+            using (var session = Database.SessionUtility.OpenSession())
             {
                 Article article;
                 int type;
                 if (string.IsNullOrEmpty(param))
                 {
-                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == CurrentNewsgroup && a.Id == CurrentArticleNumber);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == CurrentNewsgroup && a.Number == CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
@@ -1347,14 +1345,14 @@ namespace McNNTP.Server
                 }
                 else
                 {
-                    int articleId;
-                    if (!int.TryParse(param, out articleId))
+                    int articleNumber;
+                    if (!int.TryParse(param, out articleNumber))
                     {
                         Send("423 No article with that number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
-                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == CurrentNewsgroup && a.Id == articleId);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => a.Newsgroup.Name == CurrentNewsgroup && a.Number == articleNumber);
                     type = 2;
                 }
 
@@ -1380,14 +1378,14 @@ namespace McNNTP.Server
                         {
                             case 1:
                                 Send(string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n",
-                                    (!string.IsNullOrEmpty(CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0) ? article.Id : 0,
+                                    (!string.IsNullOrEmpty(CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0) ? article.Number : 0,
                                     article.MessageId));
                                 break;
                             case 2:
-                                Send(string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n", article.Id, article.MessageId));
+                                Send(string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n", article.Number, article.MessageId));
                                 break;
                             case 3:
-                                Send(string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n", article.Id, article.MessageId));
+                                Send(string.Format(CultureInfo.InvariantCulture, "223 {0} {1}\r\n", article.Number, article.MessageId));
                                 break;
                         }
                     }
@@ -1396,7 +1394,7 @@ namespace McNNTP.Server
 
             return new CommandProcessingResult(true);
         }
-        private CommandProcessingResult XOver(Func<ISession> sessionProvider, string content)
+        private CommandProcessingResult XOver(string content)
         {
             var rangeExpression = content.Substring(content.IndexOf(' ') + 1).TrimEnd('\r', '\n');
 
@@ -1409,7 +1407,7 @@ namespace McNNTP.Server
 
                 try
                 {
-                    using (var session = sessionProvider.Invoke())
+                    using (var session = Database.SessionUtility.OpenSession())
                     {
                         ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == CurrentNewsgroup);
 
@@ -1434,8 +1432,8 @@ namespace McNNTP.Server
                                 articles =
                                     session.Query<Article>()
                                         .Fetch(a => a.Newsgroup)
-                                        .Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1)
-                                        .OrderBy(a => a.Id)
+                                        .Where(a => a.Newsgroup.Name == ng.Name && a.Number >= range.Item1)
+                                        .OrderBy(a => a.Number)
                                         .ToList();
                             }
                             else // LOW-HIGH
@@ -1443,8 +1441,8 @@ namespace McNNTP.Server
                                 articles =
                                     session.Query<Article>()
                                         .Fetch(a => a.Newsgroup)
-                                        .Where(a => a.Newsgroup.Name == ng.Name && a.Id >= range.Item1 && a.Id <= range.Item2.Value)
-                                        .OrderBy(a => a.Id)
+                                        .Where(a => a.Newsgroup.Name == ng.Name && a.Number >= range.Item1 && a.Number <= range.Item2.Value)
+                                        .OrderBy(a => a.Number)
                                         .ToList();
                             }
                         }
@@ -1453,7 +1451,7 @@ namespace McNNTP.Server
                 catch (Exception ex)
                 {
                     Send("403 Archive server temporarily offline\r\n");
-                    Console.WriteLine(ex.ToString());
+                    _logger.Error("Exception when trying to handle XOVER", ex);
                     return new CommandProcessingResult(true);
                 }
 

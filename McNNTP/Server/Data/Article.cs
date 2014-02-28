@@ -12,6 +12,7 @@ namespace McNNTP.Server.Data
         public virtual long Id { get; set; }
         [NotNull]
         public virtual Newsgroup Newsgroup { get; set; }
+        public virtual int Number { get; set; }
         // MANDATORY FIELDS
         [NotNull]
         public virtual string Date { get; set; }

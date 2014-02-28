@@ -17,8 +17,6 @@ namespace McNNTP.Server
 {
     public class NntpServer
     {
-        internal readonly Func<ISession> _sessionProvider;
-
         private readonly List<System.Tuple<Thread, NntpListener>> _listeners = new List<System.Tuple<Thread, NntpListener>>();
 
         internal readonly ConcurrentBag<Connection> _connections = new ConcurrentBag<Connection>();
@@ -32,10 +30,8 @@ namespace McNNTP.Server
         public int[] ImplicitTLSPorts { get; set; }
         public string ServerPath { get; set; }
 
-        public NntpServer([NotNull] Func<ISession> sessionProvider)
+        public NntpServer()
         {
-            _sessionProvider = sessionProvider;
-
             // TODO: Put this in a custom config section
             ServerPath = "freenews.localhost";
 
@@ -112,85 +108,5 @@ namespace McNNTP.Server
         public bool ShowData { get; set; }
 
         #endregion
-
-        public void InitializeDatabase()
-        {
-            var configuration = new Configuration();
-            configuration.AddAssembly(typeof(Newsgroup).Assembly);
-            configuration.Configure();
-
-            using (var connection = new SQLiteConnection(configuration.GetProperty("connection.connection_string")))
-            {
-                connection.Open();
-                try
-                {
-                    var update = new SchemaUpdate(configuration);
-                    update.Execute(false, true);
-
-                    // Update failed..  recreate it.
-                    if (!VerifyDatabase())
-                    {
-                        var export = new SchemaExport(configuration);
-                        export.Execute(false, true, false, connection, null);
-
-                        using (var session = _sessionProvider.Invoke())
-                        {
-                            session.Save(new Newsgroup
-                            {
-                                CreateDate = DateTime.UtcNow,
-                                Description = "Control group for the repository",
-                                Name = "freenews.config"
-                            });
-                            session.Close();
-                        }
-                    }
-                    else
-                    {
-                        // Ensure placeholder data is there.
-                        using (var session = _sessionProvider.Invoke())
-                        {
-                            var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
-                            if (newsgroupCount > 0)
-                                session.Save(new Newsgroup
-                                {
-                                    CreateDate = DateTime.UtcNow,
-                                    Description = "Control group for the repository",
-                                    Name = "freenews.config"
-                                });
-                        }
-                    }
-                }
-                finally
-                {
-                    connection.Close();
-                }
-            }
-        }
-
-        public bool VerifyDatabase()
-        {
-            try
-            {
-                using (var session = _sessionProvider.Invoke())
-                {
-                    var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
-                    Console.WriteLine("Verified database has {0} newsgroups", newsgroupCount);
-
-                    var articleCount = session.Query<Article>().Count(a => a.Headers != null);
-                    Console.WriteLine("Verified database has {0} articles", articleCount);
-
-                    var adminCount = session.Query<Administrator>().Count(a => a.CanInject);
-                    Console.WriteLine("Verified database has {0} local admins", adminCount);
-
-                    session.Close();
-
-                    return newsgroupCount > 0;
-                }
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
     }
 }

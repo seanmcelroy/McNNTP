@@ -1,5 +1,6 @@
 ﻿using System.ServiceProcess;
 using McNNTP.Server;
+using log4net;
 
 namespace McNNTP.Service
 {
@@ -17,17 +18,12 @@ namespace McNNTP.Service
             CanStop = true;
             ServiceName = "McNNTP";
 
-            _server = new NntpServer(Database.SessionUtility.OpenSession)
+            _server = new NntpServer()
             {
                 AllowPosting = true,
+                // TODO: Move to configuration
                 ClearPorts = new[] { 119 }
             };
-
-            if (!_server.VerifyDatabase())
-            {
-                System.Console.WriteLine("Unable to verify a database.  Would you like to create and initialize a database?");
-                _server.InitializeDatabase();
-            }
         }
 
         protected override void OnStart(string[] args)

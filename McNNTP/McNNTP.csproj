@@ -74,6 +74,9 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\packages\Iesi.Collections.3.2.0.1001\lib\Net35\Iesi.Collections.dll</HintPath>
     </Reference>
+    <Reference Include="log4net">
+      <HintPath>..\packages\log4net.2.0.3\lib\net40-full\log4net.dll</HintPath>
+    </Reference>
     <Reference Include="Mono.Security">
       <HintPath>..\packages\Mono.Security.3.2.3.0\lib\net45\Mono.Security.dll</HintPath>
     </Reference>
@@ -110,9 +113,11 @@
     <Compile Include="Annotations.cs" />
     <Compile Include="Client\NntpClient.cs" />
     <Compile Include="Client\NntpException.cs" />
+    <Compile Include="Database\DatabaseUtility.cs" />
     <Compile Include="Database\SessionUtility.cs" />
     <Compile Include="GlobalSuppressions.cs" />
     <Compile Include="InternetMessageFormatUtility.cs" />
+    <Compile Include="LogUtility.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Server\AcceptAsyncState.cs" />
     <Compile Include="Server\ArticleUtility.cs" />

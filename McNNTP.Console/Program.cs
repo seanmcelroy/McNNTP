@@ -8,6 +8,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using McNNTP.Server;
 using McNNTP.Server.Data;
+using log4net.Config;
 
 namespace McNNTP.Console
 {
@@ -18,10 +19,10 @@ namespace McNNTP.Console
         private static readonly Dictionary<string, Func<string, bool>> _commandDirectory = new Dictionary
             <string, Func<string, bool>>
         {
+            {"?", s => Help()},
             {"HELP", s => Help()},
             {"MAKEADMIN", MakeAdmin},
             {"MAKEGROUP", MakeGroup},
-            {"SHOWCONN", s => Help()},
             {"TOGBYTES", s => TogBytes()},
             {"TOGCMD", s => TogCommands()},
             {"TOGDATA", s => TogData()},
@@ -30,21 +31,32 @@ namespace McNNTP.Console
 
         public static int Main(string[] args)
         {
+            var version = System.Reflection.Assembly.GetEntryAssembly().GetName().Version;
+            System.Console.WriteLine("McNNTP Console Harness v{0}", version);
+
             try
             {
-                _server = new NntpServer(Database.SessionUtility.OpenSession)
+                // Setup LOG4NET
+                log4net.Config.XmlConfigurator.Configure();
+
+                // Verify Database
+                if (Database.DatabaseUtility.VerifyDatabase())
+                    Database.DatabaseUtility.UpdateSchema();
+                else
+                {
+                    System.Console.WriteLine("Unable to verify a database.  Would you like to create and initialize a database?");
+                    var resp = System.Console.ReadLine();
+                    if (new[] { "y", "yes" }.Contains(resp.ToLowerInvariant().Trim()))
+                        Database.DatabaseUtility.InitializeDatabase();
+                }
+
+                _server = new NntpServer()
                 {
                     AllowPosting = true,
                     ClearPorts = new [] { 119 },
                     ImplicitTLSPorts = new[] { 563 }
                 };
-
-                if (!_server.VerifyDatabase())
-                {
-                    System.Console.WriteLine("Unable to verify a database.  Would you like to create and initialize a database?");
-                    _server.InitializeDatabase();
-                }
-
+                
                 _server.Start();
 
                 System.Console.WriteLine("Type QUIT and press Enter to end the server.");
@@ -54,7 +66,10 @@ namespace McNNTP.Console
                     System.Console.Write("\r\n> ");
                     var input = System.Console.ReadLine();
                     if (input == null || !_commandDirectory.ContainsKey(input.Split(' ')[0].ToUpperInvariant()))
+                    {
+                        System.Console.WriteLine("Unrecongized command.  Type HELP for a list of available commands.");
                         continue;
+                    }
                     if (!_commandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input))
                         continue;
 

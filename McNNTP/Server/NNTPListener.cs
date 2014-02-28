@@ -4,6 +4,7 @@ using System.Net.Security;
 using System.Net.Sockets;
 using System.Threading;
 using JetBrains.Annotations;
+using log4net;
 
 namespace McNNTP.Server
 {
@@ -11,8 +12,8 @@ namespace McNNTP.Server
     {
         // Thread signal.
         private readonly ManualResetEvent _allDone = new ManualResetEvent(false);
-
         private readonly NntpServer _server;
+        private static readonly ILog _logger = LogManager.GetLogger(typeof(NntpListener));
 
         public NntpListener([NotNull] NntpServer server, [NotNull] IPEndPoint localEp)
             : base(localEp)
@@ -48,9 +49,9 @@ namespace McNNTP.Server
                 }
 
             }
-            catch (Exception e)
+            catch (Exception ex)
             {
-                Console.WriteLine(e.ToString());
+                _logger.Error("Exception when trying to accept connection from listener", ex);
             }
         }
         
@@ -74,7 +75,7 @@ namespace McNNTP.Server
             {
                 var stream = handler.GetStream();
 
-                connection = new Connection(handler, stream, _server._sessionProvider, _server.ServerPath, _server.AllowStartTLS,
+                connection = new Connection(handler, stream, _server.ServerPath, _server.AllowStartTLS,
                     _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData, false);
             }
             else
@@ -85,7 +86,7 @@ namespace McNNTP.Server
 
                 sslStream.AuthenticateAsServer(_server._serverAuthenticationCertificate);
 
-                connection = new Connection(handler, sslStream, _server._sessionProvider, _server.ServerPath, _server.AllowStartTLS,
+                connection = new Connection(handler, sslStream, _server.ServerPath, _server.AllowStartTLS,
                     _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData, true);
             }
 
