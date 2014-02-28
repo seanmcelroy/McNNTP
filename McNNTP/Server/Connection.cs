@@ -211,9 +211,6 @@ namespace McNNTP.Server
             if (_inProcessCommand != null && _inProcessCommand.MessageHandler != null)
             {
                 // Ongoing read - don't parse it for commands
-                _logger.InfoFormat("Content: \"{0}\"", content);
-                if (content == ".\r\n")
-                    _logger.InfoFormat("DEBUG");
                 _inProcessCommand = _inProcessCommand.MessageHandler.Invoke(content, _inProcessCommand);
                 if (_inProcessCommand.IsQuitting)
                     _inProcessCommand = null;
