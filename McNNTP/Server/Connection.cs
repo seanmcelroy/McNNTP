@@ -1186,9 +1186,9 @@ namespace McNNTP.Server
             {
                 if (
                     // Message ends naturally
-                    msg != null && (msg.EndsWith("\r\n.\r\n")) ||
+                    msg != null && (msg.EndsWith("\r\n.\r\n", StringComparison.OrdinalIgnoreCase)) ||
                     // Message delimiter comes in second batch
-                    (prev != null && prev.Message != null && prev.Message.EndsWith("\r\n") && msg != null && msg.EndsWith(".\r\n")))
+                    (prev != null && prev.Message != null && prev.Message.EndsWith("\r\n", StringComparison.OrdinalIgnoreCase) && msg != null && msg.EndsWith(".\r\n", StringComparison.OrdinalIgnoreCase)))
                 {
                     try
                     {

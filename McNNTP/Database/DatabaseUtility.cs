@@ -1,14 +1,10 @@
 ﻿using McNNTP.Server.Data;
-using NHibernate;
 using NHibernate.Cfg;
 using NHibernate.Linq;
 using NHibernate.Tool.hbm2ddl;
 using System;
-using System.Collections.Generic;
 using System.Data.SQLite;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using log4net;
 
 namespace McNNTP.Database
@@ -16,33 +12,8 @@ namespace McNNTP.Database
     public static class DatabaseUtility
     {
         private static readonly ILog _logger = LogManager.GetLogger(typeof(DatabaseUtility));
-
-        public static void InitializeDatabase()
-        {
-            var configuration = new Configuration();
-            configuration.AddAssembly(typeof(Newsgroup).Assembly);
-            configuration.Configure();
-
-            using (var connection = new SQLiteConnection(configuration.GetProperty("connection.connection_string")))
-            {
-                connection.Open();
-                try
-                {
-                    UpdateSchema();
-
-                    // Update failed..  recreate it.
-                    if (!VerifyDatabase())
-                        RebuildSchema();
-                    else
-                        WriteBaselineData();
-                }
-                finally
-                {
-                    connection.Close();
-                }
-            }
-        }
-        public static void RebuildSchema()
+        
+        public static bool RebuildSchema(string dud = null)
         {
             var configuration = new Configuration();
             configuration.AddAssembly(typeof(Newsgroup).Assembly);
@@ -67,6 +38,8 @@ namespace McNNTP.Database
                     connection.Close();
                 }
             }
+
+            return true;
         }
         public static void UpdateSchema()
         {
@@ -94,6 +67,8 @@ namespace McNNTP.Database
             }
 
             _logger.InfoFormat("Updated the database schema");
+
+            WriteBaselineData();
         }
         public static bool VerifyDatabase()
         {
@@ -102,9 +77,19 @@ namespace McNNTP.Database
                 using (var session = SessionUtility.OpenSession())
                 {
                     var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
+                    var all = !session.Query<Newsgroup>().Any(n => n.Name == "freenews.config");
                     _logger.InfoFormat("Verified database has {0} newsgroups", newsgroupCount);
 
                     var articleCount = session.Query<Article>().Count(a => a.Headers != null);
+                    var article = session.Query<Article>().FirstOrDefault();
+                    if (article != null)
+                    {
+                        var an = article.Number;
+                        article.Number = -1;
+                        session.Save(article);
+                        article.Number = an;
+                        session.Save(article);
+                    }
                     _logger.InfoFormat("Verified database has {0} articles", articleCount);
 
                     var adminCount = session.Query<Administrator>().Count(a => a.CanInject);
@@ -125,15 +110,29 @@ namespace McNNTP.Database
             // Ensure placeholder data is there.
             using (var session = SessionUtility.OpenSession())
             {
-                var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
-                if (newsgroupCount == 0)
+                if (!session.Query<Newsgroup>().Any(n => n.Name == "freenews.config"))
+                { 
                     session.Save(new Newsgroup
                     {
                         CreateDate = DateTime.UtcNow,
                         Description = "Control group for the repository",
                         Moderated = true,
-                        Name = "freenews.config",
+                        Name = "freenews.config"
                     });
+                    _logger.InfoFormat("Created 'freenews.config' group");
+                }
+
+                if (!session.Query<Newsgroup>().Any(n => n.Name == "junk"))
+                { 
+                    session.Save(new Newsgroup
+                    {
+                        CreateDate = DateTime.UtcNow,
+                        Description = "Junk group for the repository",
+                        Moderated = true,
+                        Name = "junk"
+                    });
+                    _logger.InfoFormat("Created 'junk' group");
+                }
 
                 session.Close();
             }

@@ -1,14 +1,13 @@
-﻿using System;
+﻿using log4net.Config;
+using McNNTP.Server;
+using McNNTP.Server.Data;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using McNNTP.Server;
-using McNNTP.Server.Data;
-using log4net.Config;
 
 namespace McNNTP.Console
 {
@@ -23,6 +22,7 @@ namespace McNNTP.Console
             {"HELP", s => Help()},
             {"MAKEADMIN", MakeAdmin},
             {"MAKEGROUP", MakeGroup},
+            {"PURGEDB", Database.DatabaseUtility.RebuildSchema},
             {"TOGBYTES", s => TogBytes()},
             {"TOGCMD", s => TogCommands()},
             {"TOGDATA", s => TogData()},
@@ -37,7 +37,7 @@ namespace McNNTP.Console
             try
             {
                 // Setup LOG4NET
-                log4net.Config.XmlConfigurator.Configure();
+                XmlConfigurator.Configure();
 
                 // Verify Database
                 if (Database.DatabaseUtility.VerifyDatabase())
@@ -46,11 +46,13 @@ namespace McNNTP.Console
                 {
                     System.Console.WriteLine("Unable to verify a database.  Would you like to create and initialize a database?");
                     var resp = System.Console.ReadLine();
-                    if (new[] { "y", "yes" }.Contains(resp.ToLowerInvariant().Trim()))
-                        Database.DatabaseUtility.InitializeDatabase();
+                    if (resp != null && new[] {"y", "yes"}.Contains(resp.ToLowerInvariant().Trim()))
+                    {
+                        Database.DatabaseUtility.RebuildSchema();
+                    }
                 }
 
-                _server = new NntpServer()
+                _server = new NntpServer
                 {
                     AllowPosting = true,
                     ClearPorts = new [] { 119 },
