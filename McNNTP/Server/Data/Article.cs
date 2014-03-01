@@ -13,6 +13,15 @@ namespace McNNTP.Server.Data
         [NotNull]
         public virtual Newsgroup Newsgroup { get; set; }
         public virtual int Number { get; set; }
+        // State
+        /// <summary>
+        /// The message has been cancelled through a control message
+        /// </summary>
+        public virtual bool Cancelled { get; set; }
+        /// <summary>
+        /// The message is pending approval from a moderator
+        /// </summary>
+        public virtual bool Pending { get; set; }
         // MANDATORY FIELDS
         [NotNull]
         public virtual string Date { get; set; }
@@ -197,6 +206,7 @@ namespace McNNTP.Server.Data
                 Approved = headers.Where(h => string.Compare(h.Key, "Approved", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Archive = headers.Where(h => string.Compare(h.Key, "Archive", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Body = block.Substring(headerLength),
+                Cancelled = false,
                 ContentDisposition = headers.Where(h => string.Compare(h.Key, "Content-Disposition", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 ContentLanguage = headers.Where(h => string.Compare(h.Key, "Content-Language", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 ContentTransferEncoding = headers.Where(h => string.Compare(h.Key, "Content-Transfer-Encoding", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
@@ -213,6 +223,7 @@ namespace McNNTP.Server.Data
                 MIMEVersion = headers.Where(h => string.Compare(h.Key, "MIME-Version", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Newsgroups = newsgroups,
                 Organization = headers.Where(h => string.Compare(h.Key, "Organization", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
+                Pending = false,
                 References = headers.Where(h => string.Compare(h.Key, "References", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Subject = headers.Single(h => string.Compare(h.Key, "Subject", StringComparison.OrdinalIgnoreCase) == 0).Value,
                 Summary = headers.Where(h => string.Compare(h.Key, "Summary", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),

@@ -40,7 +40,7 @@ namespace McNNTP.Database
                 }
             }
 
-            return true;
+            return false;
         }
         public static void UpdateSchema()
         {
@@ -85,7 +85,7 @@ namespace McNNTP.Database
                         _logger.InfoFormat("Verified database has {0} newsgroups", newsgroupCount);
 
                     var articleCount = session.Query<Article>().Count(a => a.Headers != null);
-                    var article = session.Query<Article>().FirstOrDefault();
+                    var article = session.Query<Article>().FirstOrDefault(a => !a.Cancelled);
                     if (article != null)
                     {
                         var an = article.Number;
