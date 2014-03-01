@@ -1,6 +1,5 @@
 ﻿using System.ServiceProcess;
 using McNNTP.Server;
-using log4net;
 
 namespace McNNTP.Service
 {
@@ -18,7 +17,7 @@ namespace McNNTP.Service
             CanStop = true;
             ServiceName = "McNNTP";
 
-            _server = new NntpServer()
+            _server = new NntpServer
             {
                 AllowPosting = true,
                 // TODO: Move to configuration

@@ -90,6 +90,7 @@
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.ComponentModel.DataAnnotations" />
+    <Reference Include="System.configuration" />
     <Reference Include="System.Core" />
     <Reference Include="System.Data.SQLite, Version=1.0.91.0, Culture=neutral, PublicKeyToken=db937bc2d44ff139, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
@@ -123,6 +124,9 @@
     <Compile Include="Server\ArticleUtility.cs" />
     <Compile Include="Server\CertificateUtility.cs" />
     <Compile Include="Server\CommandProcessingResult.cs" />
+    <Compile Include="Server\Configuration\PortConfigurationElement.cs" />
+    <Compile Include="Server\Configuration\PortConfigurationElementCollection.cs" />
+    <Compile Include="Server\Configuration\McNNTPConfigurationSection.cs" />
     <Compile Include="Server\Data\Administrator.cs" />
     <Compile Include="Server\Data\Article.cs" />
     <Compile Include="Server\Data\Newsgroup.cs" />

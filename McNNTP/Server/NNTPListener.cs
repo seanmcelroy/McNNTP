@@ -75,7 +75,7 @@ namespace McNNTP.Server
             {
                 var stream = handler.GetStream();
 
-                connection = new Connection(handler, stream, _server.ServerPath, _server.AllowStartTLS,
+                connection = new Connection(handler, stream, _server.PathHost, _server.AllowStartTLS,
                     _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData, false);
             }
             else
@@ -86,7 +86,7 @@ namespace McNNTP.Server
 
                 sslStream.AuthenticateAsServer(_server._serverAuthenticationCertificate);
 
-                connection = new Connection(handler, sslStream, _server.ServerPath, _server.AllowStartTLS,
+                connection = new Connection(handler, sslStream, _server.PathHost, _server.AllowStartTLS,
                     _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData, true);
             }
 

@@ -1,8 +1,10 @@
 ﻿using log4net.Config;
 using McNNTP.Server;
+using McNNTP.Server.Configuration;
 using McNNTP.Server.Data;
 using System;
 using System.Collections.Generic;
+using System.Configuration;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security;
@@ -34,6 +36,9 @@ namespace McNNTP.Console
             var version = System.Reflection.Assembly.GetEntryAssembly().GetName().Version;
             System.Console.WriteLine("McNNTP Console Harness v{0}", version);
 
+            var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+            var mcnntpConfigurationSection = (McNNTPConfigurationSection)config.GetSection("mcnntp");
+
             try
             {
                 // Setup LOG4NET
@@ -55,8 +60,10 @@ namespace McNNTP.Console
                 _server = new NntpServer
                 {
                     AllowPosting = true,
-                    ClearPorts = new [] { 119 },
-                    ImplicitTLSPorts = new[] { 563 }
+                    ClearPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText").Select(p => p.Port).ToArray(),
+                    ExplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS").Select(p => p.Port).ToArray(),
+                    ImplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS").Select(p => p.Port).ToArray(),
+                    PathHost = mcnntpConfigurationSection.PathHost
                 };
                 
                 _server.Start();

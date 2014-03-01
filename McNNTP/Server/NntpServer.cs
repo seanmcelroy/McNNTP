@@ -28,13 +28,10 @@ namespace McNNTP.Server
         public int[] ClearPorts { get; set; }
         public int[] ExplicitTLSPorts { get; set; }
         public int[] ImplicitTLSPorts { get; set; }
-        public string ServerPath { get; set; }
+        public string PathHost { get; set; }
 
         public NntpServer()
         {
-            // TODO: Put this in a custom config section
-            ServerPath = "freenews.localhost";
-
             AllowStartTLS = true;
             ShowData = true;
 
