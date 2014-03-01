@@ -2,6 +2,7 @@
 using JetBrains.Annotations;
 using McNNTP.Server.Data;
 using NHibernate;
+using NHibernate.Context;
 using NHibernate.Linq;
 using System;
 using System.Collections.Generic;
@@ -83,6 +84,7 @@ namespace McNNTP.Server
                     {"NEXT", (c, data) => c.Next()},
                     {"POST", (c, data) => c.Post()},
                     {"STAT", (c, data) => c.Stat(data)},
+                    {"XHDR", (c, data) => c.XHDR(data)},
                     {"XOVER", (c, data) => c.XOver(data)},
                     {"QUIT", (c, data) => c.Quit()}
                 };
@@ -937,7 +939,7 @@ namespace McNNTP.Server
                 return new CommandProcessingResult(true);
             }
 
-            CurrentArticleNumber = previousArticle.Id;
+            CurrentArticleNumber = previousArticle.Number;
 
             Send(string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
             return new CommandProcessingResult(true);
@@ -1245,8 +1247,8 @@ namespace McNNTP.Server
                                 
                                 article.Id = 0;
                                 article.Newsgroup = newsgroup;
-                                article.Number = session.Query<Article>().Any(a => !a.Cancelled && !a.Pending)
-                                    ? session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == newsgroupName).Max(a => a.Number) + 1
+                                article.Number = session.Query<Article>().Any()
+                                    ? session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == newsgroupName).Max(a => a.Number) + 1
                                     : 1;
                                 article.Path = PathHost;
                                 session.Save(article);
@@ -1386,6 +1388,107 @@ namespace McNNTP.Server
 
             return new CommandProcessingResult(true);
         }
+        private CommandProcessingResult XHDR(string content)
+        {
+            // See RFC 2980 2.6
+
+            var header = content.Split(' ')[1];
+            var rangeExpression = content.Split(' ')[2].TrimEnd('\r', '\n');
+            
+            if (CurrentNewsgroup == null)
+            {
+                Send("412 No news group current selected\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            if (header == null)
+            {
+                Send(".\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            Newsgroup ng;
+            IList<Article> articles;
+
+            try
+            {
+                using (var session = Database.SessionUtility.OpenSession())
+                {
+                    ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == CurrentNewsgroup);
+                    if (ng == null)
+                    {
+                        Send("412 No news group current selected\r\n");
+                        return new CommandProcessingResult(true);
+                    }
+
+                    if (string.IsNullOrEmpty(rangeExpression))
+                    {
+                        if (CurrentArticleNumber == null)
+                        {
+                            Send("420 No article(s) selected\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+
+                        articles =
+                            session.Query<Article>()
+                                .Fetch(a => a.Newsgroup)
+                                .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name && a.Number == CurrentArticleNumber)
+                                .OrderBy(a => a.Id)
+                                .ToList();
+                    }
+                    else
+                    {
+                        var range = ParseRange(rangeExpression);
+                        if (range.Equals(default(System.Tuple<int, int?>)))
+                        {
+                            Send("501 Syntax Error\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+
+                        if (!range.Item2.HasValue) // LOW-
+                        {
+                            articles =
+                                session.Query<Article>()
+                                    .Fetch(a => a.Newsgroup)
+                                    .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name && a.Number >= range.Item1)
+                                    .OrderBy(a => a.Number)
+                                    .ToList();
+                        }
+                        else // LOW-HIGH
+                        {
+                            articles =
+                                session.Query<Article>()
+                                    .Fetch(a => a.Newsgroup)
+                                    .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name && a.Number >= range.Item1 && a.Number <= range.Item2.Value)
+                                    .OrderBy(a => a.Number)
+                                    .ToList();
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Send("403 Archive server temporarily offline\r\n");
+                _logger.Error("Exception when trying to handle XHDR", ex);
+                return new CommandProcessingResult(true);
+            }
+
+            if (!articles.Any())
+            {
+                Send(".\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            lock (_sendLock)
+            {
+                Send("221 Header follows\r\n", false, Encoding.UTF8);
+                foreach (var article in articles)
+                    Send(string.Format("{0} {1}\r\n", article.Number, article.GetHeader(header)));
+                Send(".\r\n", false, Encoding.UTF8);
+            }
+
+            return new CommandProcessingResult(true);
+        }
         private CommandProcessingResult XOver(string content)
         {
             var rangeExpression = content.Substring(content.IndexOf(' ') + 1).TrimEnd('\r', '\n');
@@ -1459,7 +1562,7 @@ namespace McNNTP.Server
                     return new CommandProcessingResult(true);
                 }
 
-                CurrentArticleNumber = articles.First().Id;
+                CurrentArticleNumber = articles.First().Number;
                 Func<string, string> unfold = i => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", "").Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
 
                 lock (_sendLock)

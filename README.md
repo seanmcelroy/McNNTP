@@ -10,6 +10,7 @@ This project aims to provide a full communications server using multiple communi
 to deliver information through the communication medium of the user's choice.  The first protocol
 under development is a full RFC-compliant NNTP (USENET) news server that adheres to:
 
+* RFC 2980 - Common NNTP Extensions
 * RFC 3977 - Network News Transfer Protocol (NNTP)
 * RFC 4642 - Using TLS with NNTP (Implicit and Explicit TLS/SSL)
 * RFC 4643 - NNTP Extension for Authentication
