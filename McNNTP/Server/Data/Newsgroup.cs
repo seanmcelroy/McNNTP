@@ -1,5 +1,6 @@
 ﻿using System;
 using JetBrains.Annotations;
+using System.Collections.Generic;
 
 namespace McNNTP.Server.Data
 {
@@ -15,5 +16,7 @@ namespace McNNTP.Server.Data
         public virtual int? LowWatermark { get; set; }
         public virtual int? HighWatermark { get; set; }
         public virtual DateTime CreateDate { get; set; }
+
+        public virtual IList<Newsgroup> ModeratedBy { get; set; }
     }
 }

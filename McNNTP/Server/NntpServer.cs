@@ -12,12 +12,14 @@ using System.Data.SQLite;
 using System.Linq;
 using System.Net;
 using System.Threading;
+using log4net;
 
 namespace McNNTP.Server
 {
     public class NntpServer
     {
         private readonly List<System.Tuple<Thread, NntpListener>> _listeners = new List<System.Tuple<Thread, NntpListener>>();
+        private static readonly ILog _logger = LogManager.GetLogger(typeof(Connection));
 
         internal readonly ConcurrentBag<Connection> _connections = new ConcurrentBag<Connection>();
 
@@ -81,15 +83,21 @@ namespace McNNTP.Server
 
                 _listeners.Add(new System.Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
             }
-            
-            foreach (var thread in _listeners)
-                thread.Item1.Start();
+
+            foreach (var listener in _listeners)
+            {
+                listener.Item1.Start();
+                _logger.InfoFormat("Listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+            }
         }
 
         public void Stop()
         {
             foreach (var listener in _listeners)
+            {
                 listener.Item2.Stop();
+                _logger.InfoFormat("Stopped listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+            }
 
             foreach (var connection in _connections)
                 connection.Shutdown();

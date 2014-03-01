@@ -9,11 +9,18 @@
     <property name="PasswordHash" not-null="true" length="1000" />
     <property name="PasswordSalt" not-null="true" length="1000" />
 
-    <property name="CanApproveGroups" />
+    <property name="CanApproveAny" not-null="true" />
     <property name="CanCancel" not-null="true" />
     <property name="CanCreateGroup" not-null="true" />
     <property name="CanDeleteGroup" not-null="true" />
     <property name="CanCheckGroups" not-null="true" />
     <property name="CanInject" not-null="true" />
+
+    <bag name="Moderates" inverse="true" table="NewsgroupModerator">
+      <key>
+        <column name="AdministratorID" not-null="true" />
+      </key>
+      <many-to-many class="Newsgroup" column="NewsgroupID"/>
+    </bag>
   </class>
 </hibernate-mapping>

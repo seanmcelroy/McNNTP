@@ -48,24 +48,12 @@ namespace McNNTP.Server
         public bool ShowCommands { get; set; }
         public bool ShowData { get; set; }
         public string ServerName { get; set; }
-
-        #region Administrator functions
-        [CanBeNull]
-        public string CanApproveGroups { get; set; }
-        public bool CanCancel { get; set; }
-        public bool CanCreateGroup { get; set; }
-        public bool CanDeleteGroup { get; set; }
-        public bool CanCheckGroups { get; set; }
-        /// <summary>
-        /// Indicates the connection can operate as a server, such as usiing the IHAVE command
-        /// </summary>
-        public bool CanInject { get; set; }
-        #endregion
-
+        
         #region Authentication
         [CanBeNull]
         public string Username { get; set; }
-        public bool Authenticated { get; set; }
+        [CanBeNull]
+        public Administrator Identity { get; set; }
         public bool TLS { get; set; }
         #endregion
 
@@ -211,8 +199,8 @@ namespace McNNTP.Server
             if (_inProcessCommand != null && _inProcessCommand.MessageHandler != null)
             {
                 // Ongoing read - don't parse it for commands
-                var result = _inProcessCommand.MessageHandler.Invoke(content, _inProcessCommand);
-                if (result.IsQuitting)
+                _inProcessCommand = _inProcessCommand.MessageHandler.Invoke(content, _inProcessCommand);
+                if (_inProcessCommand.IsQuitting)
                     _inProcessCommand = null;
             }
             else
@@ -472,7 +460,7 @@ namespace McNNTP.Server
                     return new CommandProcessingResult(true);
                 }
 
-                if (Authenticated)
+                if (Identity != null)
                 {
                     Send("502 Command unavailable\r\n");
                     return new CommandProcessingResult(true);
@@ -502,14 +490,7 @@ namespace McNNTP.Server
                     return new CommandProcessingResult(true);
                 }
 
-                CanApproveGroups = admin.CanApproveGroups;
-                CanCancel = admin.CanCancel;
-                CanCheckGroups = admin.CanCheckGroups;
-                CanCreateGroup = admin.CanCreateGroup;
-                CanDeleteGroup = admin.CanDeleteGroup;
-                CanInject = admin.CanInject;
-
-                Authenticated = true;
+                Identity = admin;
 
                 Send("281 Authentication accepted\r\n");
                 return new CommandProcessingResult(true);
@@ -1199,59 +1180,56 @@ namespace McNNTP.Server
                             return new CommandProcessingResult(true, true);
                         }
 
-                        bool canApprove;
-                        if (CanInject)
-                            canApprove = true;
-                        else if (string.IsNullOrWhiteSpace(CanApproveGroups))
-                            canApprove = false;
-                        else if (CanApproveGroups == "*")
-                            canApprove = true;
-                        else
+                        foreach (var newsgroupName in article.Newsgroups.Split(' '))
                         {
-                            // ReSharper disable once PossibleNullReferenceException
-                            canApprove = article.Newsgroups.Split(' ').All(n => CanApproveGroups.Split(' ').Contains(n));
-                        }
+                            bool canApprove;
+                            if (Identity == null)
+                                canApprove = false;
+                            else if (Identity.CanInject || Identity.CanApproveAny)
+                                canApprove = true;
+                            else
+                                canApprove = Identity.Moderates.Any(ng => ng.Name == newsgroupName);
 
-                        if (!canApprove)
-                        {
-                            article.Approved = null;
-                            article.RemoveHeader("Approved");
-                        }
-                        if (!CanCancel)
-                        {
-                            article.Supersedes = null;
-                            article.RemoveHeader("Supersedes");
-                        }
-                        if (!CanInject)
-                        {
-                            article.InjectionDate = DateTime.UtcNow.ToString("r");
-                            article.ChangeHeader("Injection-Date", DateTime.UtcNow.ToString("r"));
-                            article.InjectionInfo = null;
-                            article.RemoveHeader("Injection-Info");
-                            article.Xref = null;
-                            article.RemoveHeader("Xref");
-
-                            // RFC 5536 3.2.6. The Followup-To header field SHOULD NOT appear in a message, unless its content is different from the content of the Newsgroups header field.
-                            if (!string.IsNullOrWhiteSpace(article.FollowupTo) &&
-                                string.Compare(article.FollowupTo, article.Newsgroups, StringComparison.OrdinalIgnoreCase) == 0)
-                                article.FollowupTo = null;
-                        }
-
-                        if ((article.Control != null && article.Control.StartsWith("cancel ", StringComparison.OrdinalIgnoreCase) && !CanCancel) ||
-                            (article.Control != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !CanCreateGroup) ||
-                            (article.Control != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !CanDeleteGroup) ||
-                            (article.Control != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !CanCheckGroups))
-                        {
-                            Send("480 Permission to issue control message denied\r\n");
-                            return new CommandProcessingResult(true, true);
-                        }
-
-                        article.Control = null;
-
-                        using (var session = Database.SessionUtility.OpenSession())
-                        {
-                            foreach (var newsgroupName in article.Newsgroups.Split(' '))
+                            if (!canApprove)
                             {
+                                article.Approved = null;
+                                article.RemoveHeader("Approved");
+                            }
+                            if (Identity != null && !Identity.CanCancel)
+                            {
+                                article.Supersedes = null;
+                                article.RemoveHeader("Supersedes");
+                            }
+                            if (Identity != null && !Identity.CanInject)
+                            {
+                                article.InjectionDate = DateTime.UtcNow.ToString("r");
+                                article.ChangeHeader("Injection-Date", DateTime.UtcNow.ToString("r"));
+                                article.InjectionInfo = null;
+                                article.RemoveHeader("Injection-Info");
+                                article.Xref = null;
+                                article.RemoveHeader("Xref");
+
+                                // RFC 5536 3.2.6. The Followup-To header field SHOULD NOT appear in a message, unless its content is different from the content of the Newsgroups header field.
+                                if (!string.IsNullOrWhiteSpace(article.FollowupTo) &&
+                                    string.Compare(article.FollowupTo, article.Newsgroups, StringComparison.OrdinalIgnoreCase) == 0)
+                                    article.FollowupTo = null;
+                            }
+
+                            if ((article.Control != null && Identity == null) ||
+                                (article.Control != null && article.Control.StartsWith("cancel ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCancel) ||
+                                (article.Control != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCreateGroup) ||
+                                (article.Control != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanDeleteGroup) ||
+                                (article.Control != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCheckGroups))
+                            {
+                                Send("480 Permission to issue control message denied\r\n");
+                                return new CommandProcessingResult(true, true);
+                            }
+
+                            article.Control = null;
+
+                            using (var session = Database.SessionUtility.OpenSession())
+                            {
+
                                 var newsgroupNameClosure = newsgroupName;
                                 var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == newsgroupNameClosure);
                                 if (newsgroup == null)
@@ -1262,10 +1240,11 @@ namespace McNNTP.Server
                                 article.Number = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == newsgroupName).Max(a => a.Number) + 1;
                                 article.Path = ServerName;
                                 session.Save(article);
-                            }
 
-                            session.Close();
+                                session.Close();
+                            }
                         }
+
 
                         Send("240 Article received OK\r\n");
                         return new CommandProcessingResult(true, true)
