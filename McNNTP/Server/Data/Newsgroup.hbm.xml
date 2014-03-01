@@ -11,6 +11,7 @@
     <property name="LowWatermark" formula="(SELECT min(a.ID) FROM Article a WHERE a.NewsGroupID = ID)" />
     <property name="HighWatermark" formula="(SELECT max(a.ID) FROM Article a WHERE a.NewsGroupID = ID)" />
     <property name="CreateDate"/>
+    <property name="CreatorEntity"/>
 
     <bag name="ModeratedBy" inverse="true" table="NewsgroupModerator">
       <key>

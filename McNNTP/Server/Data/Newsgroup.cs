@@ -16,6 +16,8 @@ namespace McNNTP.Server.Data
         public virtual int? LowWatermark { get; set; }
         public virtual int? HighWatermark { get; set; }
         public virtual DateTime CreateDate { get; set; }
+        [CanBeNull]
+        public virtual string CreatorEntity { get; set; }
 
         public virtual IList<Newsgroup> ModeratedBy { get; set; }
     }

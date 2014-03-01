@@ -1,12 +1,40 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using JetBrains.Annotations;
 
 namespace McNNTP
 {
     public static class StringUtility
     {
+        [Pure]
+        public static bool MatchesWildmat([NotNull] this string test, string wildmat)
+        {
+            if (string.IsNullOrEmpty(wildmat))
+                return true;
+
+            // RFC 3977 4.2 - Right most part that matches wins
+            var wildmatPatterns = wildmat.Split(',').Reverse();
+            foreach (var wildmatPattern in wildmatPatterns)
+            {
+                var negate = false;
+                var wildmatPattern2 = wildmatPattern;
+                if (wildmatPattern2.StartsWith("!"))
+                {
+                    negate = true;
+                    wildmatPattern2 = wildmatPattern2.Substring(1);
+                }
+
+                var regexPattern = "^" + Regex.Escape(wildmatPattern2).Replace(@"\*", ".*").Replace(@"\?", ".") + "$";
+                if (Regex.IsMatch(test, regexPattern, RegexOptions.IgnoreCase))
+                    return !negate;
+            }
+
+            return false;
+        }
+
+
         [NotNull, Pure]
         public static IEnumerable<string> SeekThroughDelimiters([NotNull] this string block, [NotNull] string delimiter)
         {

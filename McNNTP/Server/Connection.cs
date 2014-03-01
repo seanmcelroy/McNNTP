@@ -946,16 +946,25 @@ namespace McNNTP.Server
         }
         private CommandProcessingResult List(string content)
         {
+            var contentParts = content.Split(' ');
+
             if (string.Compare(content, "LIST\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
-                string.Compare(content, "LIST ACTIVE\r\n", StringComparison.OrdinalIgnoreCase) == 0)
+                string.Compare(content, "LIST ACTIVE\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
+                content.StartsWith("LIST ACTIVE ", StringComparison.OrdinalIgnoreCase))
             {
                 IList<Newsgroup> newsGroups;
+
+                var wildmat = contentParts.Length == 2
+                    ? null
+                    : content.TrimEnd('\r', '\n').Split(' ').Skip(2).Aggregate((c, n) => c + " " + n);
 
                 try
                 {
                     using (var session = Database.SessionUtility.OpenSession())
                     {
-                        newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
+                        newsGroups = wildmat == null 
+                            ? session.Query<Newsgroup>().OrderBy(n => n.Name).ToList() 
+                            : session.Query<Newsgroup>().OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
                     }
                 }
                 catch (MappingException mex)
@@ -975,7 +984,49 @@ namespace McNNTP.Server
                 {
                     Send("215 list of newsgroups follows\r\n");
                     foreach (var ng in newsGroups)
-                        Send(string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, CanPost ? "y" : "n"), false, Encoding.UTF8);
+                        Send(string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, ng.Moderated ? "m" : CanPost ? "y" : "n"), false, Encoding.UTF8);
+                    Send(".\r\n");
+                }
+                return new CommandProcessingResult(true);
+            }
+
+            if (string.Compare(content, "LIST ACTIVE.TIMES\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
+                content.StartsWith("LIST ACTIVE.TIMES ", StringComparison.OrdinalIgnoreCase))
+            {
+                IList<Newsgroup> newsGroups;
+
+                var wildmat = contentParts.Length == 2
+                    ? null
+                    : content.TrimEnd('\r', '\n').Split(' ').Skip(2).Aggregate((c, n) => c + " " + n);
+
+                try
+                {
+                    using (var session = Database.SessionUtility.OpenSession())
+                    {
+                        newsGroups = wildmat == null 
+                            ? session.Query<Newsgroup>().OrderBy(n => n.Name).ToList() 
+                            : session.Query<Newsgroup>().OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
+                    }
+                }
+                catch (MappingException mex)
+                {
+                    _logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                    Send("403 Archive server temporarily offline\r\n");
+                    return new CommandProcessingResult(true);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error("Exception when trying to handle LIST", ex);
+                    Send("403 Archive server temporarily offline\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
+                lock (_sendLock)
+                {
+                    Send("215 information follows\r\n");
+                    var epoch = new DateTime(1970, 1, 1);
+                    foreach (var ng in newsGroups)
+                        Send(string.Format("{0} {1} {2}\r\n", ng.Name, (ng.CreateDate - epoch).TotalSeconds, ng.CreatorEntity), false, Encoding.UTF8);
                     Send(".\r\n");
                 }
                 return new CommandProcessingResult(true);
