@@ -7,7 +7,11 @@ namespace McNNTP.Server.Configuration
     public class McNNTPConfigurationSection : ConfigurationSection
     {
         [ConfigurationProperty("pathHost", IsRequired = true)]
-        public string PathHost { get; set; }
+        public string PathHost
+        {
+            get { return (string)this["pathHost"]; }
+            set { this["pathHost"] = value; }
+        }
         
         [ConfigurationProperty("ports", IsDefaultCollection = true)]
         [ConfigurationCollection(typeof(PortConfigurationElementCollection), AddItemName = "add", ClearItemsName = "clear", RemoveItemName = "remove")]

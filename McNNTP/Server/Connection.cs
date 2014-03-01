@@ -47,7 +47,7 @@ namespace McNNTP.Server
         public bool ShowBytes { get; set; }
         public bool ShowCommands { get; set; }
         public bool ShowData { get; set; }
-        public string ServerName { get; set; }
+        public string PathHost { get; set; }
         
         #region Authentication
         [CanBeNull]
@@ -90,7 +90,7 @@ namespace McNNTP.Server
         public Connection(
             [NotNull] TcpClient client,
             [NotNull] Stream stream,
-            string serverName = "freenews.local",
+            [NotNull] string pathHost,
             bool allowStartTls = true,
             bool canPost = true,
             bool showBytes = false,
@@ -101,7 +101,7 @@ namespace McNNTP.Server
             AllowStartTls = allowStartTls;
             CanPost = canPost;
             _client = client;
-            ServerName = serverName;
+            PathHost = pathHost;
             ShowBytes = showBytes;
             ShowCommands = showCommands;
             ShowData = showData;
@@ -1234,11 +1234,13 @@ namespace McNNTP.Server
                                 var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == newsgroupNameClosure);
                                 if (newsgroup == null)
                                     continue;
-
+                                
                                 article.Id = 0;
                                 article.Newsgroup = newsgroup;
-                                article.Number = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == newsgroupName).Max(a => a.Number) + 1;
-                                article.Path = ServerName;
+                                article.Number = session.Query<Article>().Any()
+                                    ? session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == newsgroupName).Max(a => a.Number) + 1
+                                    : 1;
+                                article.Path = PathHost;
                                 session.Save(article);
 
                                 session.Close();
