@@ -1,4 +1,5 @@
-﻿using McNNTP.Server.Data;
+﻿using System.Security;
+using McNNTP.Server.Data;
 using NHibernate.Cfg;
 using NHibernate.Linq;
 using NHibernate.Tool.hbm2ddl;
@@ -78,7 +79,10 @@ namespace McNNTP.Database
                 {
                     var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
                     var all = !session.Query<Newsgroup>().Any(n => n.Name == "freenews.config");
-                    _logger.InfoFormat("Verified database has {0} newsgroups", newsgroupCount);
+                    if (newsgroupCount == 0)
+                        _logger.WarnFormat("Verified database has {0} newsgroups", newsgroupCount);
+                    else
+                        _logger.InfoFormat("Verified database has {0} newsgroups", newsgroupCount);
 
                     var articleCount = session.Query<Article>().Count(a => a.Headers != null);
                     var article = session.Query<Article>().FirstOrDefault();
@@ -93,7 +97,10 @@ namespace McNNTP.Database
                     _logger.InfoFormat("Verified database has {0} articles", articleCount);
 
                     var adminCount = session.Query<Administrator>().Count(a => a.CanInject);
-                    _logger.InfoFormat("Verified database has {0} local admins", adminCount);
+                    if (adminCount == 0)
+                        _logger.WarnFormat("Verified database has {0} local admins", adminCount);
+                    else
+                        _logger.InfoFormat("Verified database has {0} local admins", adminCount);
 
                     session.Close();
 
@@ -132,6 +139,30 @@ namespace McNNTP.Database
                         Name = "junk"
                     });
                     _logger.InfoFormat("Created 'junk' group");
+                }
+
+                if (!session.Query<Administrator>().Any())
+                {
+                    var admin = new Administrator
+                    {
+                        CanApproveAny = true,
+                        CanCancel = true,
+                        CanCheckGroups = true,
+                        CanCreateGroup = true,
+                        CanDeleteGroup = true,
+                        CanInject = true,
+                        LocalAuthenticationOnly = true,
+                        Username = "LOCALADMIN"
+                    };
+
+                    var ss = new SecureString();
+                    foreach (var c in "CHANGEME")
+                        ss.AppendChar(c);
+                    admin.SetPassword(ss);
+
+                    session.Save(admin);
+
+                    _logger.InfoFormat("Created 'LOCALADMIN' administrator with password 'CHANGEME'.  Please authenticate locally and change your password with a 'changepass' control message");
                 }
 
                 session.Close();

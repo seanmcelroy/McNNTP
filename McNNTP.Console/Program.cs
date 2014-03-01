@@ -1,4 +1,5 @@
-﻿using log4net.Config;
+﻿using log4net;
+using log4net.Config;
 using McNNTP.Server;
 using McNNTP.Server.Configuration;
 using McNNTP.Server.Data;
@@ -36,13 +37,17 @@ namespace McNNTP.Console
             var version = System.Reflection.Assembly.GetEntryAssembly().GetName().Version;
             System.Console.WriteLine("McNNTP Console Harness v{0}", version);
 
-            var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
-            var mcnntpConfigurationSection = (McNNTPConfigurationSection)config.GetSection("mcnntp");
-
             try
             {
                 // Setup LOG4NET
                 XmlConfigurator.Configure();
+
+                var logger = LogManager.GetLogger(typeof (Program));
+
+                // Load configuration
+                var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                var mcnntpConfigurationSection = (McNNTPConfigurationSection)config.GetSection("mcnntp");
+                logger.InfoFormat("Loaded configuration from {0}", config.FilePath);
 
                 // Verify Database
                 if (Database.DatabaseUtility.VerifyDatabase())
@@ -128,35 +133,23 @@ namespace McNNTP.Console
             foreach (var c in parts.Skip(2).Aggregate((c, n) => c + " " + n))
                 pass.AppendChar(c);
 
-            
-            var saltBytes = new byte[64];
-            var rng = RandomNumberGenerator.Create();
-            rng.GetNonZeroBytes(saltBytes);
-            var salt = Convert.ToBase64String(saltBytes);
+            var admin = new Administrator
+            {
+                Username = name,
+                CanApproveAny = true,
+                CanCancel = true,
+                CanCheckGroups = true,
+                CanCreateGroup = true,
+                CanDeleteGroup = true,
+                CanInject = false
+            };
 
-            var bstr = Marshal.SecureStringToBSTR(pass);
-            try
+            admin.SetPassword(pass);
+
+            using (var session = Database.SessionUtility.OpenSession())
             {
-                using (var session = Database.SessionUtility.OpenSession())
-                {
-                    session.Save(new Administrator
-                    {
-                        Username = name,
-                        PasswordHash = Convert.ToBase64String(new SHA512CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(string.Concat(salt, Marshal.PtrToStringBSTR(bstr))))),
-                        PasswordSalt = salt,
-                        CanApproveAny = true,
-                        CanCancel = true,
-                        CanCheckGroups = true,
-                        CanCreateGroup = true,
-                        CanDeleteGroup = true,
-                        CanInject = false
-                    });
-                    session.Close();
-                }
-            }
-            finally
-            {
-                Marshal.FreeBSTR(bstr);
+                session.Save(admin);
+                session.Close();
             }
 
             System.Console.Clear();

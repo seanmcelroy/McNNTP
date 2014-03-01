@@ -490,6 +490,13 @@ namespace McNNTP.Server
                     return new CommandProcessingResult(true);
                 }
 
+                if (admin.LocalAuthenticationOnly &&
+                    !IPAddress.IsLoopback(((IPEndPoint) _client.Client.RemoteEndPoint).Address))
+                {
+                    Send("481 Authentication not allowed except locally\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
                 Identity = admin;
 
                 Send("281 Authentication accepted\r\n");
