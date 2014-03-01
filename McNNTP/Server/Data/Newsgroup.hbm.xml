@@ -11,5 +11,12 @@
     <property name="LowWatermark" formula="(SELECT min(a.ID) FROM Article a WHERE a.NewsGroupID = ID)" />
     <property name="HighWatermark" formula="(SELECT max(a.ID) FROM Article a WHERE a.NewsGroupID = ID)" />
     <property name="CreateDate"/>
+
+    <bag name="ModeratedBy" inverse="true" table="NewsgroupModerator">
+      <key>
+        <column name="NewsgroupID" not-null="true" />
+      </key>
+      <many-to-many class="Administrator" column="AdministratorID"/>
+    </bag>
   </class>
 </hibernate-mapping>

@@ -137,7 +137,7 @@ namespace McNNTP.Console
                         Username = name,
                         PasswordHash = Convert.ToBase64String(new SHA512CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(string.Concat(salt, Marshal.PtrToStringBSTR(bstr))))),
                         PasswordSalt = salt,
-                        CanApproveGroups = "*",
+                        CanApproveAny = true,
                         CanCancel = true,
                         CanCheckGroups = true,
                         CanCreateGroup = true,

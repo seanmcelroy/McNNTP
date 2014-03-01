@@ -1,11 +1,12 @@
 ﻿using System.Collections.Generic;
 using McNNTP.Server.Data;
+using JetBrains.Annotations;
 
 namespace McNNTP.Server
 {
     public static class ArticleUtility
     {
-        internal static void ChangeHeader(this Article article, string headerName, string headerValue)
+        internal static void ChangeHeader([NotNull] this Article article, [NotNull] string headerName, [NotNull] string headerValue)
         {
             Dictionary<string, string> headers, headersAndFullLines;
             if (Article.TryParseHeaders(article.Headers, out headers, out headersAndFullLines) &&
@@ -15,7 +16,7 @@ namespace McNNTP.Server
             }
         }
 
-        internal static void RemoveHeader(this Article article, string headerName)
+        internal static void RemoveHeader([NotNull] this Article article, [NotNull] string headerName)
         {
             Dictionary<string, string> headers, headersAndFullLines;
             if (Article.TryParseHeaders(article.Headers, out headers, out headersAndFullLines) &&
