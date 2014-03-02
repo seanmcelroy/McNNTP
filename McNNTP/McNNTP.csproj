@@ -137,6 +137,7 @@
     <Compile Include="Server\NntpServer.cs" />
     <Compile Include="Server\Connection.cs" />
     <Compile Include="Server\PortClass.cs" />
+    <Compile Include="Server\SendCallbackAsyncState.cs" />
     <Compile Include="StringUtility.cs" />
   </ItemGroup>
   <ItemGroup>

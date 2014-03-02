@@ -295,17 +295,37 @@ namespace McNNTP.Server
                 if (async)
                 {
                     // Begin sending the data to the remote device.
-                    _stream.BeginWrite(byteData, 0, byteData.Length, SendCallback, data);
+                    _stream.BeginWrite(byteData, 0, byteData.Length, SendCallback, new SendCallbackAsyncState
+                    {
+                        CompressedGZip = compressedIfPossible && CompressionGZip,
+                        Data = data,
+                        Length = byteData.Length,
+                    });
                 }
                 else // Block
                 {
                     _stream.Write(byteData, 0, byteData.Length);
                     if (ShowBytes && ShowData)
-                        _logger.TraceFormat("{0}:{1} <{2}< {3} bytes: {4}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", byteData.Length, data.TrimEnd('\r', '\n'));
+                        _logger.TraceFormat("{0}:{1} <{2}{3} {4} bytes: {5}",
+                            remoteEndPoint.Address, 
+                            remoteEndPoint.Port,
+                            TLS ? "!" : "<",
+                            compressedIfPossible && CompressionGZip ? "G" : "<",
+                            byteData.Length, data.TrimEnd('\r', '\n'));
                     else if (ShowBytes)
-                        _logger.TraceFormat("{0}:{1} <{2}< {3} bytes", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", byteData.Length);
+                        _logger.TraceFormat("{0}:{1} <{2}{3} {4} bytes", 
+                            remoteEndPoint.Address, 
+                            remoteEndPoint.Port, 
+                            TLS ? "!" : "<",
+                            compressedIfPossible && CompressionGZip ? "G" : "<",
+                            byteData.Length);
                     else if (ShowData)
-                        _logger.TraceFormat("{0}:{1} <{2}< {3}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", data.TrimEnd('\r', '\n'));
+                        _logger.TraceFormat("{0}:{1} <{2}{3} {4}", 
+                            remoteEndPoint.Address, 
+                            remoteEndPoint.Port, 
+                            TLS ? "!" : "<",
+                            compressedIfPossible && CompressionGZip ? "G" : "<",
+                            data.TrimEnd('\r', '\n'));
                 }
             }
             catch (IOException)
@@ -324,19 +344,34 @@ namespace McNNTP.Server
             try
             {
                 // Retrieve the socket from the state object.
-                var data = (string)ar.AsyncState;
+                var state = (SendCallbackAsyncState)ar.AsyncState;
 
                 // Complete sending the data to the remote device.
                 _stream.EndWrite(ar);
 
                 var remoteEndPoint = (IPEndPoint)_client.Client.RemoteEndPoint;
-                //if (ShowBytes && ShowData)
-                //    _logger.TraceFormat("{0}:{1} <<< {2} bytes: {3}", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent, handler.Payload.TrimEnd('\r', '\n'));
-                //else if (ShowBytes)
-                //    _logger.TraceFormat("{0}:{1} <<< {2} bytes", remoteEndPoint.Address, remoteEndPoint.Port, bytesSent);
-                //else 
-                if (ShowData)
-                    _logger.TraceFormat("{0}:{1} <{2}< {3}", remoteEndPoint.Address, remoteEndPoint.Port, TLS ? "!" : "<", data.TrimEnd('\r', '\n'));
+                if (ShowBytes && ShowData)
+                    _logger.TraceFormat("{0}:{1} <{2}{3} {4} bytes: {5}",
+                        remoteEndPoint.Address,
+                        remoteEndPoint.Port,
+                        TLS ? "!" : "<",
+                        state.CompressedGZip ? "G" : "<",
+                        state.Length,
+                        state.Data.TrimEnd('\r', '\n'));
+                else if (ShowBytes)
+                    _logger.TraceFormat("{0}:{1} <{2}{3} {4} bytes",
+                        remoteEndPoint.Address,
+                        remoteEndPoint.Port,
+                        TLS ? "!" : "<",
+                        state.CompressedGZip ? "G" : "<",
+                        state.Length);
+                else if (ShowData)
+                    _logger.TraceFormat("{0}:{1} <{2}{3} {4}",
+                        remoteEndPoint.Address,
+                        remoteEndPoint.Port, 
+                        TLS ? "!" : "<",
+                        state.CompressedGZip ? "G" : "<", 
+                        state.Data.TrimEnd('\r', '\n'));
             }
             catch (ObjectDisposedException)
             {
