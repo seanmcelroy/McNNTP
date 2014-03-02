@@ -632,7 +632,7 @@ namespace McNNTP.Server
             sb.Append("VERSION 2\r\n");
             //sb.Append("IHAVE\r\n");
             sb.Append("HDR\r\n");
-            sb.Append("LIST ACTIVE NEWSGROUPS ACTIVE.TIMES\r\n");
+            sb.Append("LIST ACTIVE NEWSGROUPS ACTIVE.TIMES OVERVIEW.FMT\r\n");
             sb.Append("MODE-READER");
             //sb.Append("NEWNEWS\r\n");
             sb.Append("OVER MSGID\r\n");
