@@ -82,6 +82,7 @@ namespace McNNTP.Server
                     {"MODE", (c, data) => c.Mode(data)},
                     {"NEWGROUPS", (c, data) => c.Newgroups(data)},
                     {"NEXT", (c, data) => c.Next()},
+                    {"OVER", (c,data) => c.Over()},
                     {"POST", (c, data) => c.Post()},
                     {"STAT", (c, data) => c.Stat(data)},
                     {"XHDR", (c, data) => c.XHDR(data)},
@@ -376,14 +377,14 @@ namespace McNNTP.Server
                 }
                 else
                 {
-                    int articleId;
-                    if (!int.TryParse(param, out articleId))
+                    int articleNumber;
+                    if (!int.TryParse(param, out articleNumber))
                     {
                         Send("423 No article with that number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
-                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Id == articleId);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number == articleNumber);
                     type = 2;
                 }
 
@@ -409,14 +410,14 @@ namespace McNNTP.Server
                         {
                             case 1:
                                 Send(string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n",
-                                    (!string.IsNullOrEmpty(CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0) ? article.Id : 0,
+                                    (!string.IsNullOrEmpty(CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0) ? article.Number : 0,
                                     article.MessageId), false, Encoding.UTF8);
                                 break;
                             case 2:
-                                Send(string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Id, article.MessageId), false, Encoding.UTF8);
+                                Send(string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Number, article.MessageId), false, Encoding.UTF8);
                                 break;
                             case 3:
-                                Send(string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Id, article.MessageId), false, Encoding.UTF8);
+                                Send(string.Format(CultureInfo.InvariantCulture, "220 {0} {1} Article follows (multi-line)\r\n", article.Number, article.MessageId), false, Encoding.UTF8);
                                 break;
                         }
 
@@ -580,14 +581,14 @@ namespace McNNTP.Server
                         {
                             case 1:
                                 Send(string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n",
-                                    (!string.IsNullOrEmpty(CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0) ? article.Id : 0,
+                                    (!string.IsNullOrEmpty(CurrentNewsgroup) && string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0) ? article.Number : 0,
                                     article.MessageId));
                                 break;
                             case 2:
-                                Send(string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n", article.Id, article.MessageId));
+                                Send(string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n", article.Number, article.MessageId));
                                 break;
                             case 3:
-                                Send(string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n", article.Id, article.MessageId));
+                                Send(string.Format(CultureInfo.InvariantCulture, "222 {0} {1} Body follows (multi-line)\r\n", article.Number, article.MessageId));
                                 break;
                         }
 
@@ -711,12 +712,12 @@ namespace McNNTP.Server
                         }
 
                         articles = (range.Item2.HasValue)
-                            ? session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Id >= range.Item1 && a.Id <= range.Item2)
-                            : session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Id >= range.Item1);
+                            ? session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number >= range.Item1 && a.Number <= range.Item2)
+                            : session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number >= range.Item1);
                         break;
                     case 3:
                         Debug.Assert(CurrentArticleNumber.HasValue);
-                        articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Id == CurrentArticleNumber.Value);
+                        articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number == CurrentArticleNumber.Value);
                         break;
                     default:
                         // Unrecognized...
@@ -780,7 +781,7 @@ namespace McNNTP.Server
                                     headerFunction.Invoke(article)), false, Encoding.UTF8);
                             else
                                 Send(string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
-                                    article.Id,
+                                    article.Number,
                                     headerFunction.Invoke(article)), false, Encoding.UTF8);
 
                         Send(".\r\n");
@@ -819,7 +820,7 @@ namespace McNNTP.Server
                 int type;
                 if (string.IsNullOrEmpty(param))
                 {
-                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Id == CurrentArticleNumber);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number == CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
@@ -829,14 +830,14 @@ namespace McNNTP.Server
                 }
                 else
                 {
-                    int articleId;
-                    if (!int.TryParse(param, out articleId))
+                    int articleNumber;
+                    if (!int.TryParse(param, out articleNumber))
                     {
                         Send("423 No article with that number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
-                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Id == articleId);
+                    article = session.Query<Article>().Fetch(a => a.Newsgroup).SingleOrDefault(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number == articleNumber);
                     type = 2;
                 }
 
@@ -862,13 +863,13 @@ namespace McNNTP.Server
                         {
                             case 1:
                                 Send(string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n",
-                                    (string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0) ? article.Id : 0, article.MessageId));
+                                    (string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0) ? article.Number : 0, article.MessageId));
                                 break;
                             case 2:
-                                Send(string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n", article.Id, article.MessageId));
+                                Send(string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n", article.Number, article.MessageId));
                                 break;
                             case 3:
-                                Send(string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n", article.Id, article.MessageId));
+                                Send(string.Format(CultureInfo.InvariantCulture, "221 {0} {1} Headers follow (multi-line)\r\n", article.Number, article.MessageId));
                                 break;
                         }
 
@@ -928,8 +929,8 @@ namespace McNNTP.Server
             using (var session = Database.SessionUtility.OpenSession())
             {
                 previousArticle = session.Query<Article>().Fetch(a => a.Newsgroup)
-                    .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Id < currentArticleNumber.Value)
-                    .MaxBy(a => a.Id);
+                    .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number < currentArticleNumber.Value)
+                    .MaxBy(a => a.Number);
             }
 
             // If the current article number is already the first article of the newsgroup, a 422 response MUST be returned.
@@ -941,7 +942,7 @@ namespace McNNTP.Server
 
             CurrentArticleNumber = previousArticle.Number;
 
-            Send(string.Format("223 {0} {1} retrieved\r\n", previousArticle.Id, previousArticle.MessageId));
+            Send(string.Format("223 {0} {1} retrieved\r\n", previousArticle.Number, previousArticle.MessageId));
             return new CommandProcessingResult(true);
         }
         private CommandProcessingResult List(string content)
@@ -1215,6 +1216,130 @@ namespace McNNTP.Server
             Send(string.Format("223 {0} {1} retrieved\r\n", previousArticle.Number, previousArticle.MessageId));
             return new CommandProcessingResult(true);
         }
+        private CommandProcessingResult Over(string content)
+        {
+            var param = content.Substring(content.IndexOf(' ') + 1).TrimEnd('\r', '\n');
+            
+            IList<Article> articles;
+
+            try
+            {
+                using (var session = Database.SessionUtility.OpenSession())
+                {
+                    if (string.IsNullOrWhiteSpace(param))
+                    {
+                        //  Third form (current article number used)
+                        if (CurrentNewsgroup == null)
+                        {
+                            Send("412 No news group current selected\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+
+                        if (CurrentArticleNumber == null)
+                        {
+                            Send("420 Current article number is invalid\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+
+                        articles = session.Query<Article>()
+                            .Fetch(a => a.Newsgroup)
+                            .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number == CurrentArticleNumber)
+                            .ToArray();
+
+                        if (!articles.Any())
+                        {
+                            Send("420 Current article number is invalid\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+                    }
+                    else if (param.StartsWith("<", StringComparison.Ordinal))
+                    {
+                        // First form (message-id specified)
+                        articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.MessageId == param).ToArray();
+
+                        if (!articles.Any())
+                        {
+                            Send("430 No article with that message-id\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+                    }
+                    else
+                    {
+                        // Second form (range specified)
+                        if (CurrentNewsgroup == null)
+                        {
+                            Send("412 No news group current selected\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+
+                        var range = ParseRange(param);
+                        if (range.Equals(default(System.Tuple<int, int?>)))
+                        {
+                            Send("423 No articles in that range\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+
+                        if (!range.Item2.HasValue) // LOW-
+                        {
+                            articles =
+                                session.Query<Article>()
+                                    .Fetch(a => a.Newsgroup)
+                                    .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number >= range.Item1)
+                                    .OrderBy(a => a.Number)
+                                    .ToList();
+                        }
+                        else // LOW-HIGH
+                        {
+                            articles =
+                                session.Query<Article>()
+                                    .Fetch(a => a.Newsgroup)
+                                    .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number >= range.Item1 && a.Number <= range.Item2.Value)
+                                    .OrderBy(a => a.Number)
+                                    .ToList();
+                        }
+
+                        if (!articles.Any())
+                        {
+                            Send("423 No articles in that range\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+                    }
+
+                    session.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                Send("403 Archive server temporarily offline\r\n");
+                _logger.Error("Exception when trying to handle XOVER", ex);
+                return new CommandProcessingResult(true);
+            }
+            
+            CurrentArticleNumber = articles.First().Number;
+            Func<string, string> unfold = i => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", "").Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
+
+            lock (_sendLock)
+            {
+                Send("224 Overview information follows (multi-line)\r\n", false, Encoding.UTF8);
+                foreach (var article in articles)
+                    Send(
+                        string.Format(CultureInfo.InvariantCulture,
+                            "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
+                            string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0 ? article.Number : 0,
+                            unfold(article.Subject).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                            unfold(article.From).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                            unfold(article.Date).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                            unfold(article.MessageId).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                            unfold(article.References).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                            unfold((article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
+                            unfold(article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))), false,
+                        Encoding.UTF8);
+                Send(".\r\n", false, Encoding.UTF8);
+            }
+
+            return new CommandProcessingResult(true);
+        }
+
         private CommandProcessingResult Post()
         {
             if (!CanPost)
@@ -1484,7 +1609,7 @@ namespace McNNTP.Server
                             session.Query<Article>()
                                 .Fetch(a => a.Newsgroup)
                                 .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name && a.Number == CurrentArticleNumber)
-                                .OrderBy(a => a.Id)
+                                .OrderBy(a => a.Number)
                                 .ToList();
                     }
                     else
@@ -1562,7 +1687,7 @@ namespace McNNTP.Server
                                 session.Query<Article>()
                                     .Fetch(a => a.Newsgroup)
                                     .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name)
-                                    .OrderBy(a => a.Id)
+                                    .OrderBy(a => a.Number)
                                     .ToList();
                         else
                         {
@@ -1623,7 +1748,7 @@ namespace McNNTP.Server
                         Send(
                             string.Format(CultureInfo.InvariantCulture,
                                 "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
-                                string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0 ? article.Id : 0,
+                                string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0 ? article.Number : 0,
                                 unfold(article.Subject),
                                 unfold(article.From),
                                 unfold(article.Date),
