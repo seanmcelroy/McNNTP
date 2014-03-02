@@ -1,15 +1,7 @@
 ﻿using System.Security.Cryptography.X509Certificates;
-using JetBrains.Annotations;
-using McNNTP.Server.Data;
-using NHibernate;
-using NHibernate.Cfg;
-using NHibernate.Linq;
-using NHibernate.Tool.hbm2ddl;
 using System;
 using System.Collections.Generic;
 using System.Collections.Concurrent;
-using System.Data.SQLite;
-using System.Linq;
 using System.Net;
 using System.Threading;
 using log4net;
@@ -18,7 +10,7 @@ namespace McNNTP.Server
 {
     public class NntpServer
     {
-        private readonly List<System.Tuple<Thread, NntpListener>> _listeners = new List<System.Tuple<Thread, NntpListener>>();
+        private readonly List<Tuple<Thread, NntpListener>> _listeners = new List<Tuple<Thread, NntpListener>>();
         private static readonly ILog _logger = LogManager.GetLogger(typeof(Connection));
 
         internal readonly ConcurrentBag<Connection> _connections = new ConcurrentBag<Connection>();
@@ -67,7 +59,7 @@ namespace McNNTP.Server
                     PortType = PortClass.ClearText
                 };
 
-                _listeners.Add(new System.Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
+                _listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
             }
 
             foreach (var implicitTlsPort in ImplicitTLSPorts)
@@ -81,7 +73,7 @@ namespace McNNTP.Server
                     PortType = PortClass.ImplicitTLS
                 };
 
-                _listeners.Add(new System.Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
+                _listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
             }
 
             foreach (var listener in _listeners)

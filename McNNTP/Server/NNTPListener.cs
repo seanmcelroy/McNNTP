@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -84,7 +85,15 @@ namespace McNNTP.Server
 
                 var sslStream = new SslStream(stream);
 
-                sslStream.AuthenticateAsServer(_server._serverAuthenticationCertificate);
+                try
+                {
+                    sslStream.AuthenticateAsServer(_server._serverAuthenticationCertificate);
+                }
+                catch (IOException ioe)
+                {
+                    _logger.Error("I/O Exception attempting to perform TLS handshake", ioe);
+                    return;
+                }
 
                 connection = new Connection(handler, sslStream, _server.PathHost, _server.AllowStartTLS,
                     _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData, true);

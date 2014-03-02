@@ -2,7 +2,6 @@
 using JetBrains.Annotations;
 using McNNTP.Server.Data;
 using NHibernate;
-using NHibernate.Context;
 using NHibernate.Linq;
 using System;
 using System.Collections.Generic;
@@ -59,6 +58,12 @@ namespace McNNTP.Server
         public bool TLS { get; set; }
         #endregion
 
+        #region Compression
+        public bool Compression { get; set; }
+        public bool CompressionGZip { get; set; }
+        public bool CompressionTerminator { get; set; }
+        #endregion
+
         [CanBeNull]
         public string CurrentNewsgroup { get; private set; }
         public long? CurrentArticleNumber { get; private set; }
@@ -82,9 +87,10 @@ namespace McNNTP.Server
                     {"MODE", (c, data) => c.Mode(data)},
                     {"NEWGROUPS", (c, data) => c.Newgroups(data)},
                     {"NEXT", (c, data) => c.Next()},
-                    {"OVER", (c,data) => c.Over()},
+                    {"OVER", (c,data) => c.Over(data)},
                     {"POST", (c, data) => c.Post()},
                     {"STAT", (c, data) => c.Stat(data)},
+                    {"XFEATURE", (c, data) => c.XFeature(data)},
                     {"XHDR", (c, data) => c.XHDR(data)},
                     {"XOVER", (c, data) => c.XOver(data)},
                     {"QUIT", (c, data) => c.Quit()}
@@ -123,7 +129,7 @@ namespace McNNTP.Server
             else
                 Send("201 Service available, posting prohibited\r\n");
 
-            System.Diagnostics.Debug.Assert(_stream != null);
+            Debug.Assert(_stream != null);
             try
             {
                 _stream.BeginRead(_buffer, 0, BUFFER_SIZE, ReadCallback, null);
@@ -150,13 +156,13 @@ namespace McNNTP.Server
             catch (IOException ioe)
             {
                 Send("403 Archive server temporarily offline\r\n");
-                _logger.ErrorFormat("I/O Exception on EndRead", ioe);
+                _logger.Error("I/O Exception on EndRead", ioe);
                 return;
             }
             catch (SocketException sex)
             {
                 Send("403 Archive server temporarily offline\r\n");
-                _logger.ErrorFormat("Socket Exception on EndRead", sex);
+                _logger.Error("Socket Exception on EndRead", sex);
                 return;
             }
             catch (ObjectDisposedException)
@@ -176,17 +182,23 @@ namespace McNNTP.Server
 
                 try
                 {
+                    if (!_stream.CanRead)
+                    {
+                        Shutdown();
+                        return;
+                    }
+
                     _stream.BeginRead(_buffer, 0, BUFFER_SIZE, ReadCallback, null);
                 }
                 catch (IOException ioe)
                 {
                     Send("403 Archive server temporarily offline\r\n");
-                    _logger.ErrorFormat("I/O Exception on BeginRead", ioe);
+                    _logger.Error("I/O Exception on BeginRead", ioe);
                 }
                 catch (SocketException sex)
                 {
                     Send("403 Archive server temporarily offline\r\n");
-                    _logger.ErrorFormat("Socket Exception on BeginRead", sex);
+                    _logger.Error("Socket Exception on BeginRead", sex);
                 }
                 return;
             }
@@ -204,7 +216,7 @@ namespace McNNTP.Server
             {
                 // Ongoing read - don't parse it for commands
                 _inProcessCommand = _inProcessCommand.MessageHandler.Invoke(content, _inProcessCommand);
-                if (_inProcessCommand.IsQuitting)
+                if (_inProcessCommand != null && _inProcessCommand.IsQuitting)
                     _inProcessCommand = null;
             }
             else
@@ -244,6 +256,12 @@ namespace McNNTP.Server
             // Not all data received. Get more.
             try
             {
+                if (!_client.Client.Connected || !_stream.CanRead)
+                {
+                    Shutdown();
+                    return;
+                }
+
                 _stream.BeginRead(_buffer, 0, BUFFER_SIZE, ReadCallback, null);
             }
             catch (IOException sex)
@@ -261,10 +279,15 @@ namespace McNNTP.Server
         {
             Send(data, true, Encoding.UTF8);
         }
-        public void Send([NotNull] string data, bool async, [NotNull] Encoding encoding)
+        public void Send([NotNull] string data, bool async, [NotNull] Encoding encoding, bool compressedIfPossible = false)
         {
             // Convert the string data to byte data using ASCII encoding.
-            var byteData = encoding.GetBytes(data);
+            byte[] byteData;
+            if (compressedIfPossible && Compression && CompressionGZip && CompressionTerminator)
+                byteData = encoding.GetBytes(data.GZipCompress());
+            else
+                byteData = encoding.GetBytes(data);
+
             var remoteEndPoint = (IPEndPoint)_client.Client.RemoteEndPoint;
 
             try
@@ -322,7 +345,7 @@ namespace McNNTP.Server
             catch (Exception e)
             {
                 // Don't send 403 - the sending socket isn't working
-                _logger.ErrorFormat("Exception on EndWrite", e);
+                _logger.Error("Exception on EndWrite", e);
                 throw;
             }
         }
@@ -609,9 +632,10 @@ namespace McNNTP.Server
             sb.Append("VERSION 2\r\n");
             //sb.Append("IHAVE\r\n");
             sb.Append("HDR\r\n");
-            sb.Append("LIST ACTIVE NEWSGROUPS\r\n");
+            sb.Append("LIST ACTIVE NEWSGROUPS ACTIVE.TIMES\r\n");
+            sb.Append("MODE-READER");
             //sb.Append("NEWNEWS\r\n");
-            //sb.Append("OVER\r\n");
+            sb.Append("OVER MSGID\r\n");
             sb.Append("POST\r\n");
             sb.Append("READER\r\n");
             if (AllowStartTls)
@@ -1062,6 +1086,23 @@ namespace McNNTP.Server
                     Send("215 information follows\r\n");
                     foreach (var ng in newsGroups)
                         Send(string.Format("{0}\t{1}\r\n", ng.Name, ng.Description), false, Encoding.UTF8);
+                    Send(".\r\n");
+                }
+                return new CommandProcessingResult(true);
+            }
+
+            if (string.Compare(content, "LIST OVERVIEW.FMT\r\n", StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                lock (_sendLock)
+                {
+                    Send("215 Order of fields in overview database.\r\n");
+                    Send("Subject:\r\n");
+                    Send("From:\r\n");
+                    Send("Date:\r\n");
+                    Send("Message-ID:\r\n");
+                    Send("References:\r\n");
+                    Send(":bytes\r\n");
+                    Send(":lines\r\n");
                     Send(".\r\n");
                 }
                 return new CommandProcessingResult(true);
@@ -1564,6 +1605,23 @@ namespace McNNTP.Server
 
             return new CommandProcessingResult(true);
         }
+
+        private CommandProcessingResult XFeature(string content)
+        {
+            //if (string.Compare(content, "XFEATURE COMPRESS GZIP TERMINATOR\r\n", StringComparison.OrdinalIgnoreCase) == 0)
+            //{
+            //    Compression = true;
+            //    CompressionGZip = true;
+            //    CompressionTerminator = true;
+
+            //    Send("290 feature enabled\r\n");
+            //    return new CommandProcessingResult(true);
+            //}
+
+            // Not handled.
+            return new CommandProcessingResult(false);
+        }
+
         private CommandProcessingResult XHDR(string content)
         {
             // See RFC 2980 2.6
@@ -1583,14 +1641,13 @@ namespace McNNTP.Server
                 return new CommandProcessingResult(true);
             }
 
-            Newsgroup ng;
             IList<Article> articles;
 
             try
             {
                 using (var session = Database.SessionUtility.OpenSession())
                 {
-                    ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == CurrentNewsgroup);
+                    var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == CurrentNewsgroup);
                     if (ng == null)
                     {
                         Send("412 No news group current selected\r\n");
@@ -1743,21 +1800,26 @@ namespace McNNTP.Server
 
                 lock (_sendLock)
                 {
-                    Send("224 Overview information follows\r\n", false, Encoding.UTF8);
-                    foreach (var article in articles)
-                        Send(
-                            string.Format(CultureInfo.InvariantCulture,
-                                "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
-                                string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0 ? article.Number : 0,
-                                unfold(article.Subject),
-                                unfold(article.From),
-                                unfold(article.Date),
-                                unfold(article.MessageId),
-                                unfold(article.References),
-                                unfold((article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
-                                unfold(article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))), false,
-                            Encoding.UTF8);
-                    Send(".\r\n", false, Encoding.UTF8);
+                    if (Compression && CompressionGZip)
+                        Send("224 Overview information follows [COMPRESS=GZIP]\r\n", false, Encoding.UTF8);
+                    else
+                        Send("224 Overview information follows\r\n", false, Encoding.UTF8);
+
+                    var sb = new StringBuilder();
+                        foreach (var article in articles)
+                            sb.Append(string.Format(CultureInfo.InvariantCulture,
+                                    "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
+                                    string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0 ? article.Number : 0,
+                                    unfold(article.Subject),
+                                    unfold(article.From),
+                                    unfold(article.Date),
+                                    unfold(article.MessageId),
+                                    unfold(article.References),
+                                    unfold((article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
+                                    unfold(article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))));
+                    sb.Append(".");
+                    Send(sb.ToString(), false, Encoding.UTF8, true);
+                    Send("\r\n", false, Encoding.UTF8, false);
                 }
             }
 
