@@ -33,7 +33,7 @@ namespace McNNTP.Console
         {
             var version = System.Reflection.Assembly.GetEntryAssembly().GetName().Version;
             System.Console.WriteLine("McNNTP Console Harness v{0}", version);
-
+            
             try
             {
                 // Setup LOG4NET

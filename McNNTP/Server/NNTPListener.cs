@@ -77,7 +77,7 @@ namespace McNNTP.Server
                 var stream = handler.GetStream();
 
                 connection = new Connection(handler, stream, _server.PathHost, _server.AllowStartTLS,
-                    _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData, false);
+                    _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData);
             }
             else
             {

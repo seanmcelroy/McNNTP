@@ -284,7 +284,7 @@ namespace McNNTP.Server
             // Convert the string data to byte data using ASCII encoding.
             byte[] byteData;
             if (compressedIfPossible && Compression && CompressionGZip && CompressionTerminator)
-                byteData = encoding.GetBytes(data.GZipCompress());
+                byteData = data.GZipCompress();
             else
                 byteData = encoding.GetBytes(data);
 
@@ -640,6 +640,7 @@ namespace McNNTP.Server
             sb.Append("READER\r\n");
             if (AllowStartTls)
                 sb.Append("STARTTLS\r\n");
+            sb.Append("XFEATURE-COMPRESS GZIP TERMINATOR\r\n");
             sb.Append("IMPLEMENTATION McNNTP 1.0.0\r\n");
             sb.Append(".\r\n");
             Send(sb.ToString());
@@ -1361,21 +1362,28 @@ namespace McNNTP.Server
 
             lock (_sendLock)
             {
-                Send("224 Overview information follows (multi-line)\r\n", false, Encoding.UTF8);
+                if (Compression && CompressionGZip)
+                    Send("224 Overview information follows (multi-line) [COMPRESS=GZIP]\r\n", false, Encoding.UTF8);
+                else
+                    Send("224 Overview information follows (multi-line)\r\n", false, Encoding.UTF8);
+
+                var sb = new StringBuilder();
+
                 foreach (var article in articles)
-                    Send(
-                        string.Format(CultureInfo.InvariantCulture,
-                            "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
-                            string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0 ? article.Number : 0,
-                            unfold(article.Subject).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
-                            unfold(article.From).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
-                            unfold(article.Date).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
-                            unfold(article.MessageId).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
-                            unfold(article.References).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
-                            unfold((article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
-                            unfold(article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))), false,
-                        Encoding.UTF8);
-                Send(".\r\n", false, Encoding.UTF8);
+                    sb.Append(string.Format(CultureInfo.InvariantCulture,
+                        "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
+                        string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0
+                            ? article.Number
+                            : 0,
+                        unfold(article.Subject).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                        unfold(article.From).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                        unfold(article.Date).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                        unfold(article.MessageId).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                        unfold(article.References).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                        unfold((article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
+                        unfold(article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))));
+                sb.Append(".\r\n");
+                Send(sb.ToString(), false, Encoding.UTF8, true);
             }
 
             return new CommandProcessingResult(true);
@@ -1445,10 +1453,10 @@ namespace McNNTP.Server
                             }
 
                             if ((article.Control != null && Identity == null) ||
-                                (article.Control != null && article.Control.StartsWith("cancel ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCancel) ||
-                                (article.Control != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCreateGroup) ||
-                                (article.Control != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanDeleteGroup) ||
-                                (article.Control != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCheckGroups))
+                                (article.Control != null && Identity != null && article.Control.StartsWith("cancel ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCancel) ||
+                                (article.Control != null && Identity != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCreateGroup) ||
+                                (article.Control != null && Identity != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanDeleteGroup) ||
+                                (article.Control != null && Identity != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCheckGroups))
                             {
                                 Send("480 Permission to issue control message denied\r\n");
                                 return new CommandProcessingResult(true, true);
@@ -1506,7 +1514,7 @@ namespace McNNTP.Server
             Shutdown();
             return new CommandProcessingResult(true, true);
         }
-        private CommandProcessingResult StartTLS(string content)
+        private CommandProcessingResult StartTLS()
         {
             if (TLS)
             {
@@ -1608,15 +1616,15 @@ namespace McNNTP.Server
 
         private CommandProcessingResult XFeature(string content)
         {
-            //if (string.Compare(content, "XFEATURE COMPRESS GZIP TERMINATOR\r\n", StringComparison.OrdinalIgnoreCase) == 0)
-            //{
-            //    Compression = true;
-            //    CompressionGZip = true;
-            //    CompressionTerminator = true;
+            if (string.Compare(content, "XFEATURE COMPRESS GZIP TERMINATOR\r\n", StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                Compression = true;
+                CompressionGZip = true;
+                CompressionTerminator = true;
 
-            //    Send("290 feature enabled\r\n");
-            //    return new CommandProcessingResult(true);
-            //}
+                Send("290 feature enabled\r\n");
+                return new CommandProcessingResult(true);
+            }
 
             // Not handled.
             return new CommandProcessingResult(false);
@@ -1806,20 +1814,24 @@ namespace McNNTP.Server
                         Send("224 Overview information follows\r\n", false, Encoding.UTF8);
 
                     var sb = new StringBuilder();
-                        foreach (var article in articles)
-                            sb.Append(string.Format(CultureInfo.InvariantCulture,
-                                    "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
-                                    string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0 ? article.Number : 0,
-                                    unfold(article.Subject),
-                                    unfold(article.From),
-                                    unfold(article.Date),
-                                    unfold(article.MessageId),
-                                    unfold(article.References),
-                                    unfold((article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
-                                    unfold(article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture))));
-                    sb.Append(".");
+
+                    foreach (var article in articles)
+                        sb.Append(string.Format(CultureInfo.InvariantCulture,
+                            "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
+                            string.CompareOrdinal(article.Newsgroup.Name, CurrentNewsgroup) == 0
+                                ? article.Number
+                                : 0,
+                            unfold(article.Subject),
+                            unfold(article.From),
+                            unfold(article.Date),
+                            unfold(article.MessageId),
+                            unfold(article.References),
+                            unfold((article.Body.Length*2).ToString(CultureInfo.InvariantCulture)),
+                            unfold(
+                                article.Body.Split(new[] {"\r\n"}, StringSplitOptions.None)
+                                    .Length.ToString(CultureInfo.InvariantCulture))));
+                    sb.Append(".\r\n");
                     Send(sb.ToString(), false, Encoding.UTF8, true);
-                    Send("\r\n", false, Encoding.UTF8, false);
                 }
             }
 

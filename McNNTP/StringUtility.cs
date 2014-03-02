@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -11,49 +10,37 @@ namespace McNNTP
 {
     public static class StringUtility
     {
-        public static string GZipCompress(this string text)
+        public static byte[] GZipCompress(this string text)
         {
             var buffer = Encoding.UTF8.GetBytes(text);
-            byte[] compressedData;
-            using (var memoryStream = new MemoryStream())
+            using (var ms = new MemoryStream(buffer))
+            using (var gzs = new Ionic.Zlib.ZlibStream(ms, Ionic.Zlib.CompressionMode.Compress, true))
+            using (var msOut = new MemoryStream())
             {
-                using (var gZipStream = new GZipStream(memoryStream, CompressionMode.Compress, true))
-                {
-                    gZipStream.Write(buffer, 0, buffer.Length);
-                }
-
-                memoryStream.Position = 0;
-
-                compressedData = new byte[memoryStream.Length];
-                memoryStream.Read(compressedData, 0, compressedData.Length);
+                gzs.CopyTo(msOut);
+                var array = msOut.ToArray();
+                return array;
             }
-
-            var gZipBuffer = new byte[compressedData.Length + 4];
-            Buffer.BlockCopy(compressedData, 0, gZipBuffer, 4, compressedData.Length);
-            Buffer.BlockCopy(BitConverter.GetBytes(buffer.Length), 0, gZipBuffer, 0, 4);
-            return Convert.ToBase64String(gZipBuffer);
         }
 
         public static string GZipUncompress(this string compressedText)
         {
-            var gZipBuffer = Convert.FromBase64String(compressedText);
-            using (var memoryStream = new MemoryStream())
-            {
-                var dataLength = BitConverter.ToInt32(gZipBuffer, 0);
-                memoryStream.Write(gZipBuffer, 4, gZipBuffer.Length - 4);
-
-                var buffer = new byte[dataLength];
-
-                memoryStream.Position = 0;
-                using (var gZipStream = new GZipStream(memoryStream, CompressionMode.Decompress))
-                {
-                    gZipStream.Read(buffer, 0, buffer.Length);
-                }
-
-                return Encoding.UTF8.GetString(buffer);
-            }
+            var buffer = Encoding.UTF8.GetBytes(compressedText);
+            return GZipUncompress(buffer);
         }
 
+        public static string GZipUncompress(this byte[] gZipBuffer)
+        {
+            using (var ms = new MemoryStream(gZipBuffer))
+            using (var gzs = new Ionic.Zlib.ZlibStream(ms, Ionic.Zlib.CompressionMode.Decompress, true))
+            using (var msOut = new MemoryStream())
+            {
+                gzs.CopyTo(msOut);
+                var array = msOut.ToArray();
+                var str = Encoding.UTF8.GetString(array);
+                return str;
+            }
+        }
 
         [Pure]
         public static bool MatchesWildmat([NotNull] this string test, string wildmat)
