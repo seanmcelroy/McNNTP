@@ -41,6 +41,11 @@ namespace McNNTP.Server
         [NotNull]
         private readonly StringBuilder _builder = new StringBuilder();
 
+        private readonly IPAddress _remoteAddress;
+        private readonly int _remotePort;
+        private readonly IPAddress _localAddress;
+        private readonly int _localPort;
+
         [CanBeNull]
         private CommandProcessingResult _inProcessCommand;
 
@@ -72,19 +77,19 @@ namespace McNNTP.Server
         #region Derived instance properties
         public IPAddress RemoteAddress
         {
-            get { return ((IPEndPoint) _client.Client.RemoteEndPoint).Address; }
+            get { return _remoteAddress; }
         }
         public int RemotePort
         {
-            get { return ((IPEndPoint)_client.Client.RemoteEndPoint).Port; }
+            get { return _remotePort; }
         }
         public IPAddress LocalAddress
         {
-            get { return ((IPEndPoint)_client.Client.LocalEndPoint).Address; }
+            get { return _localAddress; }
         }
         public int LocalPort
         {
-            get { return ((IPEndPoint)_client.Client.LocalEndPoint).Port; }
+            get { return _localPort; }
         }
         #endregion
 
@@ -140,6 +145,13 @@ namespace McNNTP.Server
             _server = server;
             _stream = stream;
             TLS = tls;
+
+            var remoteIpEndpoint = (IPEndPoint) _client.Client.RemoteEndPoint;
+            _remoteAddress = remoteIpEndpoint.Address;
+            _remotePort = remoteIpEndpoint.Port;
+            var localIpEndpoint = (IPEndPoint) _client.Client.LocalEndPoint;
+            _localAddress = localIpEndpoint.Address;
+            _localPort = localIpEndpoint.Port;
         }
 
         #region IO and Connection Management
@@ -154,7 +166,7 @@ namespace McNNTP.Server
 
             Debug.Assert(_stream != null);
 
-            var send403 = false;
+            bool send403;
 
             try
             {
@@ -245,6 +257,7 @@ namespace McNNTP.Server
             catch (ObjectDisposedException ode)
             {
                 _logger.Error("Object Disposed Exception", ode);
+                return;
             }
 
             if (send403)
@@ -260,7 +273,7 @@ namespace McNNTP.Server
             // Convert the string data to byte data using ASCII encoding.
             byte[] byteData;
             if (compressedIfPossible && Compression && CompressionGZip && CompressionTerminator)
-                byteData = data.GZipCompress();
+                byteData = await data.GZipCompress();
             else
                 byteData = encoding.GetBytes(data);
 

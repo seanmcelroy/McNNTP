@@ -4,34 +4,29 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 using JetBrains.Annotations;
 
 namespace McNNTP
 {
     public static class StringUtility
     {
-        public static byte[] GZipCompress(this string text)
+        public static async Task<byte[]> GZipCompress(this string text)
         {
             var buffer = Encoding.UTF8.GetBytes(text);
             using (var ms = new MemoryStream(buffer))
             using (var gzs = new Ionic.Zlib.ZlibStream(ms, Ionic.Zlib.CompressionMode.Compress, true))
             using (var msOut = new MemoryStream())
             {
-                gzs.CopyTo(msOut);
+                await gzs.CopyToAsync(msOut);
                 var array = msOut.ToArray();
                 return array;
             }
         }
 
-        public static string GZipUncompress(this string compressedText)
+        public static string GZipUncompress(this byte[] buffer)
         {
-            var buffer = Encoding.UTF8.GetBytes(compressedText);
-            return GZipUncompress(buffer);
-        }
-
-        public static string GZipUncompress(this byte[] gZipBuffer)
-        {
-            using (var ms = new MemoryStream(gZipBuffer))
+            using (var ms = new MemoryStream(buffer))
             using (var gzs = new Ionic.Zlib.ZlibStream(ms, Ionic.Zlib.CompressionMode.Decompress, true))
             using (var msOut = new MemoryStream())
             {

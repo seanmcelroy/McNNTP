@@ -22,8 +22,6 @@ under development is a full RFC-compliant NNTP (USENET) news server that adheres
 
 (See http://www.tin.org/docs.html)
 
-Other proprietary extensions such as GZIP compression, may be added at a later date.
-
 Inclusion of other non-NNTP communication protocols, such as RSS and Atom, as well as a web-based
 forum user interface built on a REST API are planned to provide multiple ways to interact with
 the same data through users' preferred communication mediums and clients.  

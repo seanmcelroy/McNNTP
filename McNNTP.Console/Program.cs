@@ -191,7 +191,7 @@ namespace McNNTP.Console
         private static bool ShowConn()
         {
             _server.ShowBytes = !_server.ShowBytes;
-            System.Console.WriteLine("Connections ({0})", _server.Connections.Count);
+            System.Console.WriteLine("\r\nConnections ({0})", _server.Connections.Count);
             System.Console.WriteLine("-----------");
             foreach (var connection in _server.Connections)
             {

@@ -100,7 +100,7 @@ namespace McNNTP.Server
                     out cryptKey));
 
                 IntPtr errorStringPtr;
-                int nameDataLength = 0;
+                var nameDataLength = 0;
                 byte[] nameData;
 
                 // errorStringPtr gets a pointer into the middle of the x500 string,
@@ -139,11 +139,11 @@ namespace McNNTP.Server
                 dataHandle.Free();
 
                 dataHandle = GCHandle.Alloc(nameData, GCHandleType.Pinned);
-                CryptoApiBlob nameBlob = new CryptoApiBlob(
+                var nameBlob = new CryptoApiBlob(
                     nameData.Length,
                     dataHandle.AddrOfPinnedObject());
 
-                CryptKeyProviderInformation kpi = new CryptKeyProviderInformation();
+                var kpi = new CryptKeyProviderInformation();
                 kpi.ContainerName = containerName;
                 kpi.ProviderType = 1; // PROV_RSA_FULL
                 kpi.KeySpec = 1; // AT_KEYEXCHANGE
@@ -185,7 +185,7 @@ namespace McNNTP.Server
                     passwordPtr = Marshal.SecureStringToCoTaskMemUnicode(password);
                 }
 
-                CryptoApiBlob pfxBlob = new CryptoApiBlob();
+                var pfxBlob = new CryptoApiBlob();
                 Check(NativeMethods.PFXExportCertStoreEx(
                     certStore,
                     ref pfxBlob,
