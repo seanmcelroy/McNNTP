@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using McNNTP.Server.Data;
@@ -215,8 +216,8 @@ namespace McNNTP.Server
                         var command = content.Split(' ').First().TrimEnd('\r', '\n');
                         if (_commandDirectory.ContainsKey(command))
                         {
-                            //try
-                            //{
+                            try
+                            {
                                 if (ShowCommands)
                                     _logger.TraceFormat("{0}:{1} >{2}> {3}", RemoteAddress, RemotePort, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
 
@@ -228,13 +229,13 @@ namespace McNNTP.Server
                                     _inProcessCommand = result;
                                 else if (result.IsQuitting)
                                     return;
-                            //}
-                            //catch (Exception ex)
-                            //{
-                            //    send403 = true;
-                            //    _logger.Error("Exception processing a command", ex);
-                            //    break;
-                            //}
+                            }
+                            catch (Exception ex)
+                            {
+                                send403 = true;
+                                _logger.Error("Exception processing a command", ex);
+                                break;
+                            }
                         }
                         else
                             await Send("500 Unknown command\r\n");
@@ -975,53 +976,6 @@ namespace McNNTP.Server
         {
             var contentParts = content.Split(' ');
 
-            if (string.Compare(content, "LIST\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
-                string.Compare(content, "LIST ACTIVE\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
-                content.StartsWith("LIST ACTIVE ", StringComparison.OrdinalIgnoreCase))
-            {
-                IList<Newsgroup> newsGroups = null;
-
-                var wildmat = contentParts.Length <= 2
-                    ? null
-                    : content.TrimEnd('\r', '\n').Split(' ').Skip(2).Aggregate((c, n) => c + " " + n);
-
-                var send403 = false;
-
-                try
-                {
-                    using (var session = Database.SessionUtility.OpenSession())
-                    {
-                        newsGroups = wildmat == null
-                            ? session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList() 
-                            : session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
-                        session.Close();
-                    }
-                }
-                catch (MappingException mex)
-                {
-                    _logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
-                    send403 = true;
-                }
-                //catch (Exception ex)
-                //{
-                //    _logger.Error("Exception when trying to handle LIST", ex);
-                //    send403 = true;
-                //    throw;
-                //}
-
-                if (send403)
-                {
-                    await Send("403 Archive server temporarily offline\r\n");
-                    return new CommandProcessingResult(true);
-                }
-
-                await Send("215 list of newsgroups follows\r\n");
-                foreach (var ng in newsGroups)
-                    await Send(string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark ?? 0, ng.LowWatermark ?? 0, ng.Moderated ? "m" : CanPost ? "y" : "n"), false, Encoding.UTF8);
-                await Send(".\r\n");
-                return new CommandProcessingResult(true);
-            }
-
             if (string.Compare(content, "LIST ACTIVE.TIMES\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
                 content.StartsWith("LIST ACTIVE.TIMES ", StringComparison.OrdinalIgnoreCase))
             {
@@ -1121,6 +1075,59 @@ namespace McNNTP.Server
                 await Send(":lines\r\n");
                 await Send(".\r\n");
 
+                return new CommandProcessingResult(true);
+            }
+
+            // RFC 3977 - If no keyword is provided, it defaults to ACTIVE.
+            if (string.Compare(content, "LIST\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
+                string.Compare(content, "LIST ACTIVE\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
+                content.StartsWith("LIST ", StringComparison.OrdinalIgnoreCase) ||
+                content.StartsWith("LIST ACTIVE ", StringComparison.OrdinalIgnoreCase))
+            {
+                IList<Newsgroup> newsGroups = null;
+
+                string wildmat;
+                if (content.EndsWith("LIST\r\n", StringComparison.OrdinalIgnoreCase) ||
+                    content.EndsWith("ACTIVE\r\n", StringComparison.OrdinalIgnoreCase))
+                    wildmat = null;
+                else if (content.StartsWith("LIST ACTIVE ", StringComparison.OrdinalIgnoreCase))
+                    wildmat = content.TrimEnd('\r', '\n').Split(' ').Skip(2).Aggregate((c, n) => c + " " + n);
+                else
+                    wildmat = content.TrimEnd('\r', '\n').Split(' ').Skip(1).Aggregate((c, n) => c + " " + n);
+
+                var send403 = false;
+
+                try
+                {
+                    using (var session = Database.SessionUtility.OpenSession())
+                    {
+                        newsGroups = wildmat == null
+                            ? session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList()
+                            : session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
+                        session.Close();
+                    }
+                }
+                catch (MappingException mex)
+                {
+                    _logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                    send403 = true;
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error("Exception when trying to handle LIST", ex);
+                    send403 = true;
+                }
+
+                if (send403)
+                {
+                    await Send("403 Archive server temporarily offline\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
+                await Send("215 list of newsgroups follows\r\n");
+                foreach (var ng in newsGroups)
+                    await Send(string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark ?? 0, ng.LowWatermark ?? 0, ng.Moderated ? "m" : CanPost ? "y" : "n"), false, Encoding.UTF8);
+                await Send(".\r\n");
                 return new CommandProcessingResult(true);
             }
 
