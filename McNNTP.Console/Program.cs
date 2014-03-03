@@ -23,6 +23,7 @@ namespace McNNTP.Console
             {"MAKEADMIN", MakeAdmin},
             {"MAKEGROUP", MakeGroup},
             {"PURGEDB", Database.DatabaseUtility.RebuildSchema},
+            {"SHOWCONN", s => ShowConn()},
             {"TOGBYTES", s => TogBytes()},
             {"TOGCMD", s => TogCommands()},
             {"TOGDATA", s => TogData()},
@@ -187,6 +188,22 @@ namespace McNNTP.Console
 
             return false;
         }
+        private static bool ShowConn()
+        {
+            _server.ShowBytes = !_server.ShowBytes;
+            System.Console.WriteLine("Connections ({0})", _server.Connections.Count);
+            System.Console.WriteLine("-----------");
+            foreach (var connection in _server.Connections)
+            {
+                if (connection.AuthenticatedUsername == null)
+                    System.Console.WriteLine("{0}:{1}", connection.RemoteAddress, connection.RemotePort);
+                else
+                    System.Console.WriteLine("{0}:{1} ({2})", connection.RemoteAddress, connection.RemotePort, connection.AuthenticatedUsername);
+            }
+
+            return false;
+        }
+
 
         private static bool TogBytes()
         {

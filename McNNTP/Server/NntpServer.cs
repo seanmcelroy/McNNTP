@@ -1,9 +1,11 @@
-﻿using System.Security.Cryptography.X509Certificates;
+﻿using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading;
 using log4net;
+using System.Threading.Tasks;
 
 namespace McNNTP.Server
 {
@@ -21,6 +23,21 @@ namespace McNNTP.Server
         public int[] ExplicitTLSPorts { get; set; }
         public int[] ImplicitTLSPorts { get; set; }
         public string PathHost { get; set; }
+
+        public IReadOnlyList<ConnectionMetadata> Connections
+        {
+            get
+            {
+                return _connections.Select(c => new ConnectionMetadata
+                {
+                    AuthenticatedUsername = c.Identity == null ? null : c.Identity.Username,
+                    RemoteAddress = c.RemoteAddress,
+                    RemotePort = c.RemotePort
+                })
+                .ToList()
+                .AsReadOnly();
+            }
+        }
 
         public NntpServer()
         {
@@ -89,8 +106,7 @@ namespace McNNTP.Server
                 _logger.InfoFormat("Stopped listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
             }
 
-            foreach (var connection in _connections)
-                connection.Shutdown();
+            Task.WaitAll(_connections.Select(connection => connection.Shutdown()).ToArray());
 
             foreach (var thread in _listeners)
                 thread.Item1.Abort();
