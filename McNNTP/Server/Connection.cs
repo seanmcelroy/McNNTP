@@ -215,8 +215,8 @@ namespace McNNTP.Server
                         var command = content.Split(' ').First().TrimEnd('\r', '\n');
                         if (_commandDirectory.ContainsKey(command))
                         {
-                            try
-                            {
+                            //try
+                            //{
                                 if (ShowCommands)
                                     _logger.TraceFormat("{0}:{1} >{2}> {3}", RemoteAddress, RemotePort, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
 
@@ -228,13 +228,13 @@ namespace McNNTP.Server
                                     _inProcessCommand = result;
                                 else if (result.IsQuitting)
                                     return;
-                            }
-                            catch (Exception ex)
-                            {
-                                send403 = true;
-                                _logger.Error("Exception processing a command", ex);
-                                break;
-                            }
+                            //}
+                            //catch (Exception ex)
+                            //{
+                            //    send403 = true;
+                            //    _logger.Error("Exception processing a command", ex);
+                            //    break;
+                            //}
                         }
                         else
                             await Send("500 Unknown command\r\n");
@@ -288,7 +288,7 @@ namespace McNNTP.Server
                             RemoteAddress,
                             RemotePort,
                             TLS ? "!" : "<",
-                            CompressionGZip ? "G" : "<",
+                            compressedIfPossible && CompressionGZip ? "G" : "<",
                             byteData.Length,
                             data.TrimEnd('\r', '\n'));
                     else if (ShowBytes)
@@ -296,14 +296,14 @@ namespace McNNTP.Server
                             RemoteAddress,
                             RemotePort,
                             TLS ? "!" : "<",
-                            CompressionGZip ? "G" : "<",
+                            compressedIfPossible && CompressionGZip ? "G" : "<",
                             byteData.Length);
                     else if (ShowData)
                         _logger.TraceFormat("{0}:{1} <{2}{3} {4}",
                             RemoteAddress,
                             RemotePort,
                             TLS ? "!" : "<",
-                            CompressionGZip ? "G" : "<",
+                            compressedIfPossible && CompressionGZip ? "G" : "<",
                             data.TrimEnd('\r', '\n'));
                 }
                 else // Block
@@ -497,7 +497,7 @@ namespace McNNTP.Server
                 Administrator[] allAdmins;
                 using (var session = Database.SessionUtility.OpenSession())
                 {
-                    allAdmins = session.Query<Administrator>().ToArray();
+                    allAdmins = session.Query<Administrator>().Fetch(a => a.Moderates).ToArray();
                     session.Close();
                 }
 
@@ -658,27 +658,9 @@ namespace McNNTP.Server
             Newsgroup ng;
             using (var session = Database.SessionUtility.OpenSession())
             {
-                ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == content);
+                ng = session.Query<Newsgroup>().AddMetagroups(session, Identity).SingleOrDefault(n => n.Name == content);
                 session.Close();
             }
-
-            if (ng == null)
-            {
-                /* This could be a 'meta' group.
-                 * 
-                 * The meta group .pending exists for all moderated groups, and is only seen by local news admins and moderators for that group
-                 * The meta group .deleted exists for any group with non-purged, deleted messages
-                 * 
-                 * But if such groups ACTUALLY exist, defer to those.
-                 */
-                if (content.EndsWith(".pending", StringComparison.OrdinalIgnoreCase))
-                {
-                    
-                }
-
-
-            }
-
 
             if (ng == null)
                 await Send(string.Format("411 {0} is unknown\r\n", content));
@@ -999,7 +981,7 @@ namespace McNNTP.Server
             {
                 IList<Newsgroup> newsGroups = null;
 
-                var wildmat = contentParts.Length == 2
+                var wildmat = contentParts.Length <= 2
                     ? null
                     : content.TrimEnd('\r', '\n').Split(' ').Skip(2).Aggregate((c, n) => c + " " + n);
 
@@ -1009,9 +991,9 @@ namespace McNNTP.Server
                 {
                     using (var session = Database.SessionUtility.OpenSession())
                     {
-                        newsGroups = wildmat == null 
-                            ? session.Query<Newsgroup>().OrderBy(n => n.Name).ToList() 
-                            : session.Query<Newsgroup>().OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
+                        newsGroups = wildmat == null
+                            ? session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList() 
+                            : session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
                         session.Close();
                     }
                 }
@@ -1020,11 +1002,12 @@ namespace McNNTP.Server
                     _logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
                     send403 = true;
                 }
-                catch (Exception ex)
-                {
-                    _logger.Error("Exception when trying to handle LIST", ex);
-                    send403 = true;
-                }
+                //catch (Exception ex)
+                //{
+                //    _logger.Error("Exception when trying to handle LIST", ex);
+                //    send403 = true;
+                //    throw;
+                //}
 
                 if (send403)
                 {
@@ -1034,7 +1017,7 @@ namespace McNNTP.Server
 
                 await Send("215 list of newsgroups follows\r\n");
                 foreach (var ng in newsGroups)
-                    await Send(string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, ng.Moderated ? "m" : CanPost ? "y" : "n"), false, Encoding.UTF8);
+                    await Send(string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark ?? 0, ng.LowWatermark ?? 0, ng.Moderated ? "m" : CanPost ? "y" : "n"), false, Encoding.UTF8);
                 await Send(".\r\n");
                 return new CommandProcessingResult(true);
             }
@@ -1054,9 +1037,9 @@ namespace McNNTP.Server
                 {
                     using (var session = Database.SessionUtility.OpenSession())
                     {
-                        newsGroups = wildmat == null 
-                            ? session.Query<Newsgroup>().OrderBy(n => n.Name).ToList() 
-                            : session.Query<Newsgroup>().OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
+                        newsGroups = wildmat == null
+                            ? session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList()
+                            : session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
                         session.Close();
                     }
                 }
@@ -1096,7 +1079,7 @@ namespace McNNTP.Server
                 {
                     using (var session = Database.SessionUtility.OpenSession())
                     {
-                        newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
+                        newsGroups = session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList();
                         session.Close();
                     }
                 }
@@ -1154,7 +1137,7 @@ namespace McNNTP.Server
             using (var session = Database.SessionUtility.OpenSession())
             {
                 var name = (parts.Length == 2) ? parts[1] : CurrentNewsgroup;
-                var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
+                var ng = session.Query<Newsgroup>().AddMetagroups(session, Identity).SingleOrDefault(n => n.Name == name);
 
                 if (ng == null)
                 {
@@ -1226,10 +1209,10 @@ namespace McNNTP.Server
                 return new CommandProcessingResult(true);
             }
 
-            IList<Newsgroup> newsGroups;
+            List<Newsgroup> newsGroups;
             using (var session = Database.SessionUtility.OpenSession())
             {
-                newsGroups = session.Query<Newsgroup>().Where(n => n.CreateDate >= afterDate).OrderBy(n => n.Name).ToList();
+                newsGroups = session.Query<Newsgroup>().AddMetagroups(session, Identity).Where(n => n.CreateDate >= afterDate).OrderBy(n => n.Name).ToList();
                 session.Close();
             }
 
@@ -1492,7 +1475,7 @@ namespace McNNTP.Server
                             {
 
                                 var newsgroupNameClosure = newsgroupName;
-                                var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == newsgroupNameClosure);
+                                var newsgroup = session.Query<Newsgroup>().AddMetagroups(session, Identity).SingleOrDefault(n => n.Name == newsgroupNameClosure);
                                 if (newsgroup == null)
                                     continue;
                                 
@@ -1681,7 +1664,7 @@ namespace McNNTP.Server
             {
                 using (var session = Database.SessionUtility.OpenSession())
                 {
-                    var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == CurrentNewsgroup);
+                    var ng = session.Query<Newsgroup>().AddMetagroups(session, Identity).SingleOrDefault(n => n.Name == CurrentNewsgroup);
                     if (ng == null)
                     {
                         await Send("412 No news group current selected\r\n");
@@ -1777,7 +1760,7 @@ namespace McNNTP.Server
                 {
                     using (var session = Database.SessionUtility.OpenSession())
                     {
-                        ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == CurrentNewsgroup);
+                        ng = session.Query<Newsgroup>().AddMetagroups(session, Identity).SingleOrDefault(n => n.Name == CurrentNewsgroup);
 
                         if (string.IsNullOrEmpty(rangeExpression))
                             articles =

@@ -7,7 +7,7 @@ namespace McNNTP.Database
 {
     public static class SessionUtility
     {
-        private static Lazy<ISessionFactory> _sessionFactory = new Lazy<ISessionFactory>(() =>
+        private static readonly Lazy<ISessionFactory> _sessionFactory = new Lazy<ISessionFactory>(() =>
         {
             var configuration = new Configuration();
             configuration.AddAssembly(typeof(Newsgroup).Assembly);

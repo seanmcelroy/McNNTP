@@ -133,6 +133,7 @@
     <Compile Include="Server\Data\Administrator.cs" />
     <Compile Include="Server\Data\Article.cs" />
     <Compile Include="Server\Data\Newsgroup.cs" />
+    <Compile Include="Server\NewsgroupUtility.cs" />
     <Compile Include="Server\NntpListener.cs" />
     <Compile Include="Server\NntpServer.cs" />
     <Compile Include="Server\Connection.cs" />

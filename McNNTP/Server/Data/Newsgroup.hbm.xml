@@ -8,8 +8,8 @@
     <property name="Description" />
     <property name="Moderated" not-null="true" />
     <property name="PostCount" formula="(SELECT count(a.ID) FROM Article a WHERE a.NewsGroupID = ID AND a.Cancelled = 0 AND a.Pending = 0)"/>
-    <property name="LowWatermark" formula="(SELECT min(a.ID) FROM Article a WHERE a.NewsGroupID = ID)" />
-    <property name="HighWatermark" formula="(SELECT max(a.ID) FROM Article a WHERE a.NewsGroupID = ID)" />
+    <property name="LowWatermark" formula="(SELECT min(a.Number) FROM Article a WHERE a.NewsGroupID = ID)" />
+    <property name="HighWatermark" formula="(SELECT max(a.Number) FROM Article a WHERE a.NewsGroupID = ID)" />
     <property name="CreateDate"/>
     <property name="CreatorEntity"/>
 
