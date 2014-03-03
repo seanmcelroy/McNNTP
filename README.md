@@ -14,8 +14,13 @@ under development is a full RFC-compliant NNTP (USENET) news server that adheres
 * RFC 3977 - Network News Transfer Protocol (NNTP)
 * RFC 4642 - Using TLS with NNTP (Implicit and Explicit TLS/SSL)
 * RFC 4643 - NNTP Extension for Authentication
+* RFC 4644 - NNTP Extension for Streaming Feeds
+* RFC 4707 - Netnews Administration System (NAS)
 * RFC 5536 - Netnews Article Format
+* RFC 5537 - Netnews Architecture and Protocols
 * RFC 6048 - NNTP Additions to LIST Command
+
+(See http://www.tin.org/docs.html)
 
 Other proprietary extensions such as GZIP compression, may be added at a later date.
 

@@ -25,6 +25,8 @@ namespace McNNTP.Server
         private static readonly ILog _logger = LogManager.GetLogger(typeof(Connection));
 
         // Client socket.
+        [NotNull]
+        private readonly NntpServer _server;
         [NotNull] 
         private readonly TcpClient _client;
         [NotNull] 
@@ -68,6 +70,25 @@ namespace McNNTP.Server
         public string CurrentNewsgroup { get; private set; }
         public long? CurrentArticleNumber { get; private set; }
 
+        #region Derived instance properties
+        public IPAddress RemoteAddress
+        {
+            get { return ((IPEndPoint) _client.Client.RemoteEndPoint).Address; }
+        }
+        public int RemotePort
+        {
+            get { return ((IPEndPoint)_client.Client.RemoteEndPoint).Port; }
+        }
+        public IPAddress LocalAddress
+        {
+            get { return ((IPEndPoint)_client.Client.LocalEndPoint).Address; }
+        }
+        public int LocalPort
+        {
+            get { return ((IPEndPoint)_client.Client.LocalEndPoint).Port; }
+        }
+        #endregion
+
         static Connection()
         {
             _commandDirectory = new Dictionary<string, Func<Connection, string, CommandProcessingResult>>
@@ -98,6 +119,7 @@ namespace McNNTP.Server
         }
 
         public Connection(
+            [NotNull] NntpServer server,
             [NotNull] TcpClient client,
             [NotNull] Stream stream,
             [NotNull] string pathHost,
@@ -115,12 +137,13 @@ namespace McNNTP.Server
             ShowBytes = showBytes;
             ShowCommands = showCommands;
             ShowData = showData;
+            _server = server;
             _stream = stream;
             TLS = tls;
         }
 
         #region IO and Connection Management
-        public void Process()
+        public async void Process()
         {
             // ReSharper disable ConvertIfStatementToConditionalTernaryExpression
             if (CanPost)
@@ -132,154 +155,100 @@ namespace McNNTP.Server
             Debug.Assert(_stream != null);
             try
             {
-                _stream.BeginRead(_buffer, 0, BUFFER_SIZE, ReadCallback, null);
-            }
-            catch (IOException se)
-            {
-                Send("403 Archive server temporarily offline\r\n");
-                _logger.Error("I/O Exception on BeginRead", se);
-            }
-            catch (SocketException se)
-            {
-                Send("403 Archive server temporarily offline\r\n");
-                _logger.Error("Socket Exception on BeginRead", se);
-            }
-        }
-        private void ReadCallback(IAsyncResult ar)
-        {
-            // Read data from the client socket.
-            int bytesRead;
-            try
-            {
-                bytesRead = _stream.EndRead(ar);
-            }
-            catch (IOException ioe)
-            {
-                Send("403 Archive server temporarily offline\r\n");
-                _logger.Error("I/O Exception on EndRead", ioe);
-                return;
-            }
-            catch (SocketException sex)
-            {
-                Send("403 Archive server temporarily offline\r\n");
-                _logger.Error("Socket Exception on EndRead", sex);
-                return;
-            }
-            catch (ObjectDisposedException)
-            {
-                return;
-            }
-
-            // There  might be more data, so store the data received so far.
-            _builder.Append(Encoding.ASCII.GetString(_buffer, 0, bytesRead));
-
-            // Not all data received OR no more but not yet ending with the delimiter. Get more.
-            var content = _builder.ToString();
-            if (bytesRead == BUFFER_SIZE || (bytesRead == 0 && !content.EndsWith("\r\n", StringComparison.Ordinal)))
-            {
-                if (!_client.Connected)
-                    return;
-
-                try
+                while (true)
                 {
+                    if (!_client.Connected || !_client.Client.Connected)
+                        return;
+
                     if (!_stream.CanRead)
                     {
                         Shutdown();
                         return;
                     }
 
-                    _stream.BeginRead(_buffer, 0, BUFFER_SIZE, ReadCallback, null);
-                }
-                catch (IOException ioe)
-                {
-                    Send("403 Archive server temporarily offline\r\n");
-                    _logger.Error("I/O Exception on BeginRead", ioe);
-                }
-                catch (SocketException sex)
-                {
-                    Send("403 Archive server temporarily offline\r\n");
-                    _logger.Error("Socket Exception on BeginRead", sex);
-                }
-                return;
-            }
+                    var bytesRead = await _stream.ReadAsync(_buffer, 0, BUFFER_SIZE);
 
-            // All the data has been read from the 
-            // client. Display it on the console.
-            if (ShowBytes && ShowData)
-                _logger.TraceFormat("{0}:{1} >{2}> {3} bytes: {4}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.Length, content.TrimEnd('\r', '\n'));
-            else if (ShowBytes)
-                _logger.TraceFormat("{0}:{1} >{2}> {3} bytes", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.Length);
-            else if (ShowData)
-                _logger.TraceFormat("{0}:{1} >{2}> {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
-
-            if (_inProcessCommand != null && _inProcessCommand.MessageHandler != null)
-            {
-                // Ongoing read - don't parse it for commands
-                _inProcessCommand = _inProcessCommand.MessageHandler.Invoke(content, _inProcessCommand);
-                if (_inProcessCommand != null && _inProcessCommand.IsQuitting)
-                    _inProcessCommand = null;
-            }
-            else
-            {
-                var command = content.Split(' ').First().TrimEnd('\r', '\n');
-                if (_commandDirectory.ContainsKey(command))
-                {
-                    try
+                    // There  might be more data, so store the data received so far.
+                    _builder.Append(Encoding.ASCII.GetString(_buffer, 0, bytesRead));
+                    
+                    // Not all data received OR no more but not yet ending with the delimiter. Get more.
+                    var content = _builder.ToString();
+                    if (bytesRead == BUFFER_SIZE || (bytesRead == 0 && !content.EndsWith("\r\n", StringComparison.Ordinal)))
                     {
-                        if (ShowCommands)
-                            _logger.TraceFormat("{0}:{1} >{2}> {3}", ((IPEndPoint)_client.Client.RemoteEndPoint).Address, ((IPEndPoint)_client.Client.RemoteEndPoint).Port, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
+                        // Read some more.
+                        continue;
+                    }
 
-                        var result = _commandDirectory[command].Invoke(this, content);
+                    // All the data has been read from the 
+                    // client. Display it on the console.
+                    if (ShowBytes && ShowData)
+                        _logger.TraceFormat("{0}:{1} >{2}> {3} bytes: {4}", RemoteAddress, RemotePort, TLS ? "!" : ">", content.Length, content.TrimEnd('\r', '\n'));
+                    else if (ShowBytes)
+                        _logger.TraceFormat("{0}:{1} >{2}> {3} bytes", RemoteAddress, RemotePort, TLS ? "!" : ">", content.Length);
+                    else if (ShowData)
+                        _logger.TraceFormat("{0}:{1} >{2}> {3}", RemoteAddress, RemotePort, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
 
-                        if (!result.IsHandled)
+                    if (_inProcessCommand != null && _inProcessCommand.MessageHandler != null)
+                    {
+                        // Ongoing read - don't parse it for commands
+                        _inProcessCommand = _inProcessCommand.MessageHandler.Invoke(content, _inProcessCommand);
+                        if (_inProcessCommand != null && _inProcessCommand.IsQuitting)
+                            _inProcessCommand = null;
+                    }
+                    else
+                    {
+                        var command = content.Split(' ').First().TrimEnd('\r', '\n');
+                        if (_commandDirectory.ContainsKey(command))
+                        {
+                            try
+                            {
+                                if (ShowCommands)
+                                    _logger.TraceFormat("{0}:{1} >{2}> {3}", RemoteAddress, RemotePort, TLS ? "!" : ">", content.TrimEnd('\r', '\n'));
+
+                                var result = _commandDirectory[command].Invoke(this, content);
+
+                                if (!result.IsHandled)
+                                    Send("500 Unknown command\r\n");
+                                else if (result.MessageHandler != null)
+                                    _inProcessCommand = result;
+                                else if (result.IsQuitting)
+                                    return;
+                            }
+                            catch (Exception ex)
+                            {
+                                Send("403 Archive server temporarily offline\r\n");
+                                _logger.Error("Exception processing a command", ex);
+                            }
+                        }
+                        else
                             Send("500 Unknown command\r\n");
-                        else if (result.MessageHandler != null)
-                            _inProcessCommand = result;
-                        else if (result.IsQuitting)
-                            return;
                     }
-                    catch (Exception ex)
-                    {
-                        Send("403 Archive server temporarily offline\r\n");
-                        _logger.Error("Exception processing a command", ex);
-                    }
-                }
-                else
-                    Send("500 Unknown command\r\n");
-            }
 
-            _builder.Clear();
-
-            if (!_client.Connected)
-                return;
-
-            // Not all data received. Get more.
-            try
-            {
-                if (!_client.Client.Connected || !_stream.CanRead)
-                {
-                    Shutdown();
-                    return;
+                    _builder.Clear();
                 }
 
-                _stream.BeginRead(_buffer, 0, BUFFER_SIZE, ReadCallback, null);
             }
-            catch (IOException sex)
+            catch (IOException se)
             {
                 Send("403 Archive server temporarily offline\r\n");
-                _logger.Error("I/O Exception on BeginRead", sex);
+                _logger.Error("I/O Exception on socket " + RemoteAddress, se);
             }
-            catch (SocketException sex)
+            catch (SocketException se)
             {
                 Send("403 Archive server temporarily offline\r\n");
-                _logger.Error("Socket Exception on BeginRead", sex);
+                _logger.Error("Socket Exception on socket " + RemoteAddress, se);
+            }
+            catch (ObjectDisposedException ode)
+            {
+                _logger.Error("Object Disposed Exception", ode);
             }
         }
-        public void Send(string data)
+
+        private void Send(string data)
         {
             Send(data, true, Encoding.UTF8);
         }
-        public void Send([NotNull] string data, bool async, [NotNull] Encoding encoding, bool compressedIfPossible = false)
+        private async void Send([NotNull] string data, bool async, [NotNull] Encoding encoding, bool compressedIfPossible = false)
         {
             // Convert the string data to byte data using ASCII encoding.
             byte[] byteData;
@@ -288,41 +257,56 @@ namespace McNNTP.Server
             else
                 byteData = encoding.GetBytes(data);
 
-            var remoteEndPoint = (IPEndPoint)_client.Client.RemoteEndPoint;
-
             try
             {
                 if (async)
                 {
                     // Begin sending the data to the remote device.
-                    _stream.BeginWrite(byteData, 0, byteData.Length, SendCallback, new SendCallbackAsyncState
-                    {
-                        CompressedGZip = compressedIfPossible && CompressionGZip,
-                        Data = data,
-                        Length = byteData.Length,
-                    });
+                    await _stream.WriteAsync(byteData, 0, byteData.Length);
+                    if (ShowBytes && ShowData)
+                        _logger.TraceFormat("{0}:{1} <{2}{3} {4} bytes: {5}",
+                            RemoteAddress,
+                            RemotePort,
+                            TLS ? "!" : "<",
+                            CompressionGZip ? "G" : "<",
+                            byteData.Length,
+                            data.TrimEnd('\r', '\n'));
+                    else if (ShowBytes)
+                        _logger.TraceFormat("{0}:{1} <{2}{3} {4} bytes",
+                            RemoteAddress,
+                            RemotePort,
+                            TLS ? "!" : "<",
+                            CompressionGZip ? "G" : "<",
+                            byteData.Length);
+                    else if (ShowData)
+                        _logger.TraceFormat("{0}:{1} <{2}{3} {4}",
+                            RemoteAddress,
+                            RemotePort,
+                            TLS ? "!" : "<",
+                            CompressionGZip ? "G" : "<",
+                            data.TrimEnd('\r', '\n'));
                 }
                 else // Block
                 {
                     _stream.Write(byteData, 0, byteData.Length);
                     if (ShowBytes && ShowData)
                         _logger.TraceFormat("{0}:{1} <{2}{3} {4} bytes: {5}",
-                            remoteEndPoint.Address, 
-                            remoteEndPoint.Port,
+                            RemoteAddress, 
+                            RemotePort,
                             TLS ? "!" : "<",
                             compressedIfPossible && CompressionGZip ? "G" : "<",
                             byteData.Length, data.TrimEnd('\r', '\n'));
                     else if (ShowBytes)
                         _logger.TraceFormat("{0}:{1} <{2}{3} {4} bytes", 
-                            remoteEndPoint.Address, 
-                            remoteEndPoint.Port, 
+                            RemoteAddress, 
+                            RemotePort, 
                             TLS ? "!" : "<",
                             compressedIfPossible && CompressionGZip ? "G" : "<",
                             byteData.Length);
                     else if (ShowData)
                         _logger.TraceFormat("{0}:{1} <{2}{3} {4}", 
-                            remoteEndPoint.Address, 
-                            remoteEndPoint.Port, 
+                            RemoteAddress, 
+                            RemotePort, 
                             TLS ? "!" : "<",
                             compressedIfPossible && CompressionGZip ? "G" : "<",
                             data.TrimEnd('\r', '\n'));
@@ -331,57 +315,12 @@ namespace McNNTP.Server
             catch (IOException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", remoteEndPoint.Address, remoteEndPoint.Port);
+                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", RemoteAddress, RemotePort);
             }
             catch (SocketException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", remoteEndPoint.Address, remoteEndPoint.Port);
-            }
-        }
-        private void SendCallback(IAsyncResult ar)
-        {
-            try
-            {
-                // Retrieve the socket from the state object.
-                var state = (SendCallbackAsyncState)ar.AsyncState;
-
-                // Complete sending the data to the remote device.
-                _stream.EndWrite(ar);
-
-                var remoteEndPoint = (IPEndPoint)_client.Client.RemoteEndPoint;
-                if (ShowBytes && ShowData)
-                    _logger.TraceFormat("{0}:{1} <{2}{3} {4} bytes: {5}",
-                        remoteEndPoint.Address,
-                        remoteEndPoint.Port,
-                        TLS ? "!" : "<",
-                        state.CompressedGZip ? "G" : "<",
-                        state.Length,
-                        state.Data.TrimEnd('\r', '\n'));
-                else if (ShowBytes)
-                    _logger.TraceFormat("{0}:{1} <{2}{3} {4} bytes",
-                        remoteEndPoint.Address,
-                        remoteEndPoint.Port,
-                        TLS ? "!" : "<",
-                        state.CompressedGZip ? "G" : "<",
-                        state.Length);
-                else if (ShowData)
-                    _logger.TraceFormat("{0}:{1} <{2}{3} {4}",
-                        remoteEndPoint.Address,
-                        remoteEndPoint.Port, 
-                        TLS ? "!" : "<",
-                        state.CompressedGZip ? "G" : "<", 
-                        state.Data.TrimEnd('\r', '\n'));
-            }
-            catch (ObjectDisposedException)
-            {
-                // Don't send 403 - the sending socket isn't working
-            }
-            catch (Exception e)
-            {
-                // Don't send 403 - the sending socket isn't working
-                _logger.Error("Exception on EndWrite", e);
-                throw;
+                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", RemoteAddress, RemotePort);
             }
         }
         public void Shutdown()
@@ -395,6 +334,8 @@ namespace McNNTP.Server
                     _client.Close();
                 }
             }
+
+            _server.RemoveConnection(this);
         }
         #endregion
 
@@ -501,11 +442,6 @@ namespace McNNTP.Server
             }
 
             var args = param.Split(' ');
-            if (args.Length != 2)
-            {
-                Send("481 Authentication failed/rejected\r\n");
-                return new CommandProcessingResult(true);
-            }
 
             if (string.Compare(args[0], "USER", StringComparison.OrdinalIgnoreCase) == 0)
             {
@@ -553,19 +489,27 @@ namespace McNNTP.Server
                 }
 
                 if (admin.LocalAuthenticationOnly &&
-                    !IPAddress.IsLoopback(((IPEndPoint) _client.Client.RemoteEndPoint).Address))
+                    !IPAddress.IsLoopback(RemoteAddress))
                 {
                     Send("481 Authentication not allowed except locally\r\n");
                     return new CommandProcessingResult(true);
                 }
 
                 Identity = admin;
+                _logger.InfoFormat("User {0} authenticated from {1}", admin.Username, RemoteAddress);
 
                 Send("281 Authentication accepted\r\n");
                 return new CommandProcessingResult(true);
             }
 
-            return new CommandProcessingResult(false);
+            //if (string.Compare(args[0], "GENERIC", StringComparison.OrdinalIgnoreCase) == 0)
+            //{
+            //    Send("501 Command not supported\r\n");
+            //    return new CommandProcessingResult(true);
+            //}
+
+            Send("501 Command not supported\r\n");
+            return new CommandProcessingResult(true);
         }
         private CommandProcessingResult Body(string content)
         {

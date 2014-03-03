@@ -1,7 +1,6 @@
 ﻿using System.Security.Cryptography.X509Certificates;
 using System;
 using System.Collections.Generic;
-using System.Collections.Concurrent;
 using System.Net;
 using System.Threading;
 using log4net;
@@ -12,8 +11,7 @@ namespace McNNTP.Server
     {
         private readonly List<Tuple<Thread, NntpListener>> _listeners = new List<Tuple<Thread, NntpListener>>();
         private static readonly ILog _logger = LogManager.GetLogger(typeof(Connection));
-
-        internal readonly ConcurrentBag<Connection> _connections = new ConcurrentBag<Connection>();
+        private readonly List<Connection> _connections = new List<Connection>();
 
         internal readonly X509Certificate2 _serverAuthenticationCertificate;
 
@@ -97,6 +95,22 @@ namespace McNNTP.Server
             foreach (var thread in _listeners)
                 thread.Item1.Abort();
         }
+
+        internal void AddConnection(Connection connection)
+        {
+            _connections.Add(connection);
+            _logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort);
+        }
+
+        internal void RemoveConnection(Connection connection)
+        {
+            _connections.Remove(connection);
+            if (connection.Identity == null)
+                _logger.VerboseFormat("Disconnection from {0}:{1}", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort);
+            else
+                _logger.VerboseFormat("Disconnection from {0}:{1} ({2})", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort, connection.Identity.Username);
+        }
+
         #endregion
         
         #region Interactivity
