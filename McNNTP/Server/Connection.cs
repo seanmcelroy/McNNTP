@@ -413,6 +413,8 @@ namespace McNNTP.Server
                     type = 2;
                 }
 
+                session.Close();
+
                 if (article == null)
                     switch (type)
                     {
@@ -445,7 +447,7 @@ namespace McNNTP.Server
                     }
 
                     await Send(article.Headers + "\r\n", false, Encoding.UTF8);
-                    await Send(article.Body + "\r\n.\r\n", false, Encoding.UTF8);
+                    await Send(article.Body, false, Encoding.UTF8);
                 }
             }
 
@@ -584,6 +586,8 @@ namespace McNNTP.Server
                     type = 2;
                 }
 
+                session.Close();
+
                 if (article == null)
                     switch (type)
                     {
@@ -617,8 +621,6 @@ namespace McNNTP.Server
 
                     await Send(article.Body, false, Encoding.UTF8);
                 }
-
-                session.Close();
             }
 
             return new CommandProcessingResult(true);
@@ -657,7 +659,26 @@ namespace McNNTP.Server
             using (var session = Database.SessionUtility.OpenSession())
             {
                 ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == content);
+                session.Close();
             }
+
+            if (ng == null)
+            {
+                /* This could be a 'meta' group.
+                 * 
+                 * The meta group .pending exists for all moderated groups, and is only seen by local news admins and moderators for that group
+                 * The meta group .deleted exists for any group with non-purged, deleted messages
+                 * 
+                 * But if such groups ACTUALLY exist, defer to those.
+                 */
+                if (content.EndsWith(".pending", StringComparison.OrdinalIgnoreCase))
+                {
+                    
+                }
+
+
+            }
+
 
             if (ng == null)
                 await Send(string.Format("411 {0} is unknown\r\n", content));
@@ -748,6 +769,8 @@ namespace McNNTP.Server
                         await Send("501 Syntax Error\r\n");
                         return new CommandProcessingResult(true);
                 }
+
+                session.Close();
 
                 if (!articles.Any())
                     switch (type)
@@ -862,6 +885,8 @@ namespace McNNTP.Server
                     type = 2;
                 }
 
+                session.Close();
+
                 if (article == null)
                     switch (type)
                     {
@@ -949,6 +974,7 @@ namespace McNNTP.Server
                 previousArticle = session.Query<Article>().Fetch(a => a.Newsgroup)
                     .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number < currentArticleNumber.Value)
                     .MaxBy(a => a.Number);
+                session.Close();
             }
 
             // If the current article number is already the first article of the newsgroup, a 422 response MUST be returned.
@@ -986,6 +1012,7 @@ namespace McNNTP.Server
                         newsGroups = wildmat == null 
                             ? session.Query<Newsgroup>().OrderBy(n => n.Name).ToList() 
                             : session.Query<Newsgroup>().OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
+                        session.Close();
                     }
                 }
                 catch (MappingException mex)
@@ -1030,6 +1057,7 @@ namespace McNNTP.Server
                         newsGroups = wildmat == null 
                             ? session.Query<Newsgroup>().OrderBy(n => n.Name).ToList() 
                             : session.Query<Newsgroup>().OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
+                        session.Close();
                     }
                 }
                 catch (MappingException mex)
@@ -1069,6 +1097,7 @@ namespace McNNTP.Server
                     using (var session = Database.SessionUtility.OpenSession())
                     {
                         newsGroups = session.Query<Newsgroup>().OrderBy(n => n.Name).ToList();
+                        session.Close();
                     }
                 }
                 catch (MappingException mex)
@@ -1128,44 +1157,45 @@ namespace McNNTP.Server
                 var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
 
                 if (ng == null)
+                {
                     await Send("411 No such newsgroup\r\n");
+                    return new CommandProcessingResult(true);
+                }
+
+                CurrentNewsgroup = ng.Name;
+                if (ng.PostCount == 0)
+                {
+                    await Send(string.Format("211 0 0 0 {0}\r\n", ng.Name));
+                    return new CommandProcessingResult(true);
+                }
+
+                IList<Article> articles;
+                if (parts.Length < 3)
+                    articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name).OrderBy(a => a.Number).ToList();
                 else
                 {
-                    CurrentNewsgroup = ng.Name;
-                    if (ng.PostCount == 0)
+                    var range = ParseRange(parts[2]);
+                    if (range.Equals(default(System.Tuple<int, int?>)))
                     {
-                        await Send(string.Format("211 0 0 0 {0}\r\n", ng.Name));
+                        await Send("501 Syntax Error\r\n");
+                        return new CommandProcessingResult(true);
                     }
-                    else
-                    {
-                        IList<Article> articles;
-                        if (parts.Length < 3)
-                            articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name).OrderBy(a => a.Number).ToList();
-                        else
-                        {
-                            var range = ParseRange(parts[2]);
-                            if (range.Equals(default(System.Tuple<int, int?>)))
-                            {
-                                await Send("501 Syntax Error\r\n");
-                                return new CommandProcessingResult(true);
-                            }
 
-                            if (!range.Item2.HasValue) // LOW-
-                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name && a.Number >= range.Item1).OrderBy(a => a.Number).ToList();
-                            else // LOW-HIGH
-                                articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name && a.Number >= range.Item1 && a.Number <= range.Item2.Value).ToList();
-                        }
-
-                        CurrentArticleNumber = !articles.Any() ? default(long?) : articles.First().Number;
-
-                        await Send(string.Format("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name), false, Encoding.UTF8);
-                        foreach (var article in articles)
-                            await Send(string.Format(CultureInfo.InvariantCulture, "{0}\r\n", article.Number.ToString(CultureInfo.InvariantCulture)), false, Encoding.UTF8);
-                        await Send(".\r\n", false, Encoding.UTF8);
-                    }
+                    if (!range.Item2.HasValue) // LOW-
+                        articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name && a.Number >= range.Item1).OrderBy(a => a.Number).ToList();
+                    else // LOW-HIGH
+                        articles = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == ng.Name && a.Number >= range.Item1 && a.Number <= range.Item2.Value).ToList();
                 }
-            }
 
+                session.Close();
+
+                CurrentArticleNumber = !articles.Any() ? default(long?) : articles.First().Number;
+
+                await Send(string.Format("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name), false, Encoding.UTF8);
+                foreach (var article in articles)
+                    await Send(string.Format(CultureInfo.InvariantCulture, "{0}\r\n", article.Number.ToString(CultureInfo.InvariantCulture)), false, Encoding.UTF8);
+                await Send(".\r\n", false, Encoding.UTF8);
+            }
 
             return new CommandProcessingResult(true);
         }
@@ -1190,27 +1220,26 @@ namespace McNNTP.Server
                 if (!(parts.ElementAt(1).Length == 6 && DateTime.TryParseExact(dateTime, "yyMMdd HHmmss", CultureInfo.InvariantCulture, parts.Length == 4 ? DateTimeStyles.AssumeUniversal : DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal, out afterDate)))
                     afterDate = DateTime.MinValue;
 
-            if (afterDate != DateTime.MinValue)
-            {
-                IList<Newsgroup> newsGroups;
-                using (var session = Database.SessionUtility.OpenSession())
-                {
-                    newsGroups = session.Query<Newsgroup>().Where(n => n.CreateDate >= afterDate).OrderBy(n => n.Name).ToList();
-                }
-
-                await Send("231 List of new newsgroups follows (multi-line)\r\n", false, Encoding.UTF8);
-                foreach (var ng in newsGroups)
-                {
-                    await Send(string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark,
-                        CanPost ? "y" : "n"), false, Encoding.UTF8);
-                }
-                await Send(".\r\n", false, Encoding.UTF8);
-            }
-            else
+            if (afterDate == DateTime.MinValue)
             {
                 await Send("231 List of new newsgroups follows (multi-line)\r\n.\r\n");
+                return new CommandProcessingResult(true);
             }
 
+            IList<Newsgroup> newsGroups;
+            using (var session = Database.SessionUtility.OpenSession())
+            {
+                newsGroups = session.Query<Newsgroup>().Where(n => n.CreateDate >= afterDate).OrderBy(n => n.Name).ToList();
+                session.Close();
+            }
+
+            await Send("231 List of new newsgroups follows (multi-line)\r\n", false, Encoding.UTF8);
+            foreach (var ng in newsGroups)
+            {
+                await Send(string.Format("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark,
+                    CanPost ? "y" : "n"), false, Encoding.UTF8);
+            }
+            await Send(".\r\n", false, Encoding.UTF8);
             return new CommandProcessingResult(true);
         }
         private async Task<CommandProcessingResult> Next()
@@ -1237,6 +1266,7 @@ namespace McNNTP.Server
                 previousArticle = session.Query<Article>().Fetch(a => a.Newsgroup)
                     .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number > currentArticleNumber.Value)
                     .MinBy(a => a.Number);
+                session.Close();
             }
 
             // If the current article number is already the last article of the newsgroup, a 421 response MUST be returned.
@@ -1571,6 +1601,8 @@ namespace McNNTP.Server
                     type = 2;
                 }
 
+                session.Close();
+
                 if (article == null)
                     switch (type)
                     {
@@ -1699,6 +1731,8 @@ namespace McNNTP.Server
                                     .ToList();
                         }
                     }
+
+                    session.Close();
                 }
             }
             catch (Exception ex)
@@ -1780,6 +1814,8 @@ namespace McNNTP.Server
                                         .ToList();
                             }
                         }
+
+                        session.Close();
                     }
                 }
                 catch (Exception ex)
