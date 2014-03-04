@@ -173,17 +173,21 @@ namespace McNNTP.Server.Data
 
             var headerLength = headerLines.Sum(hl => hl.Length + 2);
 
-            if (headers.All(h => string.Compare(h.Key, "From", StringComparison.OrdinalIgnoreCase) != 0))
+            if (!headers.ContainsKey("FROM"))
                 return false;
 
-            if (headers.All(h => string.Compare(h.Key, "Newsgroups", StringComparison.OrdinalIgnoreCase) != 0))
+            // Validate From: header against RFC 5322 3.4
+            if (!Regex.IsMatch(headers["FROM"], @"((\s*\w+)*\s+<[^@]+@[^>]+>|[^@]+@[^>]+)(\s*,\s*((\s*\w+)*\s+<[^@]+@[^>]+>|[^@]+@[^>]+))*"))
                 return false;
 
-            if (headers.All(h => string.Compare(h.Key, "Subject", StringComparison.OrdinalIgnoreCase) != 0))
+            if (!headers.ContainsKey("NEWSGROUPS"))
+                return false;
+
+            if (!headers.ContainsKey("SUBJECT"))
                 return false;
 
             string msgId;
-            if (headers.Any(h => string.Compare(h.Key, "Message-ID", StringComparison.OrdinalIgnoreCase) == 0))
+            if (headers.ContainsKey("MESSAGE-ID"))
             {
                 msgId = headers.Single(h => string.Compare(h.Key, "Message-ID", StringComparison.OrdinalIgnoreCase) == 0).Value;
                 if (!msgId.IsUsenetMessageId())
@@ -191,20 +195,24 @@ namespace McNNTP.Server.Data
             }
             else
                 msgId = "<" + Guid.NewGuid().ToString("N").ToUpperInvariant() + "@mcnttp.auto>";
-            
+
             var newsgroups = headers.Single(h => string.Compare(h.Key, "Newsgroups", StringComparison.OrdinalIgnoreCase) == 0).Value;
+
+            var body = (block.Length <= headerLength + 2)
+                ? string.Empty // Usenet explorer can post a completely empty body.
+                : block.Substring(headerLength + 2); // Eliminate headers + terminating \r\n
             
             article = new Article
             {
                 Approved = headers.Where(h => string.Compare(h.Key, "Approved", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Archive = headers.Where(h => string.Compare(h.Key, "Archive", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
-                Body = block.Substring(headerLength),
+                Body = body,
                 ContentDisposition = headers.Where(h => string.Compare(h.Key, "Content-Disposition", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 ContentLanguage = headers.Where(h => string.Compare(h.Key, "Content-Language", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 ContentTransferEncoding = headers.Where(h => string.Compare(h.Key, "Content-Transfer-Encoding", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 ContentType = headers.Where(h => string.Compare(h.Key, "Content-Type", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Control = headers.Where(h => string.Compare(h.Key, "Control", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value.Trim()).SingleOrDefault(),
-                Date = DateTime.UtcNow.ToString("r"),
+                Date = headers.Where(h => string.Compare(h.Key, "Date", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value.Trim()).SingleOrDefault() ?? DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000",
                 Distribution = headers.Where(h => string.Compare(h.Key, "Distribution", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 Expires = headers.Where(h => string.Compare(h.Key, "Expires", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
                 FollowupTo = headers.Where(h => string.Compare(h.Key, "Followup-To", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault(),
@@ -223,8 +231,11 @@ namespace McNNTP.Server.Data
                 Xref = headers.Where(h => string.Compare(h.Key, "Xref", StringComparison.OrdinalIgnoreCase) == 0).Select(h => h.Value).SingleOrDefault()
             };
 
+            if (!headers.ContainsKey("DATE"))
+                article.ChangeHeader("Date", article.Date);
+
             article.ChangeHeader("Message-ID", msgId);
-            
+
             return true;
         }
 
@@ -262,8 +273,8 @@ namespace McNNTP.Server.Data
                 if (!match.Success)
                     return false;
 
-                headers.Add(match.Groups["key"].Value, match.Groups["value"].Value);
-                headersAndFullLines.Add(match.Groups["key"].Value, headerLine);
+                headers.Add(match.Groups["key"].Value.ToUpperInvariant(), match.Groups["value"].Value);
+                headersAndFullLines.Add(match.Groups["key"].Value.ToUpperInvariant(), headerLine);
             }
 
             return true;

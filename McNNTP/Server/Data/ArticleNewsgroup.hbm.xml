@@ -4,9 +4,9 @@
     <id name="Id" type="Int32">
       <generator class="native" />
     </id>
-    <many-to-one name="Newsgroup" column="NewsgroupId" not-null="true" unique-key="NewsgroupUniqueNumber" lazy="false" />
+    <many-to-one name="Newsgroup" column="NewsgroupId" not-null="true" lazy="false" />
     <many-to-one name="Article" column="ArticleId" not-null="true" lazy="false" />
-    <property name="Number" not-null="true" update="false" unique-key="NewsgroupUniqueNumber" />
+    <property name="Number" not-null="true" update="false" />
     <property name="Cancelled" not-null="true" />
     <property name="Pending" not-null="true" />
   </class>

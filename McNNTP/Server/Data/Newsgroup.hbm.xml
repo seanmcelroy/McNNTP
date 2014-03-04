@@ -13,7 +13,7 @@
     <property name="CreateDate"/>
     <property name="CreatorEntity"/>
 
-    <bag name="ModeratedBy" inverse="true" table="NewsgroupModerator">
+    <bag name="ModeratedBy" table="NewsgroupModerator">
       <key>
         <column name="NewsgroupId" not-null="true" />
       </key>

@@ -16,6 +16,7 @@ using System.Security.Cryptography;
 using System.Text;
 using MoreLinq;
 using log4net;
+using System.Net.Security;
 
 namespace McNNTP.Server
 {
@@ -126,22 +127,16 @@ namespace McNNTP.Server
             [NotNull] NntpServer server,
             [NotNull] TcpClient client,
             [NotNull] Stream stream,
-            [NotNull] string pathHost,
-            bool allowStartTls = true,
-            bool canPost = true,
-            bool showBytes = false,
-            bool showCommands = false,
-            bool showData = false,
             bool tls = false)
         {
-            AllowStartTls = allowStartTls;
-            CanPost = canPost;
+            AllowStartTls = server.AllowStartTLS;
+            CanPost = server.AllowPosting;
             _client = client;
             _client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-            PathHost = pathHost;
-            ShowBytes = showBytes;
-            ShowCommands = showCommands;
-            ShowData = showData;
+            PathHost = server.PathHost;
+            ShowBytes = server.ShowBytes;
+            ShowCommands = server.ShowCommands;
+            ShowData = server.ShowData;
             _server = server;
             _stream = stream;
             TLS = tls;
@@ -470,8 +465,8 @@ namespace McNNTP.Server
                             break;
                     }
 
-                    await Send(articleNewsgroup.Article.Headers + "\r\n", false, Encoding.UTF8);
-                    await Send(articleNewsgroup.Article.Body, false, Encoding.UTF8);
+                    await Send(articleNewsgroup.Article.Headers + "\r\n\r\n", false, Encoding.UTF8);
+                    await Send(articleNewsgroup.Article.Body + "\r\n.\r\n", false, Encoding.UTF8);
                 }
             }
 
@@ -653,7 +648,7 @@ namespace McNNTP.Server
                             break;
                     }
 
-                    await Send(articleNewsgroup.Article.Body, false, Encoding.UTF8);
+                    await Send(articleNewsgroup.Article.Body + "\r\n.\r\n", false, Encoding.UTF8);
                 }
             }
 
@@ -914,6 +909,9 @@ namespace McNNTP.Server
                         await Send("423 No article with that number\r\n");
                         return new CommandProcessingResult(true);
                     }
+
+                    var articleNewsgroups = session.Query<ArticleNewsgroup>().ToList();
+
 
                     if (CurrentNewsgroup.EndsWith(".deleted"))
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
@@ -1561,8 +1559,8 @@ namespace McNNTP.Server
                             }
                             if (Identity != null && !Identity.CanInject)
                             {
-                                article.InjectionDate = DateTime.UtcNow.ToString("r");
-                                article.ChangeHeader("Injection-Date", DateTime.UtcNow.ToString("r"));
+                                article.InjectionDate = DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000";
+                                article.ChangeHeader("Injection-Date", DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000");
                                 article.InjectionInfo = null;
                                 article.RemoveHeader("Injection-Info");
                                 article.Xref = null;

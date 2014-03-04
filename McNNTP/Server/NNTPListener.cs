@@ -48,8 +48,7 @@ namespace McNNTP.Server
                     {
                         var stream = handler.GetStream();
 
-                        connection = new Connection(_server, handler, stream, _server.PathHost, _server.AllowStartTLS,
-                            _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData);
+                        connection = new Connection(_server, handler, stream);
                     }
                     else
                     {
@@ -66,8 +65,7 @@ namespace McNNTP.Server
                             return;
                         }
 
-                        connection = new Connection(_server, handler, sslStream, _server.PathHost, _server.AllowStartTLS,
-                            _server.AllowPosting, _server.ShowBytes, _server.ShowCommands, _server.ShowData, true);
+                        connection = new Connection(_server, handler, sslStream, true);
                     }
 
                     _server.AddConnection(connection);

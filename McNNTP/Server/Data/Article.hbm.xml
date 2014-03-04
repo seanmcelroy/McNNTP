@@ -34,7 +34,7 @@
     <property name="Headers" />
     <property name="Body" update="false" />
 
-    <bag name="ArticleNewsgroups" inverse="true" table="ArticleNewsgroup" lazy="false">
+    <bag name="ArticleNewsgroups" table="ArticleNewsgroup" lazy="false" cascade="all">
       <key>
         <column name="ArticleId" not-null="true" />
       </key>
