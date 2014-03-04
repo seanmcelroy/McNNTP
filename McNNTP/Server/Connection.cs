@@ -1,5 +1,4 @@
 ﻿using System.Diagnostics;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using JetBrains.Annotations;
 using McNNTP.Server.Data;
@@ -189,7 +188,7 @@ namespace McNNTP.Server
                     
                     // Not all data received OR no more but not yet ending with the delimiter. Get more.
                     var content = _builder.ToString();
-                    if (bytesRead == BUFFER_SIZE || (bytesRead == 0 && !content.EndsWith("\r\n", StringComparison.Ordinal)))
+                    if (bytesRead == BUFFER_SIZE || !content.EndsWith("\r\n", StringComparison.Ordinal))
                     {
                         // Read some more.
                         continue;
@@ -1018,6 +1017,24 @@ namespace McNNTP.Server
                 var epoch = new DateTime(1970, 1, 1);
                 foreach (var ng in newsGroups)
                     await Send(string.Format("{0} {1} {2}\r\n", ng.Name, (ng.CreateDate - epoch).TotalSeconds, ng.CreatorEntity), false, Encoding.UTF8);
+                await Send(".\r\n");
+
+                return new CommandProcessingResult(true);
+            }
+
+            if (string.Compare(content, "LIST DISTRIB.PATS\r\n", StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                List<DistributionPattern> pats;
+
+                using (var session = Database.SessionUtility.OpenSession())
+                {
+                    pats = session.Query<DistributionPattern>().ToList();
+                    session.Close();
+                }
+
+                await Send("215 information follows\r\n");
+                foreach (var pat in pats)
+                    await Send(string.Format("{0}:{1}:{2}\r\n", pat.Weight, pat.Wildmat, pat.Distribution), false, Encoding.UTF8);
                 await Send(".\r\n");
 
                 return new CommandProcessingResult(true);

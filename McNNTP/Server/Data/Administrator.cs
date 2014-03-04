@@ -10,7 +10,7 @@ namespace McNNTP.Server.Data
 {
     public class Administrator
     {
-        public virtual long Id { get; set; }
+        public virtual int Id { get; set; }
         [NotNull]
         public virtual string Username { get; set; }
         [NotNull]

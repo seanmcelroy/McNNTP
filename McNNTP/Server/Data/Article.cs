@@ -9,7 +9,7 @@ namespace McNNTP.Server.Data
     // ReSharper disable once ClassWithVirtualMembersNeverInherited.Global
     public class Article
     {
-        public virtual long Id { get; set; }
+        public virtual int Id { get; set; }
         [NotNull]
         public virtual Newsgroup Newsgroup { get; set; }
         public virtual int Number { get; set; }

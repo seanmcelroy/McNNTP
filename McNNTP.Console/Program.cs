@@ -50,7 +50,7 @@ namespace McNNTP.Console
                 // Verify Database
                 if (Database.DatabaseUtility.VerifyDatabase())
                     Database.DatabaseUtility.UpdateSchema();
-                else
+                else if (Database.DatabaseUtility.UpdateSchema() && !Database.DatabaseUtility.VerifyDatabase(true))
                 {
                     System.Console.WriteLine("Unable to verify a database.  Would you like to create and initialize a database?");
                     var resp = System.Console.ReadLine();

@@ -9,7 +9,7 @@ namespace McNNTP.Server.Data
 {
     public class Newsgroup
     {
-        public virtual long Id { get; set; }
+        public virtual int Id { get; set; }
         [NotNull]
         public virtual string Name { get; set; }
         [CanBeNull]
