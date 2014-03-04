@@ -589,7 +589,12 @@ namespace McNNTP.Server
                 ArticleNewsgroup articleNewsgroup;
                 if (string.IsNullOrEmpty(param))
                 {
-                    articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == CurrentArticleNumber);
+                    if (CurrentNewsgroup.EndsWith(".deleted"))
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == CurrentArticleNumber);
+                    else if (CurrentNewsgroup.EndsWith(".pending"))
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Pending && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == CurrentArticleNumber);
+                    else
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
@@ -606,7 +611,12 @@ namespace McNNTP.Server
                         return new CommandProcessingResult(true);
                     }
 
-                    articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == articleNumber);
+                    if (CurrentNewsgroup.EndsWith(".deleted"))
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
+                    else if (CurrentNewsgroup.EndsWith(".pending"))
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Pending && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
+                    else
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == articleNumber);
                     type = 2;
                 }
 
@@ -762,13 +772,28 @@ namespace McNNTP.Server
                             return new CommandProcessingResult(true);
                         }
 
-                        articleNewsgroups = (range.Item2.HasValue)
-                            ? session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number >= range.Item1 && an.Number <= range.Item2)
-                            : session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number >= range.Item1);
+                        if (CurrentNewsgroup.EndsWith(".deleted"))
+                            articleNewsgroups = (range.Item2.HasValue)
+                                ? session.Query<ArticleNewsgroup>().Where(an => an.Cancelled && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number >= range.Item1 && an.Number <= range.Item2)
+                                : session.Query<ArticleNewsgroup>().Where(an => an.Cancelled && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number >= range.Item1);
+                        else if (CurrentNewsgroup.EndsWith(".pending"))
+                            articleNewsgroups = (range.Item2.HasValue)
+                                ? session.Query<ArticleNewsgroup>().Where(an => an.Pending && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number >= range.Item1 && an.Number <= range.Item2)
+                                : session.Query<ArticleNewsgroup>().Where(an => an.Pending && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number >= range.Item1);
+                        else
+                            articleNewsgroups = (range.Item2.HasValue)
+                                ? session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number >= range.Item1 && an.Number <= range.Item2)
+                                : session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number >= range.Item1);
                         break;
                     case 3:
                         Debug.Assert(CurrentArticleNumber.HasValue);
-                        articleNewsgroups = session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == CurrentArticleNumber.Value);
+
+                        if (CurrentNewsgroup.EndsWith(".deleted"))
+                            articleNewsgroups = session.Query<ArticleNewsgroup>().Where(an => an.Cancelled && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == CurrentArticleNumber.Value);
+                        else if (CurrentNewsgroup.EndsWith(".pending"))
+                            articleNewsgroups = session.Query<ArticleNewsgroup>().Where(an => an.Pending && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == CurrentArticleNumber.Value);
+                        else
+                            articleNewsgroups = session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == CurrentArticleNumber.Value);
                         break;
                     default:
                         // Unrecognized...
@@ -817,9 +842,7 @@ namespace McNNTP.Server
                             {
                                 Dictionary<string, string> headers, headersAndFullLines;
                                 headerFunction = a => Data.Article.TryParseHeaders(a.Headers, out headers, out headersAndFullLines)
-                                    ? headers.Any(h => string.Compare(h.Key, parts[1], StringComparison.OrdinalIgnoreCase) == 0)
-                                        ? headers.Single(h => string.Compare(h.Key, parts[1], StringComparison.OrdinalIgnoreCase) == 0).Value
-                                        : null
+                                    ? a.GetHeader(parts[1])
                                     : null;
                                 break;
                             }
@@ -870,14 +893,17 @@ namespace McNNTP.Server
                 int type;
                 if (string.IsNullOrEmpty(param))
                 {
-                    articleNewsgroup = session.Query<ArticleNewsgroup>()
-                        .SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == CurrentArticleNumber);
+                    if (CurrentNewsgroup.EndsWith(".deleted"))
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == CurrentArticleNumber);
+                    else if (CurrentNewsgroup.EndsWith(".pending"))
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Pending && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == CurrentArticleNumber);
+                    else
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
                 {
-                    articleNewsgroup = session.Query<ArticleNewsgroup>()
-                        .FirstOrDefault(an => !an.Cancelled && !an.Pending && an.Article.MessageId == param);
+                    articleNewsgroup = session.Query<ArticleNewsgroup>().FirstOrDefault(an => an.Article.MessageId == param);
                     type = 1;
                 }
                 else
@@ -889,7 +915,12 @@ namespace McNNTP.Server
                         return new CommandProcessingResult(true);
                     }
 
-                    articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == articleNumber);
+                    if (CurrentNewsgroup.EndsWith(".deleted"))
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
+                    else if (CurrentNewsgroup.EndsWith(".pending"))
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Pending && an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
+                    else
+                        articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == articleNumber);
                     type = 2;
                 }
 
@@ -1346,9 +1377,18 @@ namespace McNNTP.Server
                             return new CommandProcessingResult(true);
                         }
 
-                        articleNewsgroups = session.Query<ArticleNewsgroup>()
-                            .Where(a => !a.Cancelled && !a.Pending && a.Newsgroup.Name == CurrentNewsgroup && a.Number == CurrentArticleNumber)
-                            .ToArray();
+                        if (CurrentNewsgroup.EndsWith(".deleted"))
+                            articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                .Where(an => an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Cancelled && an.Number == CurrentArticleNumber)
+                                .ToArray();
+                        else if (CurrentNewsgroup.EndsWith(".pending"))
+                            articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                .Where(an => an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Pending && an.Number == CurrentArticleNumber)
+                                .ToArray();
+                        else
+                            articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number == CurrentArticleNumber)
+                                .ToArray();
 
                         if (!articleNewsgroups.Any())
                         {
@@ -1385,16 +1425,36 @@ namespace McNNTP.Server
 
                         if (!range.Item2.HasValue) // LOW-
                         {
-                            articleNewsgroups =
-                                session.Query<ArticleNewsgroup>()
+                            if (CurrentNewsgroup.EndsWith(".deleted"))
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                    .Where(an => an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Cancelled && an.Number >= range.Item1)
+                                    .OrderBy(an => an.Number)
+                                    .ToList();
+                            else if (CurrentNewsgroup.EndsWith(".pending"))
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                    .Where(an => an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Pending && an.Number >= range.Item1)
+                                    .OrderBy(an => an.Number)
+                                    .ToList();
+                            else
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number >= range.Item1)
                                     .OrderBy(an => an.Number)
                                     .ToList();
                         }
                         else // LOW-HIGH
                         {
-                            articleNewsgroups =
-                                session.Query<ArticleNewsgroup>()
+                            if (CurrentNewsgroup.EndsWith(".deleted"))
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                    .Where(an => an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Cancelled && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
+                                    .OrderBy(an => an.Number)
+                                    .ToList();
+                            else if (CurrentNewsgroup.EndsWith(".pending"))
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                    .Where(an => an.Newsgroup.Name == CurrentNewsgroup.Substring(0, CurrentNewsgroup.Length - 8) && an.Pending && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
+                                    .OrderBy(an => an.Number)
+                                    .ToList();
+                            else
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == CurrentNewsgroup && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                     .OrderBy(an => an.Number)
                                     .ToList();
