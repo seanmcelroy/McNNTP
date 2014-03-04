@@ -633,7 +633,7 @@ namespace McNNTP.Server
             sb.Append("VERSION 2\r\n");
             //sb.Append("IHAVE\r\n");
             sb.Append("HDR\r\n");
-            sb.Append("LIST ACTIVE NEWSGROUPS ACTIVE.TIMES OVERVIEW.FMT\r\n");
+            sb.Append("LIST ACTIVE NEWSGROUPS ACTIVE.TIMES DISTRIB.PATS HEADERS OVERVIEW.FMT\r\n");
             sb.Append("MODE-READER");
             //sb.Append("NEWNEWS\r\n");
             sb.Append("OVER MSGID\r\n");
@@ -1037,6 +1037,12 @@ namespace McNNTP.Server
                     await Send(string.Format("{0}:{1}:{2}\r\n", pat.Weight, pat.Wildmat, pat.Distribution), false, Encoding.UTF8);
                 await Send(".\r\n");
 
+                return new CommandProcessingResult(true);
+            }
+
+            if (content.StartsWith("LIST HEADERS", StringComparison.OrdinalIgnoreCase))
+            {
+                await Send("215 information follows\r\n:\r\n.\r\n");
                 return new CommandProcessingResult(true);
             }
 
