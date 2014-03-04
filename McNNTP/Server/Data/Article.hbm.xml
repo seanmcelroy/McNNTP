@@ -4,12 +4,6 @@
     <id name="Id" type="Int32">
       <generator class="native" />
     </id>
-    <many-to-one name="Newsgroup" column="NewsgroupId" not-null="true" unique-key="NewsgroupUniqueNumber" />
-    <property name="Number" not-null="true" update="false" unique-key="NewsgroupUniqueNumber" />
-    
-    <!-- State-->
-    <property name="Cancelled" not-null="true" />
-    <property name="Pending" not-null="true" />
 
     <property name="Date" not-null="true" length="100" update="false" />
     <property name="From" column="FromHeader" not-null="true" length="1000" update="false" />
@@ -39,5 +33,12 @@
 
     <property name="Headers" />
     <property name="Body" update="false" />
+
+    <bag name="ArticleNewsgroups" inverse="true" table="ArticleNewsgroup" lazy="false">
+      <key>
+        <column name="ArticleId" not-null="true" />
+      </key>
+      <many-to-many class="ArticleNewsgroup" column="NewsgroupId"/>
+    </bag>
   </class>
 </hibernate-mapping>

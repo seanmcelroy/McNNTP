@@ -28,15 +28,20 @@ namespace McNNTP.Server.Data
         [NotNull, Pure]
         public virtual Newsgroup GetMetaCancelledGroup([NotNull] ISession session)
         {
+            var counts = (object[])session.CreateQuery(
+                    "select min(an.Number), max(an.Number), count(an.Id) from ArticleNewsgroup an where an.Cancelled = 1 and an.Newsgroup.Name = :NewsgroupName")
+                    .SetParameter("NewsgroupName", Name)
+                    .UniqueResult();
+
             return new Newsgroup
             {
                 CreateDate = CreateDate,
                 CreatorEntity = CreatorEntity,
                 Description = "Cancelled posts for " + Name,
-                HighWatermark = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == Name && a.Cancelled).Max(a => (int?)a.Number) ?? 0,
+                HighWatermark = counts[1] == null ? 0 : (int)counts[1],
                 Id = 0,
-                LowWatermark = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == Name && a.Cancelled).Min(a => (int?)a.Number) ?? 0,
-                PostCount = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == Name).Count(a => a.Cancelled),
+                LowWatermark = counts[0] == null ? 0 : (int)counts[0],
+                PostCount = Convert.ToInt32(counts[2]),
                 Name = Name + ".deleted",
                 Moderated = true
             };
@@ -45,15 +50,20 @@ namespace McNNTP.Server.Data
         [NotNull, Pure]
         public virtual Newsgroup GetMetaPendinGroup([NotNull] ISession session)
         {
+            var counts = (object[])session.CreateQuery(
+                   "select min(an.Number), max(an.Number), count(an.Id) from ArticleNewsgroup an where an.Pending = 1 and an.Newsgroup.Name = :NewsgroupName")
+                   .SetParameter("NewsgroupName", Name)
+                   .UniqueResult();
+
             return new Newsgroup
             {
                 CreateDate = CreateDate,
                 CreatorEntity = CreatorEntity,
                 Description = "Pending posts for " + Name,
-                HighWatermark = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == Name && a.Pending).Max(a => (int?)a.Number) ?? 0,
+                HighWatermark = counts[1] == null ? 0 : (int)counts[1],
                 Id = 0,
-                LowWatermark = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == Name && a.Pending).Min(a => (int?)a.Number) ?? 0,
-                PostCount = session.Query<Article>().Fetch(a => a.Newsgroup).Where(a => a.Newsgroup.Name == Name).Count(a => a.Pending),
+                LowWatermark = counts[0] == null ? 0 : (int)counts[0],
+                PostCount = Convert.ToInt32(counts[2]),
                 Name = Name + ".pending",
                 Moderated = true
             };

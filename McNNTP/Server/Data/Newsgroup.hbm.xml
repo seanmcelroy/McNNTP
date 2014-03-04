@@ -7,17 +7,17 @@
     <property name="Name" not-null="true" type="String" length="8192" unique="true" update="false" />
     <property name="Description" />
     <property name="Moderated" not-null="true" />
-    <property name="PostCount" not-null="true" type="Int32" formula="(SELECT count(a.ID) FROM Article a WHERE a.NewsGroupID = ID AND a.Cancelled = 0 AND a.Pending = 0)"/>
-    <property name="LowWatermark" type="Int32" formula="(SELECT min(a.Number) FROM Article a WHERE a.NewsGroupID = ID)" />
-    <property name="HighWatermark" type="Int32" formula="(SELECT max(a.Number) FROM Article a WHERE a.NewsGroupID = ID)" />
+    <property name="PostCount" not-null="true" type="Int32" formula="(SELECT count(an.Id) FROM ArticleNewsgroup an WHERE an.NewsGroupId = Id AND an.Cancelled = 0 AND an.Pending = 0)"/>
+    <property name="LowWatermark" type="Int32" formula="(SELECT min(an.Number) FROM ArticleNewsgroup an WHERE an.NewsGroupId = Id AND an.Cancelled = 0 AND an.Pending = 0)" />
+    <property name="HighWatermark" type="Int32" formula="(SELECT max(an.Number) FROM ArticleNewsgroup an WHERE an.NewsGroupId = Id AND an.Cancelled = 0 AND an.Pending = 0)" />
     <property name="CreateDate"/>
     <property name="CreatorEntity"/>
 
     <bag name="ModeratedBy" inverse="true" table="NewsgroupModerator">
       <key>
-        <column name="NewsgroupID" not-null="true" />
+        <column name="NewsgroupId" not-null="true" />
       </key>
-      <many-to-many class="Administrator" column="AdministratorID"/>
+      <many-to-many class="Administrator" column="AdministratorId"/>
     </bag>
   </class>
 </hibernate-mapping>

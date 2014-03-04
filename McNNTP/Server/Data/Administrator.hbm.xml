@@ -18,9 +18,9 @@
 
     <bag name="Moderates" inverse="true" table="NewsgroupModerator">
       <key>
-        <column name="AdministratorID" not-null="true" />
+        <column name="AdministratorId" not-null="true" />
       </key>
-      <many-to-many class="Newsgroup" column="NewsgroupID"/>
+      <many-to-many class="Newsgroup" column="NewsgroupId"/>
     </bag>
   </class>
 </hibernate-mapping>

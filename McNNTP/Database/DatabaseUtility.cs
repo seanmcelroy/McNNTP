@@ -93,13 +93,13 @@ namespace McNNTP.Database
                         _logger.InfoFormat("Verified database has {0} newsgroup{1}", newsgroupCount, newsgroupCount == 1 ? null : "s");
 
                     var articleCount = session.Query<Article>().Count(a => a.Headers != null);
-                    var article = session.Query<Article>().FirstOrDefault(a => !a.Cancelled);
+                    var article = session.Query<Article>().FirstOrDefault(a => a.ArticleNewsgroups.Any(an => !an.Cancelled));
                     if (article != null)
                     {
-                        var an = article.Number;
-                        article.Number = -1;
+                        var an = article.InjectionDate;
+                        article.InjectionDate = "test";
                         session.Save(article);
-                        article.Number = an;
+                        article.InjectionDate = an;
                         session.Save(article);
                     }
                     if (!quiet)

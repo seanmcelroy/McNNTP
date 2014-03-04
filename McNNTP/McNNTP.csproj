@@ -130,6 +130,7 @@
     <Compile Include="Server\Configuration\PortConfigurationElementCollection.cs" />
     <Compile Include="Server\Configuration\McNNTPConfigurationSection.cs" />
     <Compile Include="Server\ConnectionMetadata.cs" />
+    <Compile Include="Server\Data\ArticleNewsgroup.cs" />
     <Compile Include="Server\Data\DistributionPattern.cs" />
     <Compile Include="Server\Data\Administrator.cs" />
     <Compile Include="Server\Data\Article.cs" />
@@ -159,6 +160,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <EmbeddedResource Include="Server\Data\DistributionPattern.hbm.xml">
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Server\Data\ArticleNewsgroup.hbm.xml">
       <SubType>Designer</SubType>
     </EmbeddedResource>
     <Content Include="x86\SQLite.Interop.dll">
