@@ -6,6 +6,8 @@
     </id>
     
     <property name="Username" not-null="true" length="1000" unique="true" update="false" />
+    <property name="Mailbox" not-null="false" length="1000" />
+    
     <property name="PasswordHash" not-null="true" length="1000" />
     <property name="PasswordSalt" not-null="true" length="1000" />
 

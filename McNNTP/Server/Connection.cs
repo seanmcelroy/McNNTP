@@ -1584,6 +1584,40 @@ namespace McNNTP.Server
 
                             using (var session = Database.SessionUtility.OpenSession())
                             {
+                                // Moderation - if this is a moderator's approval message, don't post it, but approve the referenced message.
+                                if (canApprove && !string.IsNullOrEmpty(article.References) && 
+                                    (article.Body.StartsWith("APPROVE\r\n", StringComparison.OrdinalIgnoreCase) ||
+                                     article.Body.StartsWith("APPROVED\r\n", StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    var references = article.References.Split(' ');
+
+                                    var target = session.CreateQuery("from ArticleNewsgroup an where an.Article.MessageId IN (:ReferencesList) AND an.Newsgroup.Name = :NewsgroupName")
+                                        .SetParameterList("ReferencesList", references)
+                                        .SetParameter("NewsgroupName", newsgroupName)
+                                        .List<ArticleNewsgroup>()
+                                        .SingleOrDefault();
+
+                                    if (target != null)
+                                    {
+                                        target.Article.Approved = Identity.Mailbox == null
+                                            ? string.Format("{0}@{1}", Identity.Username, _server.PathHost)
+                                            : Identity.Mailbox;
+                                        session.SaveOrUpdate(target.Article);
+
+                                        target.Pending = false;
+                                        session.SaveOrUpdate(target);
+                                        session.Flush();
+                                        session.Close();
+                                        
+                                        Send("240 Article received OK\r\n");
+                                        return new CommandProcessingResult(true, true)
+                                        {
+                                            Message = prev.Message + msg
+                                        };
+
+                                    }
+                                }
+                                
                                 var newsgroupNameClosure = newsgroupName;
                                 // We don't add metagroups here, you can't 'post' directly to a meta group.
                                 var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == newsgroupNameClosure);

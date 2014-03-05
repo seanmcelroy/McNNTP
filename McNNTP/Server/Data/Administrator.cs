@@ -13,6 +13,8 @@ namespace McNNTP.Server.Data
         public virtual int Id { get; set; }
         [NotNull]
         public virtual string Username { get; set; }
+        [CanBeNull]
+        public virtual string Mailbox { get; set; }
         [NotNull]
         public virtual string PasswordHash { get; set; }
         [NotNull]
