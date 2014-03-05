@@ -76,9 +76,13 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\McNNTP\McNNTP.csproj">
+    <ProjectReference Include="..\..\McNNTP.Common\McNNTP.Common.csproj">
+      <Project>{f84582b7-d84f-4af5-972f-3daa26dd69bd}</Project>
+      <Name>McNNTP.Common</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\McNNTP.Core\McNNTP.Core.csproj">
       <Project>{6d45d38f-85c0-46bd-950a-f4d0dcf61691}</Project>
-      <Name>McNNTP</Name>
+      <Name>McNNTP.Core</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

@@ -1,8 +1,8 @@
 ﻿using log4net;
 using log4net.Config;
-using McNNTP.Server;
-using McNNTP.Server.Configuration;
-using McNNTP.Server.Data;
+using McNNTP.Core.Server;
+using McNNTP.Core.Server.Configuration;
+using McNNTP.Data;
 using System;
 using System.Collections.Generic;
 using System.Configuration;
@@ -22,7 +22,7 @@ namespace McNNTP.Console
             {"HELP", s => Help()},
             {"MAKEADMIN", MakeAdmin},
             {"MAKEGROUP", MakeGroup},
-            {"PURGEDB", Database.DatabaseUtility.RebuildSchema},
+            {"PURGEDB", Core.Database.DatabaseUtility.RebuildSchema},
             {"SHOWCONN", s => ShowConn()},
             {"TOGBYTES", s => TogBytes()},
             {"TOGCMD", s => TogCommands()},
@@ -48,15 +48,15 @@ namespace McNNTP.Console
                 logger.InfoFormat("Loaded configuration from {0}", config.FilePath);
 
                 // Verify Database
-                if (Database.DatabaseUtility.VerifyDatabase())
-                    Database.DatabaseUtility.UpdateSchema();
-                else if (Database.DatabaseUtility.UpdateSchema() && !Database.DatabaseUtility.VerifyDatabase(true))
+                if (Core.Database.DatabaseUtility.VerifyDatabase())
+                    Core.Database.DatabaseUtility.UpdateSchema();
+                else if (Core.Database.DatabaseUtility.UpdateSchema() && !Core.Database.DatabaseUtility.VerifyDatabase(true))
                 {
                     System.Console.WriteLine("Unable to verify a database.  Would you like to create and initialize a database?");
                     var resp = System.Console.ReadLine();
                     if (resp != null && new[] {"y", "yes"}.Contains(resp.ToLowerInvariant().Trim()))
                     {
-                        Database.DatabaseUtility.RebuildSchema();
+                        Core.Database.DatabaseUtility.RebuildSchema();
                     }
                 }
 
@@ -144,7 +144,7 @@ namespace McNNTP.Console
 
             admin.SetPassword(pass);
 
-            using (var session = Database.SessionUtility.OpenSession())
+            using (var session = Core.Database.SessionUtility.OpenSession())
             {
                 session.Save(admin);
                 session.Close();
@@ -175,7 +175,7 @@ namespace McNNTP.Console
 
             var desc = parts.Skip(2).Aggregate((c, n) => c + " " + n);
 
-            using (var session = Database.SessionUtility.OpenSession())
+            using (var session = Core.Database.SessionUtility.OpenSession())
             {
                 session.Save(new Newsgroup
                 {

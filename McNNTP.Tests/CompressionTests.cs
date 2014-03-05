@@ -1,4 +1,5 @@
-﻿using Microsoft.VisualStudio.TestTools.UnitTesting;
+﻿using McNNTP.Common;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace McNNTP.Tests
 {

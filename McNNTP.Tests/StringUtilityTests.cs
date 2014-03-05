@@ -1,4 +1,5 @@
 ﻿using System.Linq;
+using McNNTP.Common;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace McNNTP.Tests

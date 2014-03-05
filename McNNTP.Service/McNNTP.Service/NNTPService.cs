@@ -1,5 +1,5 @@
 ﻿using System.ServiceProcess;
-using McNNTP.Server;
+using McNNTP.Core.Server;
 
 namespace McNNTP.Service
 {
