@@ -22,5 +22,13 @@ namespace McNNTP.Core.Server.Configuration
         {
             get { return (PortConfigurationElementCollection)base["ports"]; }
         }
+
+        [ConfigurationProperty("ssl", IsRequired = false)]
+        [UsedImplicitly]
+        public SslConfigurationElement SSL
+        {
+            get { return (SslConfigurationElement)base["ssl"]; }
+            set { this["ssl"] = value; }
+        }
     }
 }

@@ -1,12 +1,12 @@
-﻿using System.Linq;
-using System.Security.Cryptography.X509Certificates;
+﻿using log4net;
+using McNNTP.Common;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading;
-using log4net;
 using System.Threading.Tasks;
-using McNNTP.Common;
 
 namespace McNNTP.Core.Server
 {
@@ -16,7 +16,7 @@ namespace McNNTP.Core.Server
         private static readonly ILog _logger = LogManager.GetLogger(typeof(Connection));
         private readonly List<Connection> _connections = new List<Connection>();
 
-        internal readonly X509Certificate2 _serverAuthenticationCertificate;
+        internal X509Certificate2 _serverAuthenticationCertificate;
 
         public bool AllowPosting { get; set; }
         public bool AllowStartTLS { get; set; }
@@ -24,6 +24,8 @@ namespace McNNTP.Core.Server
         public int[] ExplicitTLSPorts { get; set; }
         public int[] ImplicitTLSPorts { get; set; }
         public string PathHost { get; set; }
+        public bool SslGenerateSelfSignedServerCertificate { get; set; }
+        public string SslServerCertificateThumbprint { get; set; }
 
         public IReadOnlyList<ConnectionMetadata> Connections
         {
@@ -44,25 +46,45 @@ namespace McNNTP.Core.Server
         {
             AllowStartTLS = true;
             ShowData = true;
-
-            byte[] pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
-            _serverAuthenticationCertificate = new X509Certificate2(pfx, "password");
-            //var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
-            //store.Open(OpenFlags.ReadWrite);
-            //try
-            //{
-            //    store.Add(cert);
-            //}
-            //finally
-            //{
-            //    store.Close();
-            //}
         }
 
         #region Connection and IO
         public void Start()
         {
             _listeners.Clear();
+            
+            // Setup SSL
+            if (!string.IsNullOrWhiteSpace(SslServerCertificateThumbprint))
+            {
+                var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
+                store.Open(OpenFlags.OpenExistingOnly);
+                try
+                {
+                    var collection = store.Certificates.Find(X509FindType.FindByThumbprint, SslServerCertificateThumbprint, true);
+                    if (collection.Cast<X509Certificate2>().Count(c => c.HasPrivateKey) == 0)
+                    {
+                        _logger.WarnFormat(@"No valid certificate with a public and private key could be found in the LocalMachine\Personal store with thumbprint: {0}.  Disabling SSL.", SslServerCertificateThumbprint);
+                        AllowStartTLS = false;
+                        ExplicitTLSPorts = new int[0];
+                        ImplicitTLSPorts = new int[0];
+                    }
+                    else
+                    {
+                        _logger.InfoFormat("Located valid certificate with subject '{0}' and serial {1}", collection[0].Subject, collection[0].SerialNumber);
+                        _serverAuthenticationCertificate = collection[0];
+                    }
+                }
+                finally
+                {
+                    store.Close();
+                }
+
+            }
+            else if (SslGenerateSelfSignedServerCertificate || (ExplicitTLSPorts != null && ExplicitTLSPorts.Any()) || (ImplicitTLSPorts != null && ImplicitTLSPorts.Any()))
+            {
+                byte[] pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
+                _serverAuthenticationCertificate = new X509Certificate2(pfx, "password");
+            }
 
             foreach (var clearPort in ClearPorts)
             {

@@ -66,7 +66,9 @@ namespace McNNTP.Console
                     ClearPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText").Select(p => p.Port).ToArray(),
                     ExplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS").Select(p => p.Port).ToArray(),
                     ImplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS").Select(p => p.Port).ToArray(),
-                    PathHost = mcnntpConfigurationSection.PathHost
+                    PathHost = mcnntpConfigurationSection.PathHost,
+                    SslGenerateSelfSignedServerCertificate = mcnntpConfigurationSection.SSL == null || mcnntpConfigurationSection.SSL.GenerateSelfSignedServerCertificate,
+                    SslServerCertificateThumbprint = mcnntpConfigurationSection.SSL == null ? null : mcnntpConfigurationSection.SSL.ServerCertificateThumbprint
                 };
                 
                 _server.Start();
