@@ -182,8 +182,6 @@ namespace McNNTP.Core.Database
 
                 session.Close();
             }
-
-            _logger.InfoFormat("Initial control group 'freenews.config' created.");
         }
     }
 }
