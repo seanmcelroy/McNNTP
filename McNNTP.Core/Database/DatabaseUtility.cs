@@ -12,7 +12,7 @@ namespace McNNTP.Core.Database
 {
     public static class DatabaseUtility
     {
-        private static readonly ILog _logger = LogManager.GetLogger(typeof(DatabaseUtility));
+        private static readonly ILog Logger = LogManager.GetLogger(typeof(DatabaseUtility));
         
         public static bool RebuildSchema(string dud = null)
         {
@@ -31,7 +31,7 @@ namespace McNNTP.Core.Database
                 }
                 catch (Exception ex)
                 {
-                    _logger.Error("Unable to rebuild the database schema", ex);
+                    Logger.Error("Unable to rebuild the database schema", ex);
                     throw;
                 }
                 finally
@@ -55,11 +55,11 @@ namespace McNNTP.Core.Database
             }
             catch (Exception ex)
             {
-                _logger.Error("Unable to update the database schema", ex);
+                Logger.Error("Unable to update the database schema", ex);
                 return false;
             }
 
-            _logger.InfoFormat("Updated the database schema");
+            Logger.InfoFormat("Updated the database schema");
 
             WriteBaselineData();
             return true;
@@ -88,9 +88,9 @@ namespace McNNTP.Core.Database
                     var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
                     var all = !session.Query<Newsgroup>().Any(n => n.Name == "freenews.config");
                     if (newsgroupCount == 0 && !quiet)
-                        _logger.Warn("Verified database has 0 newsgroups");
+                        Logger.Warn("Verified database has 0 newsgroups");
                     else if (!quiet)
-                        _logger.InfoFormat("Verified database has {0} newsgroup{1}", newsgroupCount, newsgroupCount == 1 ? null : "s");
+                        Logger.InfoFormat("Verified database has {0} newsgroup{1}", newsgroupCount, newsgroupCount == 1 ? null : "s");
 
                     var articleCount = session.Query<Article>().Count(a => a.Headers != null);
                     var article = session.Query<Article>().FirstOrDefault(a => a.ArticleNewsgroups.Any(an => !an.Cancelled));
@@ -103,19 +103,19 @@ namespace McNNTP.Core.Database
                         session.Save(article);
                     }
                     if (!quiet)
-                        _logger.InfoFormat("Verified database has {0} article{1}", articleCount, articleCount == 1 ? null : "s");
+                        Logger.InfoFormat("Verified database has {0} article{1}", articleCount, articleCount == 1 ? null : "s");
 
                     var adminCount = session.Query<Administrator>().Count(a => a.CanInject);
                     if (adminCount == 0 && !quiet)
-                        _logger.Warn("Verified database has 0 local admins");
+                        Logger.Warn("Verified database has 0 local admins");
                     else if (!quiet)
-                        _logger.InfoFormat("Verified database has {0} local admin{1}", adminCount, adminCount == 1 ? null : "s");
+                        Logger.InfoFormat("Verified database has {0} local admin{1}", adminCount, adminCount == 1 ? null : "s");
 
                     var distPatternCount = session.Query<DistributionPattern>().Count();
                     if (distPatternCount == 0 && !quiet)
-                        _logger.Warn("Verified database has 0 distribution patterns");
+                        Logger.Warn("Verified database has 0 distribution patterns");
                     else if (!quiet)
-                        _logger.InfoFormat("Verified database has {0} distribution pattern{1}", distPatternCount, distPatternCount == 1 ? null : "s");
+                        Logger.InfoFormat("Verified database has {0} distribution pattern{1}", distPatternCount, distPatternCount == 1 ? null : "s");
 
                     session.Close();
 
@@ -127,6 +127,7 @@ namespace McNNTP.Core.Database
                 return false;
             }
         }
+
         private static void WriteBaselineData()
         {
             // Ensure placeholder data is there.
@@ -141,7 +142,7 @@ namespace McNNTP.Core.Database
                         Moderated = true,
                         Name = "freenews.config"
                     });
-                    _logger.InfoFormat("Created 'freenews.config' group");
+                    Logger.InfoFormat("Created 'freenews.config' group");
                 }
 
                 if (!session.Query<Newsgroup>().Any(n => n.Name == "junk"))
@@ -153,7 +154,7 @@ namespace McNNTP.Core.Database
                         Moderated = true,
                         Name = "junk"
                     });
-                    _logger.InfoFormat("Created 'junk' group");
+                    Logger.InfoFormat("Created 'junk' group");
                 }
 
                 if (!session.Query<Administrator>().Any())
@@ -177,7 +178,7 @@ namespace McNNTP.Core.Database
 
                     session.Save(admin);
 
-                    _logger.InfoFormat("Created 'LOCALADMIN' administrator with password 'CHANGEME'.  Please authenticate locally and change your password with a 'changepass' control message");
+                    Logger.InfoFormat("Created 'LOCALADMIN' administrator with password 'CHANGEME'.  Please authenticate locally and change your password with a 'changepass' control message");
                 }
 
                 session.Close();

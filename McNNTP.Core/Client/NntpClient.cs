@@ -1,13 +1,16 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net.Sockets;
-using System.Globalization;
-using System.Collections.ObjectModel;
-using System.Threading.Tasks;
-
-namespace McNNTP.Core.Client
+﻿namespace McNNTP.Core.Client
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Collections.ObjectModel;
+    using System.Globalization;
+    using System.Linq;
+    using System.Net.Sockets;
+    using System.Threading.Tasks;
+
+    using JetBrains.Annotations;
+
+    [UsedImplicitly]
     public class NntpClient : TcpClient
     {
         public bool CanPost { get; private set; }
@@ -27,7 +30,7 @@ namespace McNNTP.Core.Client
 
         public new async Task Connect(string hostName, int port)
         {
-            await base.ConnectAsync(hostName, port);
+            await ConnectAsync(hostName, port);
             var response = await Response();
 
             switch (response.Substring(0, 3))
@@ -44,8 +47,8 @@ namespace McNNTP.Core.Client
         }
         public async Task Disconnect()
         {
-            const string message = "QUIT\r\n";
-            await Write(message);
+            const string Message = "QUIT\r\n";
+            await Write(Message);
             var response = await Response();
             if (response.Substring(0, 3) != "205")
                 throw new NntpException(response);
@@ -129,13 +132,10 @@ namespace McNNTP.Core.Client
                 await Write(message);
                 response = await Response();
                 if (response.Substring(0, 3) == "423")
-                {
                     continue;
-                }
+
                 if (response.Substring(0, 3) != "220")
-                {
                     throw new NntpException(response);
-                }
 
                 var article = string.Empty;
                 while (true)
@@ -156,6 +156,7 @@ namespace McNNTP.Core.Client
 
             return new ReadOnlyCollection<string>(topics);
         }
+
         public async Task Post(string newsgroup, string subject, string from, string content)
         {
             var message = "POST\r\n";

@@ -1,18 +1,40 @@
-﻿using System;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
-using System.Security;
+﻿// --------------------------------------------------------------------------------------------------------------------
+// <copyright file="CertificateUtility.cs" company="Sean McElroy">
+//   Copyright Sean McElroy, 2014.  All rights reserved.
+// </copyright>
+// <summary>
+//   A utility class that provides helper methods for dealing with X.509 security certificates
+// </summary>
+// --------------------------------------------------------------------------------------------------------------------
 
 namespace McNNTP.Core.Server
 {
+    using System;
+    using System.Runtime.CompilerServices;
+    using System.Runtime.InteropServices;
+    using System.Security;
+
+    using JetBrains.Annotations;
+
+    /// <summary>
+    /// A utility class that provides helper methods for dealing with X.509 security certificates
+    /// </summary>
     public static class CertificateUtility
     {
+        /// <summary>
+        /// Creates a new self-signed X.509 certificate without any password security
+        /// </summary>
+        /// <param name="x500">The x500 data to use for the certificate</param>
+        /// <param name="startTime">The issue date of the certificate</param>
+        /// <param name="endTime">The expiry date of the certificate</param>
+        /// <returns>The bytes that represented the certificate in PFX format</returns>
+        [NotNull, Pure]
         public static byte[] CreateSelfSignCertificatePfx(
            string x500,
            DateTime startTime,
            DateTime endTime)
         {
-            byte[] pfxData = CreateSelfSignCertificatePfx(
+            var pfxData = CreateSelfSignCertificatePfx(
                 x500,
                 startTime,
                 endTime,
@@ -34,7 +56,7 @@ namespace McNNTP.Core.Server
                 if (!string.IsNullOrEmpty(insecurePassword))
                 {
                     password = new SecureString();
-                    foreach (char ch in insecurePassword)
+                    foreach (var ch in insecurePassword)
                     {
                         password.AppendChar(ch);
                     }
@@ -68,21 +90,19 @@ namespace McNNTP.Core.Server
             byte[] pfxData;
 
             if (x500 == null)
-            {
-                x500 = "";
-            }
+                x500 = string.Empty;
 
-            SystemTime startSystemTime = ToSystemTime(startTime);
-            SystemTime endSystemTime = ToSystemTime(endTime);
-            string containerName = Guid.NewGuid().ToString();
+            var startSystemTime = ToSystemTime(startTime);
+            var endSystemTime = ToSystemTime(endTime);
+            var containerName = Guid.NewGuid().ToString();
 
             var dataHandle = new GCHandle();
-            IntPtr providerContext = IntPtr.Zero;
-            IntPtr cryptKey = IntPtr.Zero;
-            IntPtr certContext = IntPtr.Zero;
-            IntPtr certStore = IntPtr.Zero;
-            IntPtr storeCertContext = IntPtr.Zero;
-            IntPtr passwordPtr = IntPtr.Zero;
+            var providerContext = IntPtr.Zero;
+            var cryptKey = IntPtr.Zero;
+            var certContext = IntPtr.Zero;
+            var certStore = IntPtr.Zero;
+            var storeCertContext = IntPtr.Zero;
+            var passwordPtr = IntPtr.Zero;
             RuntimeHelpers.PrepareConstrainedRegions();
             try
             {
@@ -117,7 +137,7 @@ namespace McNNTP.Core.Server
                     ref nameDataLength,
                     out errorStringPtr))
                 {
-                    string error = Marshal.PtrToStringUni(errorStringPtr);
+                    var error = Marshal.PtrToStringUni(errorStringPtr);
                     throw new ArgumentException(error);
                 }
 
@@ -143,10 +163,12 @@ namespace McNNTP.Core.Server
                     nameData.Length,
                     dataHandle.AddrOfPinnedObject());
 
-                var kpi = new CryptKeyProviderInformation();
-                kpi.ContainerName = containerName;
-                kpi.ProviderType = 1; // PROV_RSA_FULL
-                kpi.KeySpec = 1; // AT_KEYEXCHANGE
+                var kpi = new CryptKeyProviderInformation
+                              {
+                                  ContainerName = containerName,
+                                  ProviderType = 1, // PROV_RSA_FULL
+                                  KeySpec = 1 // AT_KEYEXCHANGE
+                              };
 
                 certContext = NativeMethods.CertCreateSelfSignCertificate(
                     providerContext,
@@ -253,7 +275,7 @@ namespace McNNTP.Core.Server
 
         private static SystemTime ToSystemTime(DateTime dateTime)
         {
-            long fileTime = dateTime.ToFileTime();
+            var fileTime = dateTime.ToFileTime();
             SystemTime systemTime;
             Check(NativeMethods.FileTimeToSystemTime(ref fileTime, out systemTime));
             return systemTime;
@@ -263,7 +285,7 @@ namespace McNNTP.Core.Server
         {
             if (!nativeCallSucceeded)
             {
-                int error = Marshal.GetHRForLastWin32Error();
+                var error = Marshal.GetHRForLastWin32Error();
                 Marshal.ThrowExceptionForHR(error);
             }
         }

@@ -1,32 +1,65 @@
-﻿using log4net;
-using McNNTP.Common;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
-using System.Threading;
-using System.Threading.Tasks;
-
-namespace McNNTP.Core.Server
+﻿namespace McNNTP.Core.Server
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Net;
+    using System.Security;
+    using System.Security.Cryptography.X509Certificates;
+    using System.Threading;
+    using System.Threading.Tasks;
+
+    using JetBrains.Annotations;
+
+    using log4net;
+
+    using McNNTP.Common;
+    using McNNTP.Core.Server.Configuration;
+
     public class NntpServer
     {
         private readonly List<Tuple<Thread, NntpListener>> _listeners = new List<Tuple<Thread, NntpListener>>();
-        private static readonly ILog _logger = LogManager.GetLogger(typeof(Connection));
+
+        private static readonly ILog _logger = LogManager.GetLogger(typeof(NntpServer));
+
         private readonly List<Connection> _connections = new List<Connection>();
 
         internal X509Certificate2 _serverAuthenticationCertificate;
+        
+        /// <summary>
+        /// Initializes a new instance of the <see cref="NntpServer"/> class.
+        /// </summary>
+        public NntpServer()
+        {
+            AllowStartTLS = true;
+            ShowData = true;
+        }
 
         public bool AllowPosting { get; set; }
+
         public bool AllowStartTLS { get; set; }
+
+        [NotNull]
         public int[] ClearPorts { get; set; }
+
+        [NotNull]
         public int[] ExplicitTLSPorts { get; set; }
+
+        [NotNull]
         public int[] ImplicitTLSPorts { get; set; }
+
+        [CanBeNull]
+        public LdapDirectoryConfigurationElement LdapDirectoryConfiguration { get; set; }
+
+        [NotNull]
         public string PathHost { get; set; }
+
         public bool SslGenerateSelfSignedServerCertificate { get; set; }
+
+        [CanBeNull]
         public string SslServerCertificateThumbprint { get; set; }
 
+        [NotNull]
         public IReadOnlyList<ConnectionMetadata> Connections
         {
             get
@@ -42,19 +75,42 @@ namespace McNNTP.Core.Server
             }
         }
 
-        public NntpServer()
-        {
-            AllowStartTLS = true;
-            ShowData = true;
-        }
+        public bool ShowBytes { get; set; }
+
+        public bool ShowCommands { get; set; }
+
+        public bool ShowData { get; set; }
 
         #region Connection and IO
+        /// <summary>
+        /// Starts listener threads to begin processing requests
+        /// </summary>
+        /// <exception cref="CryptographicException">Thrown when an error occurs while a SSL certificate is loaded to support TLS-enabled ports</exception>
         public void Start()
         {
             _listeners.Clear();
-            
+
+            // Test LDAP connection, if configured
+            if (LdapDirectoryConfiguration != null)
+            {
+                _logger.InfoFormat("Testing LDAP connection to {0} with lookup account {1}", LdapDirectoryConfiguration.LdapServer, LdapDirectoryConfiguration.LookupAccountUsername);
+
+                if (LdapUtility.UserExists(
+                    LdapDirectoryConfiguration.LdapServer,
+                    LdapDirectoryConfiguration.SearchPath,
+                    LdapDirectoryConfiguration.LookupAccountUsername,
+                    LdapDirectoryConfiguration.LookupAccountPassword,
+                    LdapDirectoryConfiguration.LookupAccountUsername))
+                    _logger.Info("LDAP lookup account successfully found.");
+                else
+                {
+                    _logger.Warn("Unable to find LDAP lookup account.  LDAP authentication is being disabled.");
+                    LdapDirectoryConfiguration = null;
+                }
+            }
+
             // Setup SSL
-            if (!string.IsNullOrWhiteSpace(SslServerCertificateThumbprint))
+            if (!string.IsNullOrWhiteSpace(SslServerCertificateThumbprint) && SslServerCertificateThumbprint != null)
             {
                 var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
                 store.Open(OpenFlags.OpenExistingOnly);
@@ -78,11 +134,10 @@ namespace McNNTP.Core.Server
                 {
                     store.Close();
                 }
-
             }
-            else if (SslGenerateSelfSignedServerCertificate || (ExplicitTLSPorts != null && ExplicitTLSPorts.Any()) || (ImplicitTLSPorts != null && ImplicitTLSPorts.Any()))
+            else if (SslGenerateSelfSignedServerCertificate || ExplicitTLSPorts.Any() || ImplicitTLSPorts.Any())
             {
-                byte[] pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
+                var pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
                 _serverAuthenticationCertificate = new X509Certificate2(pfx, "password");
             }
 
@@ -116,8 +171,15 @@ namespace McNNTP.Core.Server
 
             foreach (var listener in _listeners)
             {
-                listener.Item1.Start();
-                _logger.InfoFormat("Listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                try
+                {
+                    listener.Item1.Start();
+                    _logger.InfoFormat("Listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                }
+                catch (OutOfMemoryException oom)
+                {
+                    _logger.Error("Unable to start listener thread.  Not enough memory.", oom);
+                }
             }
         }
 
@@ -132,7 +194,26 @@ namespace McNNTP.Core.Server
             Task.WaitAll(_connections.Select(connection => connection.Shutdown()).ToArray());
 
             foreach (var thread in _listeners)
-                thread.Item1.Abort();
+            {
+                try
+                {
+                    thread.Item1.Abort();
+                }
+                catch (SecurityException se)
+                {
+                    _logger.Error(
+                        "Unable to abort the thread due to a security exception.  Application will now exit.",
+                        se);
+                    Environment.Exit(se.HResult);
+                }
+                catch (ThreadStateException tse)
+                {
+                    _logger.Error(
+                        "Unable to abort the thread due to a thread state exception.  Application will now exit.",
+                        tse);
+                    Environment.Exit(tse.HResult);
+                }
+            }
         }
 
         internal void AddConnection(Connection connection)
@@ -149,13 +230,6 @@ namespace McNNTP.Core.Server
             else
                 _logger.VerboseFormat("Disconnection from {0}:{1} ({2})", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort, connection.Identity.Username);
         }
-
-        #endregion
-        
-        #region Interactivity
-        public bool ShowBytes { get; set; }
-        public bool ShowCommands { get; set; }
-        public bool ShowData { get; set; }
 
         #endregion
     }

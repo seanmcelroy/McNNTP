@@ -1,47 +1,74 @@
-﻿using log4net;
-using log4net.Config;
-using McNNTP.Core.Server;
-using McNNTP.Core.Server.Configuration;
-using McNNTP.Data;
-using NHibernate.Linq;
-using System;
-using System.Collections.Generic;
-using System.Configuration;
-using System.Linq;
-using System.Security;
+﻿// --------------------------------------------------------------------------------------------------------------------
+// <copyright file="Program.cs" company="Sean McElroy">
+//   Copyright Sean McElroy, 2014.  All rights reserved.
+// </copyright>
+// <summary>
+//   A console host for the NNTP server process
+// </summary>
+// --------------------------------------------------------------------------------------------------------------------
 
 namespace McNNTP.Console
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Configuration;
+    using System.Linq;
+    using System.Reflection;
+    using System.Security;
+
+    using log4net;
+    using log4net.Config;
+
+    using McNNTP.Core.Database;
+    using McNNTP.Core.Server;
+    using McNNTP.Core.Server.Configuration;
+    using McNNTP.Data;
+
+    using NHibernate.Linq;
+
+    /// <summary>
+    /// A console host for the NNTP server process
+    /// </summary>
     public static class Program
     {
-        private static NntpServer _server;
-        
-        private static readonly Dictionary<string, Func<string, bool>> _commandDirectory = new Dictionary
-            <string, Func<string, bool>>
+        /// <summary>
+        /// A dictionary of commands and function pointers to command handlers for console commands
+        /// </summary>
+        private static readonly Dictionary<string, Func<string, bool>> CommandDirectory = new Dictionary<string, Func<string, bool>>
         {
-            {"?", s => Help()},
-            {"HELP", s => Help()},
-            {"ADMIN", AdminCommand},
-            {"DB", DatabaseCommand},
-            {"DEBUG", DebugCommand},
-            {"GROUP", GroupCommand},
-            {"PURGEDB", Core.Database.DatabaseUtility.RebuildSchema},
-            {"SHOWCONN", s => ShowConn()},
-            {"EXIT", s => Quit()},
-            {"QUIT", s => Quit()}
+            { "?", s => Help() }, 
+            { "HELP", s => Help() }, 
+            { "ADMIN", AdminCommand }, 
+            { "DB", DatabaseCommand }, 
+            { "DEBUG", DebugCommand }, 
+            { "GROUP", GroupCommand }, 
+            { "PURGEDB", DatabaseUtility.RebuildSchema }, 
+            { "SHOWCONN", s => ShowConn() }, 
+            { "EXIT", s => Quit() }, 
+            { "QUIT", s => Quit() }
         };
 
+        /// <summary>
+        /// The NNTP server object instance
+        /// </summary>
+        private static NntpServer server;
+
+        /// <summary>
+        /// The main program message loop
+        /// </summary>
+        /// <param name="args">Command line arguments passed into the program</param>
+        /// <returns>An error code, indicating an error condition when the value returned is non-zero</returns>
         public static int Main(string[] args)
         {
-            var version = System.Reflection.Assembly.GetEntryAssembly().GetName().Version;
-            System.Console.WriteLine("McNNTP Console Harness v{0}", version);
+            var version = Assembly.GetEntryAssembly().GetName().Version;
+            Console.WriteLine("McNNTP Console Harness v{0}", version);
             
             try
             {
                 // Setup LOG4NET
                 XmlConfigurator.Configure();
 
-                var logger = LogManager.GetLogger(typeof (Program));
+                var logger = LogManager.GetLogger(typeof(Program));
 
                 // Load configuration
                 var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
@@ -49,88 +76,100 @@ namespace McNNTP.Console
                 logger.InfoFormat("Loaded configuration from {0}", config.FilePath);
 
                 // Verify Database
-                if (Core.Database.DatabaseUtility.VerifyDatabase())
-                    Core.Database.DatabaseUtility.UpdateSchema();
-                else if (Core.Database.DatabaseUtility.UpdateSchema() && !Core.Database.DatabaseUtility.VerifyDatabase(true))
+                if (DatabaseUtility.VerifyDatabase())
+                    DatabaseUtility.UpdateSchema();
+                else if (DatabaseUtility.UpdateSchema() && !DatabaseUtility.VerifyDatabase(true))
                 {
-                    System.Console.WriteLine("Unable to verify a database.  Would you like to create and initialize a database?");
-                    var resp = System.Console.ReadLine();
+                    Console.WriteLine("Unable to verify a database.  Would you like to create and initialize a database?");
+                    var resp = Console.ReadLine();
                     if (resp != null && new[] {"y", "yes"}.Contains(resp.ToLowerInvariant().Trim()))
                     {
-                        Core.Database.DatabaseUtility.RebuildSchema();
+                        DatabaseUtility.RebuildSchema();
                     }
                 }
 
-                _server = new NntpServer
+                server = new NntpServer
                 {
-                    AllowPosting = true,
-                    ClearPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText").Select(p => p.Port).ToArray(),
-                    ExplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS").Select(p => p.Port).ToArray(),
-                    ImplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS").Select(p => p.Port).ToArray(),
-                    PathHost = mcnntpConfigurationSection.PathHost,
-                    SslGenerateSelfSignedServerCertificate = mcnntpConfigurationSection.SSL == null || mcnntpConfigurationSection.SSL.GenerateSelfSignedServerCertificate,
+                    AllowPosting = true, 
+                    ClearPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText").Select(p => p.Port).ToArray(), 
+                    ExplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS").Select(p => p.Port).ToArray(), 
+                    ImplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS").Select(p => p.Port).ToArray(), 
+                    LdapDirectoryConfiguration = mcnntpConfigurationSection.Authentication.UserDirectories.OfType<LdapDirectoryConfigurationElement>().OrderBy(l => l.Priority).FirstOrDefault(), 
+                    PathHost = mcnntpConfigurationSection.PathHost, 
+                    SslGenerateSelfSignedServerCertificate = mcnntpConfigurationSection.SSL == null || mcnntpConfigurationSection.SSL.GenerateSelfSignedServerCertificate, 
                     SslServerCertificateThumbprint = mcnntpConfigurationSection.SSL == null ? null : mcnntpConfigurationSection.SSL.ServerCertificateThumbprint
                 };
                 
-                _server.Start();
+                server.Start();
 
-                System.Console.WriteLine("Type QUIT and press Enter to end the server.");
+                Console.WriteLine("Type QUIT and press Enter to end the server.");
 
                 while (true)
                 {
-                    System.Console.Write("\r\n> ");
-                    var input = System.Console.ReadLine();
-                    if (input == null || !_commandDirectory.ContainsKey(input.Split(' ')[0].ToUpperInvariant()))
+                    Console.Write("\r\n> ");
+                    var input = Console.ReadLine();
+                    if (input == null || !CommandDirectory.ContainsKey(input.Split(' ')[0].ToUpperInvariant()))
                     {
-                        System.Console.WriteLine("Unrecongized command.  Type HELP for a list of available commands.");
+                        Console.WriteLine("Unrecongized command.  Type HELP for a list of available commands.");
                         continue;
                     }
-                    if (!_commandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input))
+
+                    if (!CommandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input))
                         continue;
 
-                    _server.Stop();
+                    server.Stop();
                     return 0;
                 }
             }
             catch (AggregateException ae)
             {
                 foreach (var ex in ae.InnerExceptions)
-                    System.Console.WriteLine(ex.ToString());
-                System.Console.ReadLine();
+                    Console.WriteLine(ex.ToString());
+                Console.ReadLine();
                 return -2;
             }
             catch (Exception ex)
             {
-                System.Console.WriteLine(ex.ToString());
-                System.Console.ReadLine();
+                Console.WriteLine(ex.ToString());
+                Console.ReadLine();
                 return -1;
             }
         }
 
         #region Commands
+
+        /// <summary>
+        /// The Help command handler, which shows a help banner on the console
+        /// </summary>
+        /// <returns>A value indicating whether the server should terminate</returns>
         private static bool Help()
         {
-            System.Console.WriteLine("ADMIN <name> CREATE <pass>      : Creates a new news administrator on the server");
-            System.Console.WriteLine("DB ANNIHILATE                   : Completely wipe and rebuild the news database");
-            System.Console.WriteLine("DB UPDATE                       : Updates the database schema integrity to match the code object definitions");
-            System.Console.WriteLine("DB VERIFY                       : Verify the database schema integrity against the code object definitions");
-            System.Console.WriteLine("DEBUG BYTES <value>             : Toggles showing bytes and destinations");
-            System.Console.WriteLine("DEBUG COMMANDS <value>          : Toggles showing commands and responses");
-            System.Console.WriteLine("DEBUG DATA <value>              : Toggles showing all data in and out");
-            System.Console.WriteLine("GROUP <name> CREATE <desc>      : Creates a new news group on the server");
-            System.Console.WriteLine("GROUP <name> CREATOR <value>    : Toggles moderation of a group (value is 'true' or 'false')");
-            System.Console.WriteLine("GROUP <name> MODERATION <value> : Toggles moderation of a group (value is 'true' or 'false')");
-            System.Console.WriteLine("SHOWCONN                        : Show active connections");
-            System.Console.WriteLine("QUIT                            : Exit the program, klling all connections");
+            Console.WriteLine("ADMIN <name> CREATE <pass>      : Creates a new news administrator on the server");
+            Console.WriteLine("DB ANNIHILATE                   : Completely wipe and rebuild the news database");
+            Console.WriteLine("DB UPDATE                       : Updates the database schema integrity to match the code object definitions");
+            Console.WriteLine("DB VERIFY                       : Verify the database schema integrity against the code object definitions");
+            Console.WriteLine("DEBUG BYTES <value>             : Toggles showing bytes and destinations");
+            Console.WriteLine("DEBUG COMMANDS <value>          : Toggles showing commands and responses");
+            Console.WriteLine("DEBUG DATA <value>              : Toggles showing all data in and out");
+            Console.WriteLine("GROUP <name> CREATE <desc>      : Creates a new news group on the server");
+            Console.WriteLine("GROUP <name> CREATOR <value>    : Toggles moderation of a group (value is 'true' or 'false')");
+            Console.WriteLine("GROUP <name> MODERATION <value> : Toggles moderation of a group (value is 'true' or 'false')");
+            Console.WriteLine("SHOWCONN                        : Show active connections");
+            Console.WriteLine("QUIT                            : Exit the program, klling all connections");
             return false;
         }
 
+        /// <summary>
+        /// The Admin command handler, which handles console commands for administration management
+        /// </summary>
+        /// <param name="input">The full console command input</param>
+        /// <returns>A value indicating whether the server should terminate</returns>
         private static bool AdminCommand(string input)
         {
             var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 3)
             {
-                System.Console.WriteLine("Two parameters are required.");
+                Console.WriteLine("Two parameters are required.");
                 return false;
             }
 
@@ -146,16 +185,16 @@ namespace McNNTP.Console
 
                     var admin = new Administrator
                     {
-                        Username = name,
-                        CanApproveAny = true,
-                        CanCancel = true,
-                        CanCheckGroups = true,
-                        CanCreateGroup = true,
-                        CanDeleteGroup = true,
+                        Username = name, 
+                        CanApproveAny = true, 
+                        CanCancel = true, 
+                        CanCheckGroups = true, 
+                        CanCreateGroup = true, 
+                        CanDeleteGroup = true, 
                         CanInject = false
                     };
 
-                    using (var session = Core.Database.SessionUtility.OpenSession())
+                    using (var session = SessionUtility.OpenSession())
                     {
                         session.Save(admin);
                         session.Flush();
@@ -163,29 +202,36 @@ namespace McNNTP.Console
                     }
 
                     admin.SetPassword(pass);
-                    System.Console.WriteLine("Administrator {0} created with all priviledges.", name);
+                    Console.WriteLine("Administrator {0} created with all priviledges.", name);
                     break;
                 }
+
                 default:
-                    System.Console.WriteLine("Unknown parameter {0} specified for Admin command", parts[2]);
+                    Console.WriteLine("Unknown parameter {0} specified for Admin command", parts[2]);
                     break;
             }
 
             return false;
         }
+
+        /// <summary>
+        /// The Group command handler, which handles console commands for group management
+        /// </summary>
+        /// <param name="input">The full console command input</param>
+        /// <returns>A value indicating whether the server should terminate</returns>
         private static bool GroupCommand(string input)
         {
             var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 4)
             {
-                System.Console.WriteLine("Two parameters are required.");
+                Console.WriteLine("Two parameters are required.");
                 return false;
             }
 
             var name = parts[1].ToLowerInvariant();
             if (!name.Contains('.'))
             {
-                System.Console.WriteLine("The <name> parameter must contain a '.' to enforce a news heirarchy");
+                Console.WriteLine("The <name> parameter must contain a '.' to enforce a news heirarchy");
                 return false;
             }
 
@@ -194,98 +240,115 @@ namespace McNNTP.Console
                 case "create":
                 {
                     var desc = parts.Skip(3).Aggregate((c, n) => c + " " + n);
-                    using (var session = Core.Database.SessionUtility.OpenSession())
+                    using (var session = SessionUtility.OpenSession())
                     {
                         session.Save(new Newsgroup
                         {
-                            Name = name,
-                            Description = desc,
+                            Name = name, 
+                            Description = desc, 
                             CreateDate = DateTime.UtcNow
                         });
                         session.Close();
-                        System.Console.WriteLine("Newsgroup {0} created.", name);
+                        Console.WriteLine("Newsgroup {0} created.", name);
                     }
+
                     break;
                 }
+
                 case "creator":
                 {
-                    var creator = parts.Skip(3).Aggregate((c,n) => c + " " + n);
+                    var creator = parts.Skip(3).Aggregate((c, n) => c + " " + n);
 
-                    using (var session = Core.Database.SessionUtility.OpenSession())
+                    using (var session = SessionUtility.OpenSession())
                     {
                         var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
                         if (newsgroup == null)
-                            System.Console.WriteLine("No newsgroup named '{0}' exists.", name);
+                            Console.WriteLine("No newsgroup named '{0}' exists.", name);
                         else
                         {
                             newsgroup.CreatorEntity = creator;
                             session.SaveOrUpdate(newsgroup);
                             session.Flush();
-                            System.Console.WriteLine("Creator entity of newsgroup {0} set to {1}", name, creator);
+                            Console.WriteLine("Creator entity of newsgroup {0} set to {1}", name, creator);
                         }
 
                         session.Close();
                     }
+
                     break;
                 }
+
                 case "moderation":
                 {
                     var val = parts[3];
 
-                    using (var session = Core.Database.SessionUtility.OpenSession())
+                    using (var session = SessionUtility.OpenSession())
                     {
                         var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
                         if (newsgroup == null)
-                            System.Console.WriteLine("No newsgroup named '{0}' exists.", name);
+                            Console.WriteLine("No newsgroup named '{0}' exists.", name);
                         else if (new[] { "ENABLE", "TRUE", "ON", "YES", "1" }.Contains(val, StringComparer.OrdinalIgnoreCase))
                         {
                             newsgroup.Moderated = true;
                             session.SaveOrUpdate(newsgroup);
                             session.Flush();
-                            System.Console.WriteLine("Moderation of newsgroup {0} enabled.", name);
+                            Console.WriteLine("Moderation of newsgroup {0} enabled.", name);
                         }
                         else if (new[] { "DISABLE", "FALSE", "OFF", "NO", "0" }.Contains(val, StringComparer.OrdinalIgnoreCase))
                         {
                             newsgroup.Moderated = false;
                             session.SaveOrUpdate(newsgroup);
                             session.Flush();
-                            System.Console.WriteLine("Moderation of newsgroup {0} disabled.", name);
+                            Console.WriteLine("Moderation of newsgroup {0} disabled.", name);
                         }
                         else
-                            System.Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
+                            Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
 
                         session.Close();
                     }
+
                     break;
                 }
+
                 default:
-                    System.Console.WriteLine("Unknown parameter {0} specified for Group command", parts[2]);
+                    Console.WriteLine("Unknown parameter {0} specified for Group command", parts[2]);
                     break;
             }
 
             return false;
         }
+
+        /// <summary>
+        /// Shows all open connection to the server process
+        /// </summary>
+        /// <returns>A value indicating whether the server should terminate</returns>
         private static bool ShowConn()
         {
-            _server.ShowBytes = !_server.ShowBytes;
-            System.Console.WriteLine("\r\nConnections ({0})", _server.Connections.Count);
-            System.Console.WriteLine("-----------");
-            foreach (var connection in _server.Connections)
+            server.ShowBytes = !server.ShowBytes;
+            Console.WriteLine("\r\nConnections ({0})", server.Connections.Count);
+            Console.WriteLine("-----------");
+            foreach (var connection in server.Connections)
             {
                 if (connection.AuthenticatedUsername == null)
-                    System.Console.WriteLine("{0}:{1}", connection.RemoteAddress, connection.RemotePort);
+                    Console.WriteLine("{0}:{1}", connection.RemoteAddress, connection.RemotePort);
                 else
-                    System.Console.WriteLine("{0}:{1} ({2})", connection.RemoteAddress, connection.RemotePort, connection.AuthenticatedUsername);
+                    Console.WriteLine("{0}:{1} ({2})", connection.RemoteAddress, connection.RemotePort, connection.AuthenticatedUsername);
             }
 
             return false;
         }
+
+        /// <summary>
+        /// The Database command handler, which handles console commands for database file and schema management
+        /// </summary>
+        /// <param name="input">The full console command input</param>
+        /// <returns>A value indicating whether the server should terminate</returns>
         private static bool DatabaseCommand(string input)
         {
             var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 2)
             {
-                System.Console.WriteLine("One parameter is required.");
+                Console.WriteLine("One parameter is required.");
                 return false;
             }
 
@@ -293,33 +356,42 @@ namespace McNNTP.Console
             {
                 case "annihilate":
                 {
-                    Core.Database.DatabaseUtility.RebuildSchema();
-                    System.Console.WriteLine("Database recreated");
+                    DatabaseUtility.RebuildSchema();
+                    Console.WriteLine("Database recreated");
                     break;
                 }
+
                 case "update":
                 {
-                    Core.Database.DatabaseUtility.UpdateSchema();
+                    DatabaseUtility.UpdateSchema();
                     break;
                 }
+
                 case "verify":
                 {
-                    Core.Database.DatabaseUtility.VerifyDatabase();
+                    DatabaseUtility.VerifyDatabase();
                     break;
                 }
+
                 default:
-                    System.Console.WriteLine("Unknown parameter {0} specified for Debug command", parts[1]);
+                    Console.WriteLine("Unknown parameter {0} specified for Debug command", parts[1]);
                     break;
             }
 
             return false;
         }
+
+        /// <summary>
+        /// The Debug command handler, which handles console commands for enabling verbose debug log display
+        /// </summary>
+        /// <param name="input">The full console command input</param>
+        /// <returns>A value indicating whether the server should terminate</returns>
         private static bool DebugCommand(string input)
         {
             var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 3)
             {
-                System.Console.WriteLine("One parameter is required.");
+                Console.WriteLine("One parameter is required.");
                 return false;
             }
 
@@ -330,71 +402,80 @@ namespace McNNTP.Console
                     var val = parts[2];
 
                     if (new[] { "ENABLE", "TRUE", "ON", "YES", "1" }.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        _server.ShowBytes = true;
-                    else if (new[] {"DISABLE", "FALSE", "OFF", "NO", "0"}.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        _server.ShowBytes = false;
+                        server.ShowBytes = true;
+                    else if (new[] { "DISABLE", "FALSE", "OFF", "NO", "0" }.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        server.ShowBytes = false;
                     else
-                        System.Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
+                        Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
 
-                    System.Console.Write("[DEBUG BYTES: ");
-                    var orig = System.Console.ForegroundColor;
-                    System.Console.ForegroundColor = _server.ShowBytes ? ConsoleColor.Green : ConsoleColor.Red;
-                    System.Console.Write(_server.ShowBytes ? "ON" : "OFF");
-                    System.Console.ForegroundColor = orig;
-                    System.Console.Write("]");
+                    Console.Write("[DEBUG BYTES: ");
+                    var orig = Console.ForegroundColor;
+                    Console.ForegroundColor = server.ShowBytes ? ConsoleColor.Green : ConsoleColor.Red;
+                    Console.Write(server.ShowBytes ? "ON" : "OFF");
+                    Console.ForegroundColor = orig;
+                    Console.Write("]");
 
                     break;
                 }
+
                 case "commands":
                 {
                     var val = parts[2];
 
                     if (new[] { "ENABLE", "TRUE", "ON", "YES", "1" }.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        _server.ShowCommands = true;
+                        server.ShowCommands = true;
                     else if (new[] { "DISABLE", "FALSE", "OFF", "NO", "0" }.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        _server.ShowCommands = false;
+                        server.ShowCommands = false;
                     else
-                        System.Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
+                        Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
 
-                    System.Console.Write("[DEBUG COMMANDS: ");
-                    var orig = System.Console.ForegroundColor;
-                    System.Console.ForegroundColor = _server.ShowCommands ? ConsoleColor.Green : ConsoleColor.Red;
-                    System.Console.Write(_server.ShowCommands ? "ON" : "OFF");
-                    System.Console.ForegroundColor = orig;
-                    System.Console.Write("]");
+                    Console.Write("[DEBUG COMMANDS: ");
+                    var orig = Console.ForegroundColor;
+                    Console.ForegroundColor = server.ShowCommands ? ConsoleColor.Green : ConsoleColor.Red;
+                    Console.Write(server.ShowCommands ? "ON" : "OFF");
+                    Console.ForegroundColor = orig;
+                    Console.Write("]");
 
                     break;
                 }
+
                 case "data":
                 {
                     var val = parts[2];
 
                     if (new[] { "ENABLE", "TRUE", "ON", "YES", "1" }.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        _server.ShowData = true;
+                        server.ShowData = true;
                     else if (new[] { "DISABLE", "FALSE", "OFF", "NO", "0" }.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        _server.ShowData = false;
+                        server.ShowData = false;
                     else
-                        System.Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
+                        Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
 
-                    System.Console.Write("[DEBUG DATA: ");
-                    var orig = System.Console.ForegroundColor;
-                    System.Console.ForegroundColor = _server.ShowData ? ConsoleColor.Green : ConsoleColor.Red;
-                    System.Console.Write(_server.ShowData ? "ON" : "OFF");
-                    System.Console.ForegroundColor = orig;
-                    System.Console.Write("]");
+                    Console.Write("[DEBUG DATA: ");
+                    var orig = Console.ForegroundColor;
+                    Console.ForegroundColor = server.ShowData ? ConsoleColor.Green : ConsoleColor.Red;
+                    Console.Write(server.ShowData ? "ON" : "OFF");
+                    Console.ForegroundColor = orig;
+                    Console.Write("]");
 
                     break;
                 }
+
                 default:
-                System.Console.WriteLine("Unknown parameter {0} specified for Debug command", parts[1]);
+                Console.WriteLine("Unknown parameter {0} specified for Debug command", parts[1]);
                    break;
             }
 
             return false;
         }
+
+        /// <summary>
+        /// The Quit command handler, which causes the server process to stop and a value to be returned as 'true',
+        /// indicating to the caller the server should terminate.
+        /// </summary>
+        /// <returns><c>true</c></returns>
         private static bool Quit()
         {
-            _server.Stop();
+            server.Stop();
             return true;
         }
         #endregion

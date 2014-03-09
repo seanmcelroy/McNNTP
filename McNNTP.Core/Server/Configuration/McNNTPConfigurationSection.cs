@@ -7,6 +7,14 @@ namespace McNNTP.Core.Server.Configuration
 // ReSharper disable once InconsistentNaming
     public class McNNTPConfigurationSection : ConfigurationSection
     {
+        [ConfigurationProperty("authentication", IsRequired = false)]
+        [UsedImplicitly]
+        public AuthenticationConfigurationElement Authentication
+        {
+            get { return (AuthenticationConfigurationElement)base["authentication"]; }
+            set { this["authentication"] = value; }
+        }
+
         [ConfigurationProperty("pathHost", IsRequired = true)]
         [UsedImplicitly]
         public string PathHost

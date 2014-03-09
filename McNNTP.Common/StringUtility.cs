@@ -1,44 +1,61 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Text.RegularExpressions;
-using System.Threading.Tasks;
-using JetBrains.Annotations;
+﻿// --------------------------------------------------------------------------------------------------------------------
+// <copyright file="StringUtility.cs" company="Sean McElroy">
+//   Copyright Sean McElroy, 2014.  All rights reserved.
+// </copyright>
+// <summary>
+//   A utility class that provides helper methods for manipulating strings
+// </summary>
+// --------------------------------------------------------------------------------------------------------------------
 
 namespace McNNTP.Common
 {
+    using System;
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Linq;
+    using System.Text;
+    using System.Text.RegularExpressions;
+    using System.Threading.Tasks;
+    using JetBrains.Annotations;
+
+    /// <summary>
+    /// A utility class that provides helper methods for manipulating strings
+    /// </summary>
     public static class StringUtility
     {
-        public static async Task<byte[]> GZipCompress(this string text)
+        [NotNull, Pure]
+        public static async Task<byte[]> GZipCompress([NotNull] this string text)
         {
+            if (string.IsNullOrWhiteSpace(text))
+                throw new ArgumentNullException("text");
+
             var buffer = Encoding.UTF8.GetBytes(text);
             using (var ms = new MemoryStream(buffer))
             using (var gzs = new Ionic.Zlib.ZlibStream(ms, Ionic.Zlib.CompressionMode.Compress, true))
-            using (var msOut = new MemoryStream())
+            using (var output = new MemoryStream())
             {
-                await gzs.CopyToAsync(msOut);
-                var array = msOut.ToArray();
+                await gzs.CopyToAsync(output);
+                var array = output.ToArray();
                 return array;
             }
         }
 
-        public static string GZipUncompress(this byte[] buffer)
+        [NotNull, Pure]
+        public static string GZipUncompress([NotNull] this byte[] buffer)
         {
             using (var ms = new MemoryStream(buffer))
             using (var gzs = new Ionic.Zlib.ZlibStream(ms, Ionic.Zlib.CompressionMode.Decompress, true))
-            using (var msOut = new MemoryStream())
+            using (var output = new MemoryStream())
             {
-                gzs.CopyTo(msOut);
-                var array = msOut.ToArray();
+                gzs.CopyTo(output);
+                var array = output.ToArray();
                 var str = Encoding.UTF8.GetString(array);
                 return str;
             }
         }
 
         [Pure]
-        public static bool MatchesWildmat([NotNull] this string test, string wildmat)
+        public static bool MatchesWildmat([NotNull] this string test, [CanBeNull] string wildmat)
         {
             if (string.IsNullOrEmpty(wildmat))
                 return true;
@@ -62,8 +79,7 @@ namespace McNNTP.Common
 
             return false;
         }
-
-
+        
         [NotNull, Pure]
         public static IEnumerable<string> SeekThroughDelimiters([NotNull] this string block, [NotNull] string delimiter)
         {
