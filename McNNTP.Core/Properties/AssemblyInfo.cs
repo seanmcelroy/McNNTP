@@ -4,12 +4,12 @@ using System.Runtime.InteropServices;
 // General Information about an assembly is controlled through the following 
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
-[assembly: AssemblyTitle("McNNTP")]
+[assembly: AssemblyTitle("McNNTP.Core")]
 [assembly: AssemblyDescription("An open-source NNTP server in C#")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
-[assembly: AssemblyProduct("McNNTP")]
-[assembly: AssemblyCopyright("Copyright © Sean McElroy 2014")]
+[assembly: AssemblyProduct("McNNTP.Core")]
+[assembly: AssemblyCopyright("Copyright © Sean McElroy 2014.  Licensed under the CCPL Attribution-NonCommercial-NoDerivs 3.0 United States")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

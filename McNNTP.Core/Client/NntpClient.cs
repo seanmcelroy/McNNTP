@@ -48,7 +48,7 @@
         public async Task Disconnect()
         {
             const string Message = "QUIT\r\n";
-            await Write(Message);
+            await this.WriteAsync(Message);
             var response = await Response();
             if (response.Substring(0, 3) != "205")
                 throw new NntpException(response);
@@ -59,23 +59,23 @@
         public async Task<string> Response()
         {
             var enc = new System.Text.ASCIIEncoding();
-            var serverbuff = new Byte[1024];
+            var serverbuff = new byte[1024];
             var stream = GetStream();
             var count = await stream.ReadAsync(serverbuff, 0, 1024);
             return count == 0 ? string.Empty : enc.GetString(serverbuff, 0, count);
         }
-        public Task Write(string message)
+        public async Task WriteAsync(string message)
         {
             var en = new System.Text.ASCIIEncoding();
             var writeBuffer = en.GetBytes(message);
             var stream = GetStream();
-            return stream.WriteAsync(writeBuffer, 0, writeBuffer.Length);
+            await stream.WriteAsync(writeBuffer, 0, writeBuffer.Length);
         }
         #endregion
 
         public async Task<ReadOnlyCollection<string>> GetCapabilities()
         {
-            await Write("CAPABILITIES\r\n");
+            await this.WriteAsync("CAPABILITIES\r\n");
             var response = await Response();
             if (response.Substring(0, 3) != "101")
                 throw new NntpException(response);
@@ -88,7 +88,7 @@
 
         public async Task<ReadOnlyCollection<string>> GetNewsgroups()
         {
-            await Write("LIST\r\n");
+            await this.WriteAsync("LIST\r\n");
             var response = await Response();
             if (response.Substring(0, 3) != "215")
                 throw new NntpException(response);
@@ -108,7 +108,7 @@
         {
             var topics = new List<string>();
             var message = "GROUP " + newsgroup + "\r\n";
-            await Write(message);
+            await this.WriteAsync(message);
             var response = await Response();
             if (response.Substring(0, 3) != "211")
             {
@@ -118,8 +118,8 @@
             char[] seps = { ' ' };
             var values = response.Split(seps);
 
-            long start = Int32.Parse(values[2], CultureInfo.InvariantCulture);
-            long end = Int32.Parse(values[3], CultureInfo.InvariantCulture);
+            var start = int.Parse(values[2], CultureInfo.InvariantCulture);
+            var end = int.Parse(values[3], CultureInfo.InvariantCulture);
 
             if (start + 100 < end && end > 100)
             {
@@ -129,7 +129,7 @@
             for (var i = start; i < end; i++)
             {
                 message = "ARTICLE " + i + "\r\n";
-                await Write(message);
+                await this.WriteAsync(message);
                 response = await Response();
                 if (response.Substring(0, 3) == "423")
                     continue;
@@ -160,7 +160,7 @@
         public async Task Post(string newsgroup, string subject, string from, string content)
         {
             var message = "POST\r\n";
-            await Write(message);
+            await this.WriteAsync(message);
             var response = await Response();
             if (response.Substring(0, 3) != "340")
             {
@@ -171,7 +171,7 @@
                 + "Newsgroups: " + newsgroup + "\r\n"
                 + "Subject: " + subject + "\r\n\r\n"
                 + content + "\r\n.\r\n";
-            await Write(message);
+            await this.WriteAsync(message);
             response = await Response();
             if (response.Substring(0, 3) != "240")
             {

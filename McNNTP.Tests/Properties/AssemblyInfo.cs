@@ -5,11 +5,11 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle("McNTTP.Tests")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyDescription("Unit tests for the McNNTP software system")]
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("McNTTP.Tests")]
-[assembly: AssemblyCopyright("Copyright © Sean McElroy 2014")]
+[assembly: AssemblyCopyright("Copyright © Sean McElroy 2014.  Licensed under the CCPL Attribution-NonCommercial-NoDerivs 3.0 United States")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

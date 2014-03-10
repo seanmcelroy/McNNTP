@@ -30,7 +30,8 @@ namespace McNNTP.Tests
 
             const string data = "5\tI found this great little site\tlisawill4u@yahoo.com(I found this great little site)\tSun, 21 Nov 04 15:31:49 GMT\t<04112115314949159@newshost.allthenewsgroups.com>\t\t1131\t7\tXref: number1.nntp.dca.giganews.com eckerd.misc:5\r\n6\tTrip to Disney\tmickey@travelexpert2004.biz(mickey)\tSun, 28 Nov 04 16:32:15 GMT\t<04112816321549247@newshost.allthenewsgroups.com>\t\t827\t12\tXref: number1.nntp.dca.giganews.com eckerd.misc:6\r\n.\r\n";
 
-            var compressedBytes = data.GZipCompress();
+            var task = data.GZipCompress();
+            var compressedBytes = task.Result;
 
             Assert.AreEqual(gzip, compressedBytes);
         }
@@ -57,7 +58,8 @@ namespace McNNTP.Tests
                 0x28, 0x2e, 0xd6, 0x97, 0xab, 0x8c, 0xaf, 0xb2, 0x0f, 0x7a, 0xdd, 0x84, 0x8f
             };
 
-            var str = gzip.GZipUncompress();
+            var task = gzip.GZipUncompress();
+            var str = task.Result;
             Assert.AreEqual("5\tI found this great little site\tlisawill4u@yahoo.com(I found this great little site)\tSun, 21 Nov 04 15:31:49 GMT\t<04112115314949159@newshost.allthenewsgroups.com>\t\t1131\t7\tXref: number1.nntp.dca.giganews.com eckerd.misc:5\r\n6\tTrip to Disney\tmickey@travelexpert2004.biz(mickey)\tSun, 28 Nov 04 16:32:15 GMT\t<04112816321549247@newshost.allthenewsgroups.com>\t\t827\t12\tXref: number1.nntp.dca.giganews.com eckerd.misc:6\r\n.\r\n", str);
         }
     }

@@ -9,7 +9,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("")]
 [assembly: AssemblyProduct("McNNTP.Data")]
-[assembly: AssemblyCopyright("Copyright © Sean McElroy 2014")]
+[assembly: AssemblyCopyright("Copyright © Sean McElroy 2014.  Licensed under the CCPL Attribution-NonCommercial-NoDerivs 3.0 United States")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

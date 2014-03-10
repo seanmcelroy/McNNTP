@@ -174,6 +174,11 @@ namespace McNNTP.Core.Server
             this.localPort = localIpEndpoint.Port;
         }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether the connection can be upgraded to use
+        /// Transport Later Security (TLS) through the STARTTLS command.
+        /// </summary>
+        [PublicAPI]
         public bool AllowStartTls { get; set; }
 
         public bool CanPost { get; private set; }

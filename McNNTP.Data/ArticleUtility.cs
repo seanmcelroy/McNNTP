@@ -1,10 +1,11 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using JetBrains.Annotations;
-
-namespace McNNTP.Data
+﻿namespace McNNTP.Data
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Linq;
+
+    using JetBrains.Annotations;
+
     public static class ArticleUtility
     {
         public static void ChangeHeader([NotNull] this Article article, [NotNull] string headerName, [NotNull] string headerValue)
@@ -21,20 +22,21 @@ namespace McNNTP.Data
                 article.Headers = string.Format("{0}\r\n{1}: {2}", article.Headers, headerName, headerValue);
             }
         }
+
         [CanBeNull, Pure]
         public static string GetHeader([NotNull] this Article article, [NotNull] string headerName)
         {
             Dictionary<string, string> headers, headersAndFullLines;
             if (Article.TryParseHeaders(article.Headers, out headers, out headersAndFullLines) &&
-                headersAndFullLines.Any(
-                    hfl => string.Compare(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase) == 0))
+                headersAndFullLines.Any(hfl => string.Compare(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase) == 0))
             {
                 var fullHeader = headersAndFullLines.Where(hfl => string.Compare(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase) == 0).Select(hfl => hfl.Value).FirstOrDefault();
                 if (fullHeader == null)
                     return null;
-                if (fullHeader.Contains(": "))
-                    return fullHeader.Substring(fullHeader.IndexOf(": ", StringComparison.OrdinalIgnoreCase) + 2);
-                return fullHeader;
+
+                return fullHeader.Contains(": ") 
+                    ? fullHeader.Substring(fullHeader.IndexOf(": ", StringComparison.OrdinalIgnoreCase) + 2) 
+                    : fullHeader;
             }
 
             return null;

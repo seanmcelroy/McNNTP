@@ -216,13 +216,13 @@
             }
         }
 
-        internal void AddConnection(Connection connection)
+        internal void AddConnection([NotNull] Connection connection)
         {
             _connections.Add(connection);
             _logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort);
         }
 
-        internal void RemoveConnection(Connection connection)
+        internal void RemoveConnection([NotNull] Connection connection)
         {
             _connections.Remove(connection);
             if (connection.Identity == null)

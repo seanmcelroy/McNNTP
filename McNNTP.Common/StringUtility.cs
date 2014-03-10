@@ -11,6 +11,7 @@ namespace McNNTP.Common
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics.CodeAnalysis;
     using System.IO;
     using System.Linq;
     using System.Text;
@@ -23,6 +24,15 @@ namespace McNNTP.Common
     /// </summary>
     public static class StringUtility
     {
+        /// <summary>
+        /// Compresses a string using ZLIB compression (Unix-style GZIP compression)
+        /// </summary>
+        /// <param name="text">The text to compress</param>
+        /// <returns>A ZLIB compressed byte array representation of <paramref name="text"/></returns>
+        /// <exception cref="ArgumentNullException">Thrown when the <paramref name="text"/> is null or an empty string</exception>
+        /// <exception cref="EncoderFallbackException">Thrown when characters are provided in the <param name="text"> that cannot be represented by UTF-8</param></exception>
+        /// <exception cref="ObjectDisposedException">Thrown when the source or destination stream are disposed at the time they are internally copied for compression.  Should never occur.</exception>
+        /// <exception cref="NotSupportedException">Thrown when the source stream does not support reading or the destination stream does not support writing.  Should never occur.</exception>
         [NotNull, Pure]
         public static async Task<byte[]> GZipCompress([NotNull] this string text)
         {
@@ -40,23 +50,48 @@ namespace McNNTP.Common
             }
         }
 
+        /// <summary>
+        /// Un-compresses a ZLIB-compressed (Unix-style GZIP compression) byte array to the original source text
+        /// </summary>
+        /// <param name="buffer">The byte array that represents the compressed data to un-compress</param>
+        /// <returns>The original UTF-8 string that was compressed</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the <paramref name="buffer"/> is null or an empty string</exception>
+        /// <exception cref="DecoderFallbackException">Thrown when characters are provided in the <param name="buffer"> that cannot be represented by UTF-8</param></exception>
+        /// <exception cref="ArgumentException">Thrown when a byte array is passed in for the <paramref name="buffer"/> contains invalid data for the decompression routine.</exception>
+        /// <exception cref="ObjectDisposedException">Thrown when the source or destination stream are disposed at the time they are internally copied for compression.  Should never occur.</exception>
+        /// <exception cref="NotSupportedException">Thrown when the source stream does not support reading or the destination stream does not support writing.  Should never occur.</exception>
         [NotNull, Pure]
-        public static string GZipUncompress([NotNull] this byte[] buffer)
+        public static async Task<string> GZipUncompress([NotNull] this byte[] buffer)
         {
+            if (buffer == null || buffer.LongLength == 0)
+                throw new ArgumentNullException("buffer");
+
             using (var ms = new MemoryStream(buffer))
             using (var gzs = new Ionic.Zlib.ZlibStream(ms, Ionic.Zlib.CompressionMode.Decompress, true))
             using (var output = new MemoryStream())
             {
-                gzs.CopyTo(output);
+                await gzs.CopyToAsync(output);
                 var array = output.ToArray();
                 var str = Encoding.UTF8.GetString(array);
                 return str;
             }
         }
 
-        [Pure]
+        /// <summary>
+        /// Tests the supplied string <paramref name="test"/> against a 'wildmat' pattern
+        /// to see if it matches.
+        /// </summary>
+        /// <param name="test">The string input to test the wildmat against</param>
+        /// <param name="wildmat">The pattern to test against the input.  This pattern is in the format as defined in RFC 3397 4.2</param>
+        /// <returns>True if the test input string matches the wildmat pattern.  Otherwise, false.</returns>
+        /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-4.2">RFC 3977</a> for more information.</remarks>
+        /// <exception cref="ArgumentNullException">Thrown when the supplied test string is null</exception>
+        /// <exception cref="RegexMatchTimeoutException">Thrown when it takes longer than 10 seconds to test the input string against the pattern</exception>
+        [SuppressMessage("StyleCop.CSharp.DocumentationRules", "SA1650:ElementDocumentationMustBeSpelledCorrectly", Justification = "Reviewed. Suppression is OK here."), Pure]
         public static bool MatchesWildmat([NotNull] this string test, [CanBeNull] string wildmat)
         {
+            if (string.IsNullOrEmpty(test))
+                throw new ArgumentNullException("test");
             if (string.IsNullOrEmpty(wildmat))
                 return true;
 
@@ -69,12 +104,26 @@ namespace McNNTP.Common
                 if (wildmatPattern2.StartsWith("!"))
                 {
                     negate = true;
-                    wildmatPattern2 = wildmatPattern2.Substring(1);
+                    try
+                    {
+                        wildmatPattern2 = wildmatPattern2.Substring(1);
+                    }
+                    catch (ArgumentOutOfRangeException)
+                    {
+                        return false;
+                    }
                 }
 
-                var regexPattern = "^" + Regex.Escape(wildmatPattern2).Replace(@"\*", ".*").Replace(@"\?", ".") + "$";
-                if (Regex.IsMatch(test, regexPattern, RegexOptions.IgnoreCase))
-                    return !negate;
+                try
+                {
+                    var regexPattern = "^" + Regex.Escape(wildmatPattern2).Replace(@"\*", ".*").Replace(@"\?", ".") + "$";
+                    if (Regex.IsMatch(test, regexPattern, RegexOptions.IgnoreCase, new TimeSpan(0, 0, 10)))
+                        return !negate;
+                }
+                catch (ArgumentException)
+                {
+                    return false;
+                }
             }
 
             return false;
@@ -93,19 +142,19 @@ namespace McNNTP.Common
             var start = 0;
             var b = 0;
 
-            while (b < block.Length)
+            while (b < block.LongLength)
             {
                 var match = false;
                 var bx = b;
                 var d = 0;
-                while (b < block.Length && d < delimiter.Length && block[b].Equals(delimiter[d]))
+                while (b < block.LongLength && d < delimiter.LongLength && block[b].Equals(delimiter[d]))
                 {
                     match = true;
                     b++;
                     d++;
                 }
 
-                if (match && d == delimiter.Length)
+                if (match && d == delimiter.LongLength)
                 {
                     yield return block.Skip(start).Take(b - delimiter.Length - start).ToArray();
                     start = b;
@@ -114,7 +163,7 @@ namespace McNNTP.Common
                     b = bx + 1;
             }
 
-            if (start < block.Length)
+            if (start < block.LongLength)
                 yield return block.Skip(start).ToArray();
         }
     }

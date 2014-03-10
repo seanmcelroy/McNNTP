@@ -2,6 +2,8 @@
 
 namespace McNNTP.Common
 {
+    using System.Diagnostics.CodeAnalysis;
+
     /// <summary>
     /// A utility class which provides implementations of portions of RFC 5322 and 5234
     /// </summary>
@@ -11,49 +13,63 @@ namespace McNNTP.Common
         /// A-Z / a-z
         /// </summary>
         private const string REGEX_CHAR_ALPHA = @"\x41-\x5a\x61-\x7a";
+
         /// <summary>
         /// Any 7-bit US-ASCII character, excluding NUL
         /// </summary>
         private const string REGEX_CHAR_CHAR = @"\x01-\x7f";
+
         private const string REGEX_CHAR_CR = @"\x0d";
+
         /// <summary>
         /// Internet standard newline
         /// </summary>
         private const string REGEX_CHAR_CRLF = REGEX_CHAR_CR + REGEX_CHAR_LF;
+
         /// <summary>
         /// Controls
         /// </summary>
         private const string REGEX_CHAR_CTL = @"\x00-\x1f\x7f";
+
         /// <summary>
         /// 0-9
         /// </summary>
         private const string REGEX_CHAR_DIGIT = @"\x30-x39";
+
         /// <summary>
         /// Double quote
         /// </summary>
         private const string REGEX_CHAR_DQUOTE = @"\x22";
+
         /// <summary>
         /// Hexadecimal digits
         /// </summary>
         private const string REGEX_CHAR_HEXDIG = REGEX_CHAR_DIGIT + "ABCDEF";
+
         /// <summary>
         /// Horizontal tab
         /// </summary>
         private const string REGEX_CHAR_HTAB = @"\x09";
+
         /// <summary>
         /// Linefeed
         /// </summary>
         private const string REGEX_CHAR_LF = @"\x0a";
+
         /// <summary>
         /// 8 bits of data
         /// </summary>
         private const string REGEX_CHAR_OCTET = @"\x00-\xff";
+
         /// <summary>
         /// Space
         /// </summary>
         private const string REGEX_CHAR_SP = @"\x20";
+
         private const string REGEX_CHAR_WSP = REGEX_CHAR_SP + REGEX_CHAR_HTAB;
+
         private const string REGEX_CHAR_VCHAR = @"\x21-\x7e";
+
         /// <summary>
         /// Printable US-ASCII characters not include "(", ")", or "\"
         /// </summary>
@@ -77,6 +93,7 @@ namespace McNNTP.Common
         /// FOLDING WHITESPACE
         /// </summary>
         private const string REGEX_PATTERN_FWS = "(["+ REGEX_CHAR_WSP + "]*(" + REGEX_CHAR_CRLF + "))?[" + REGEX_CHAR_WSP + "]+";
+
         /// <summary>
         /// Use of this linear-white-space rule permits lines containing only white
         /// space that are no longer legal in mail headers and have caused interoperability problems in other contexts.
@@ -101,6 +118,7 @@ namespace McNNTP.Common
             return Regex.IsMatch(val, REGEX_PATTERN_ATOM);
         }
 
+        [SuppressMessage("StyleCop.CSharp.NamingRules", "SA1305:FieldNamesMustNotUseHungarianNotation", Justification = "Reviewed. Suppression is OK here.")]
         public static bool IsUsenetMessageId(this string val)
         {
             // See RFC 5536 3.1.3
