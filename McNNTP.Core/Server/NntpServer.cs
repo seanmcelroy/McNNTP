@@ -40,13 +40,13 @@
         public bool AllowStartTLS { get; set; }
 
         [NotNull]
-        public int[] ClearPorts { get; set; }
+        public int[] NntpClearPorts { get; set; }
 
         [NotNull]
-        public int[] ExplicitTLSPorts { get; set; }
+        public int[] NntpExplicitTLSPorts { get; set; }
 
         [NotNull]
-        public int[] ImplicitTLSPorts { get; set; }
+        public int[] NntpImplicitTLSPorts { get; set; }
 
         [CanBeNull]
         public LdapDirectoryConfigurationElement LdapDirectoryConfiguration { get; set; }
@@ -121,8 +121,8 @@
                     {
                         _logger.WarnFormat(@"No valid certificate with a public and private key could be found in the LocalMachine\Personal store with thumbprint: {0}.  Disabling SSL.", SslServerCertificateThumbprint);
                         AllowStartTLS = false;
-                        ExplicitTLSPorts = new int[0];
-                        ImplicitTLSPorts = new int[0];
+                        this.NntpExplicitTLSPorts = new int[0];
+                        this.NntpImplicitTLSPorts = new int[0];
                     }
                     else
                     {
@@ -135,13 +135,13 @@
                     store.Close();
                 }
             }
-            else if (SslGenerateSelfSignedServerCertificate || ExplicitTLSPorts.Any() || ImplicitTLSPorts.Any())
+            else if (SslGenerateSelfSignedServerCertificate || this.NntpExplicitTLSPorts.Any() || this.NntpImplicitTLSPorts.Any())
             {
                 var pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
                 _serverAuthenticationCertificate = new X509Certificate2(pfx, "password");
             }
 
-            foreach (var clearPort in ClearPorts)
+            foreach (var clearPort in this.NntpClearPorts)
             {
                 // Establish the local endpoint for the socket.
                 var localEndPoint = new IPEndPoint(IPAddress.Any, clearPort);
@@ -155,7 +155,7 @@
                 _listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
             }
 
-            foreach (var implicitTlsPort in ImplicitTLSPorts)
+            foreach (var implicitTlsPort in this.NntpImplicitTLSPorts)
             {
                 // Establish the local endpoint for the socket.
                 var localEndPoint = new IPEndPoint(IPAddress.Any, implicitTlsPort);

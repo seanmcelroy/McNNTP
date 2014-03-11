@@ -12,8 +12,10 @@ namespace McNNTP.Common
     using System;
     using System.Collections.Generic;
     using System.Diagnostics.CodeAnalysis;
+    using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Runtime.Remoting.Messaging;
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
@@ -165,6 +167,44 @@ namespace McNNTP.Common
 
             if (start < block.LongLength)
                 yield return block.Skip(start).ToArray();
+        }
+
+        [Pure]
+        public static bool TryParseNewsgroupDateHeader([CanBeNull] this string headerValue, out DateTime dateTime)
+        {
+            dateTime = DateTime.MinValue;
+
+            if (string.IsNullOrEmpty(headerValue)) return false;
+
+            if (DateTime.TryParseExact(
+                headerValue,
+                "dd MMM yyyy HH:mm:ss K",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out dateTime)) return true;
+
+            if (DateTime.TryParseExact(
+                headerValue,
+                "dd MMM yyyy HH:mm:ss",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out dateTime)) return true;
+
+            if (DateTime.TryParseExact(
+                headerValue,
+                "ddd, dd MMM yyyy HH:mm:ss K",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out dateTime)) return true;
+
+            if (DateTime.TryParseExact(
+                headerValue,
+                "ddd, dd MMM yyyy HH:mm:ss",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal,
+                out dateTime)) return true;
+
+            return false;
         }
     }
 }

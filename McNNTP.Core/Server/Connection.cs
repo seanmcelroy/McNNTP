@@ -28,7 +28,9 @@ namespace McNNTP.Core.Server
 
     using MoreLinq;
     using NHibernate;
+    using NHibernate.Criterion;
     using NHibernate.Linq;
+    using NHibernate.Transform;
 
     /// <summary>
     /// A connection from a client to the server
@@ -129,7 +131,8 @@ namespace McNNTP.Core.Server
                     { "LIST", async (c, data) => await c.List(data) },
                     { "LISTGROUP", async (c, data) => await c.ListGroup(data) },
                     { "MODE", async (c, data) => await c.Mode(data) },
-                    { "NEWGROUPS", async (c, data) => await c.Newgroups(data) },
+                    { "NEWGROUPS", async (c, data) => await c.NewGroups(data) },
+                    { "NEWNEWS", async (c, data) => await c.NewNews(data) },
                     { "NEXT", async (c, data) => await c.Next() },
                     { "OVER", async (c, data) => await c.Over(data) },
                     { "POST", async (c, data) => await c.Post() },
@@ -202,16 +205,35 @@ namespace McNNTP.Core.Server
         #endregion
 
         #region Compression
+        /// <summary>
+        /// Gets a value indicating whether the connection should have compression enabled
+        /// </summary>
+        [PublicAPI]
         public bool Compression { get; private set; }
 
+        /// <summary>
+        /// Gets a value indicating whether the connection is compressed with the UNIX GZip protocol
+        /// </summary>
+        [PublicAPI]
         public bool CompressionGZip { get; private set; }
 
+        /// <summary>
+        /// Gets a value indicating whether message terminators are also compressed
+        /// </summary>
+        [PublicAPI]
         public bool CompressionTerminator { get; private set; }
         #endregion
 
-        [CanBeNull]
+        /// <summary>
+        /// Gets the newsgroup currently selected by this connection
+        /// </summary>
+        [PublicAPI, CanBeNull]
         public string CurrentNewsgroup { get; private set; }
 
+        /// <summary>
+        /// Gets the article number currently selected by this connection for the selected newsgroup
+        /// </summary>
+        [PublicAPI]
         public long? CurrentArticleNumber { get; private set; }
 
         #region Derived instance properties
@@ -852,9 +874,8 @@ namespace McNNTP.Core.Server
             // sb.Append("IHAVE\r\n");
             sb.Append("HDR\r\n");
             sb.Append("LIST ACTIVE NEWSGROUPS ACTIVE.TIMES DISTRIB.PATS HEADERS OVERVIEW.FMT\r\n");
-            sb.Append("MODE-READER");
-            
-            // sb.Append("NEWNEWS\r\n");
+            sb.Append("MODE-READER\r\n");
+            sb.Append("NEWNEWS\r\n");
             sb.Append("OVER MSGID\r\n");
             sb.Append("POST\r\n");
             sb.Append("READER\r\n");
@@ -1535,19 +1556,16 @@ namespace McNNTP.Core.Server
             return new CommandProcessingResult(true);
         }
 
-        private async Task<CommandProcessingResult> Newgroups(string content)
+        private async Task<CommandProcessingResult> NewGroups(string content)
         {
             var parts = content.TrimEnd('\r', '\n').Split(' ');
 
             var dateTime = string.Join(" ", parts.ElementAt(1), parts.ElementAt(2));
             DateTime afterDate;
-            if (!(parts.ElementAt(1).Length == 8 && DateTime.TryParseExact(dateTime, "yyyyMMdd HHmmss", CultureInfo.InvariantCulture, parts.Length == 4 ? DateTimeStyles.AssumeUniversal : DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal, out afterDate)))
-                if (!(parts.ElementAt(1).Length == 6 && DateTime.TryParseExact(dateTime, "yyMMdd HHmmss", CultureInfo.InvariantCulture, parts.Length == 4 ? DateTimeStyles.AssumeUniversal : DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal, out afterDate)))
-                    afterDate = DateTime.MinValue;
-
-            if (afterDate == DateTime.MinValue)
+            if (!(parts.ElementAt(1).Length == 8 && DateTime.TryParseExact(dateTime, "yyyyMMdd HHmmss", CultureInfo.InvariantCulture, parts.Length == 4 ? DateTimeStyles.AssumeUniversal : DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal, out afterDate)) &&
+                !(parts.ElementAt(1).Length == 6 && DateTime.TryParseExact(dateTime, "yyMMdd HHmmss", CultureInfo.InvariantCulture, parts.Length == 4 ? DateTimeStyles.AssumeUniversal : DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal, out afterDate)))
             {
-                await Send("231 List of new newsgroups follows (multi-line)\r\n.\r\n");
+                await Send("501 Syntax Error\r\n");
                 return new CommandProcessingResult(true);
             }
 
@@ -1561,6 +1579,56 @@ namespace McNNTP.Core.Server
             await Send("231 List of new newsgroups follows (multi-line)\r\n");
             foreach (var ng in newsGroups)
                 await Send("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, CanPost ? "y" : "n");
+            await Send(".\r\n");
+            return new CommandProcessingResult(true);
+        }
+
+        /// <summary>
+        /// Handles the NEWNEWS command from a client, which allows a client to request
+        /// a list of articles in newsgroups matching a pattern that are new since a certain date
+        /// </summary>
+        /// <param name="content">The full command request provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-7.4">RFC 3977</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> NewNews(string content)
+        {
+            // Syntax: NEWNEWS wildmat date time [GMT]
+            var parts = content.TrimEnd('\r', '\n').Split(' ');
+            if (parts.Length < 4 || parts.Length > 5)
+            {
+                await Send("501 Syntax Error\r\n");
+                return new CommandProcessingResult(true);
+            }
+            
+            var wildmat = parts[1];
+
+            var dateTime = string.Join(" ", parts.ElementAt(2), parts.ElementAt(3));
+            DateTime afterDate;
+            if (!(parts[2].Length == 8 && DateTime.TryParseExact(dateTime, "yyyyMMdd HHmmss", CultureInfo.InvariantCulture, parts.Length == 5 ? DateTimeStyles.AssumeUniversal : DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal, out afterDate)) &&
+                !(parts[3].Length == 6 && DateTime.TryParseExact(dateTime, "yyMMdd HHmmss", CultureInfo.InvariantCulture, parts.Length == 5 ? DateTimeStyles.AssumeUniversal : DateTimeStyles.AssumeLocal | DateTimeStyles.AdjustToUniversal, out afterDate)))
+            {
+                await Send("501 Syntax Error\r\n");
+                return new CommandProcessingResult(true);
+            }
+            afterDate = afterDate.ToUniversalTime();
+
+            IList<Article> newArticles;
+            using (var session = Database.SessionUtility.OpenSession())
+            {
+                newArticles = session.CreateCriteria<Article>()
+                    .Add(Restrictions.Ge("DateTimeParsed", afterDate))
+                    .SetFetchMode("ArticleNewsgroups", FetchMode.Join)
+                    .SetProjection(Projections.ProjectionList()
+                        .Add(Projections.Property("MessageId"), "MessageId"))
+                    .SetResultTransformer(Transformers.AliasToBean<Article>())
+                    .List<Article>();
+                session.Close();
+            }
+
+            await Send("230 list of new articles by message-id follows\r\n");
+            if (newArticles != null)
+                foreach (var a in newArticles.Where(na => na.ArticleNewsgroups.Select(an => an.Newsgroup).Any(ng => ng.Name.MatchesWildmat(wildmat))))
+                    await Send("{0}\r\n", a.MessageId);
             await Send(".\r\n");
             return new CommandProcessingResult(true);
         }
@@ -1802,57 +1870,64 @@ namespace McNNTP.Core.Server
                         return new CommandProcessingResult(true, true);
                     }
 
-                    foreach (var newsgroupName in article.Newsgroups.Split(' '))
+                    article.ArticleNewsgroups = new HashSet<ArticleNewsgroup>();
+                    article.Path = PathHost;
+
+                    using (var session = Database.SessionUtility.OpenSession())
                     {
-                        bool canApprove;
-                        if (Identity == null)
-                            canApprove = false;
-                        else if (Identity.CanInject || Identity.CanApproveAny)
-                            canApprove = true;
-                        else
-                            canApprove = Identity.Moderates.Any(ng => ng.Name == newsgroupName);
+                        session.Save(article);
 
-                        if (!canApprove)
+                        foreach (var newsgroupName in article.Newsgroups.Split(' '))
                         {
-                            article.Approved = null;
-                            article.RemoveHeader("Approved");
-                        }
-                        if (Identity != null && !Identity.CanCancel)
-                        {
-                            article.Supersedes = null;
-                            article.RemoveHeader("Supersedes");
-                        }
-                        if (Identity != null && !Identity.CanInject)
-                        {
-                            article.InjectionDate = DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000";
-                            article.ChangeHeader("Injection-Date", DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000");
-                            article.InjectionInfo = null;
-                            article.RemoveHeader("Injection-Info");
-                            article.Xref = null;
-                            article.RemoveHeader("Xref");
+                            bool canApprove;
+                            if (Identity == null)
+                                canApprove = false;
+                            else if (Identity.CanInject || Identity.CanApproveAny)
+                                canApprove = true;
+                            else
+                                canApprove = Identity.Moderates.Any(ng => ng.Name == newsgroupName);
 
-                            // RFC 5536 3.2.6. The Followup-To header field SHOULD NOT appear in a message, unless its content is different from the content of the Newsgroups header field.
-                            if (!string.IsNullOrWhiteSpace(article.FollowupTo) &&
-                                string.Compare(article.FollowupTo, article.Newsgroups, StringComparison.OrdinalIgnoreCase) == 0)
-                                article.FollowupTo = null;
-                        }
+                            if (!canApprove)
+                            {
+                                article.Approved = null;
+                                article.RemoveHeader("Approved");
+                            }
 
-                        if ((article.Control != null && Identity == null) ||
-                            (article.Control != null && Identity != null && article.Control.StartsWith("cancel ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCancel) ||
-                            (article.Control != null && Identity != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCreateGroup) ||
-                            (article.Control != null && Identity != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanDeleteGroup) ||
-                            (article.Control != null && Identity != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCheckGroups))
-                        {
-                            await Send("480 Permission to issue control message denied\r\n");
-                            return new CommandProcessingResult(true, true);
-                        }
+                            if (Identity != null && !Identity.CanCancel)
+                            {
+                                article.Supersedes = null;
+                                article.RemoveHeader("Supersedes");
+                            }
 
-                        using (var session = Database.SessionUtility.OpenSession())
-                        {
+                            if (Identity != null && !Identity.CanInject)
+                            {
+                                article.InjectionDate = DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000";
+                                article.ChangeHeader("Injection-Date", DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000");
+                                article.InjectionInfo = null;
+                                article.RemoveHeader("Injection-Info");
+                                article.Xref = null;
+                                article.RemoveHeader("Xref");
+
+                                // RFC 5536 3.2.6. The Followup-To header field SHOULD NOT appear in a message, unless its content is different from the content of the Newsgroups header field.
+                                if (!string.IsNullOrWhiteSpace(article.FollowupTo) &&
+                                    string.Compare(article.FollowupTo, article.Newsgroups, StringComparison.OrdinalIgnoreCase) == 0)
+                                    article.FollowupTo = null;
+                            }
+
+                            if ((article.Control != null && Identity == null) ||
+                                (article.Control != null && Identity != null && article.Control.StartsWith("cancel ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCancel) ||
+                                (article.Control != null && Identity != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCreateGroup) ||
+                                (article.Control != null && Identity != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanDeleteGroup) ||
+                                (article.Control != null && Identity != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCheckGroups))
+                            {
+                                await Send("480 Permission to issue control message denied\r\n");
+                                return new CommandProcessingResult(true, true);
+                            }
+
                             // Moderation - if this is a moderator's approval message, don't post it, but approve the referenced message.
                             if (canApprove && !string.IsNullOrEmpty(article.References) &&
                                 (article.Body.StartsWith("APPROVE\r\n", StringComparison.OrdinalIgnoreCase) ||
-                                 article.Body.StartsWith("APPROVED\r\n", StringComparison.OrdinalIgnoreCase)))
+                                    article.Body.StartsWith("APPROVED\r\n", StringComparison.OrdinalIgnoreCase)))
                             {
                                 var references = article.References.Split(' ');
 
@@ -1886,26 +1961,22 @@ namespace McNNTP.Core.Server
                             if (newsgroup == null)
                                 continue;
 
-                            article.Id = 0;
-                            article.Path = PathHost;
-                            session.Save(article);
-
                             var articleNewsgroup = new ArticleNewsgroup
                             {
                                 Article = article,
                                 Cancelled = false,
-                                Id = 0,
                                 Newsgroup = newsgroup,
                                 Number = session.CreateQuery("select max(an.Number) from ArticleNewsgroup an where an.Newsgroup.Name = :NewsgroupName").SetParameter("NewsgroupName", newsgroupName).UniqueResult<int>() + 1,
                                 Pending = newsgroup.Moderated && !canApprove
                             };
                             session.Save(articleNewsgroup);
 
-                            session.Close();
-
                             if (article.Control != null)
                                 HandleControlMessage(newsgroup, article);
                         }
+
+                        session.Flush();
+                        session.Close();
                     }
                     
                     await Send("240 Article received OK\r\n");

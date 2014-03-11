@@ -91,9 +91,9 @@ namespace McNNTP.Console
                 server = new NntpServer
                 {
                     AllowPosting = true, 
-                    ClearPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText").Select(p => p.Port).ToArray(), 
-                    ExplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS").Select(p => p.Port).ToArray(), 
-                    ImplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS").Select(p => p.Port).ToArray(), 
+                    NntpClearPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText").Select(p => p.Port).ToArray(), 
+                    NntpExplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS").Select(p => p.Port).ToArray(), 
+                    NntpImplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS").Select(p => p.Port).ToArray(), 
                     LdapDirectoryConfiguration = mcnntpConfigurationSection.Authentication.UserDirectories.OfType<LdapDirectoryConfigurationElement>().OrderBy(l => l.Priority).FirstOrDefault(), 
                     PathHost = mcnntpConfigurationSection.PathHost, 
                     SslGenerateSelfSignedServerCertificate = mcnntpConfigurationSection.SSL == null || mcnntpConfigurationSection.SSL.GenerateSelfSignedServerCertificate, 

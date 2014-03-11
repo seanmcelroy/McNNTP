@@ -18,6 +18,7 @@
         /// Gets or sets the auto-incrementing primary key identify for this entity
         /// </summary>
         // ReSharper disable once UnusedAutoPropertyAccessor.Global
+        [PublicAPI]
         public virtual int Id { get; set; }
 
         /// <summary>
@@ -27,6 +28,16 @@
         [NotNull, PublicAPI]
         public virtual string Date { get; set; }
 
+        /// <summary>
+        /// Gets or sets the date as a native value, parsed from the Date header.
+        /// </summary>
+        [PublicAPI]
+        public virtual DateTime? DateTimeParsed { get; set; }
+        
+        /// <summary>
+        /// Gets or sets the From header field that indicates who authored the article
+        /// </summary>
+        /// <remarks>This is a required header.</remarks>
         [NotNull, PublicAPI]
         public virtual string From { get; set; }
 
@@ -206,7 +217,7 @@
         /// <summary>
         /// Gets or sets the newsgroups to which this message has been posted
         /// </summary>
-        public virtual IList<ArticleNewsgroup> ArticleNewsgroups { get; set; }
+        public virtual ICollection<ArticleNewsgroup> ArticleNewsgroups { get; set; }
 
         [Pure]
         public static bool TryParse([NotNull] string block, out Article article)
@@ -284,6 +295,9 @@
 
             if (!headers.ContainsKey("DATE"))
                 article.ChangeHeader("Date", article.Date);
+
+            DateTime parsedDateTime;
+            if (article.Date.TryParseNewsgroupDateHeader(out parsedDateTime)) article.DateTimeParsed = parsedDateTime.ToUniversalTime();
 
             article.ChangeHeader("Message-ID", msgId);
 

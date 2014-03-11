@@ -6,6 +6,7 @@
     </id>
 
     <property name="Date" not-null="true" length="100" update="false" />
+    <property name="DateTimeParsed" not-null="false" update="false" />
     <property name="From" column="FromHeader" not-null="true" length="1000" update="false" />
     <property name="MessageId" not-null="true" length="500" unique="true" update="false" unique-key="GloballyUniqueMessageId" />
     <property name="Newsgroups" not-null="true" length="1000" update="false" />
@@ -34,11 +35,9 @@
     <property name="Headers" />
     <property name="Body" update="false" />
 
-    <bag name="ArticleNewsgroups" table="ArticleNewsgroup" lazy="false" cascade="all">
-      <key>
-        <column name="ArticleId" not-null="true" />
-      </key>
-      <many-to-many class="ArticleNewsgroup" column="NewsgroupId"/>
-    </bag>
+    <set name="ArticleNewsgroups" table="ArticleNewsgroup" lazy="false" cascade="none">
+      <key column="ArticleId" />
+      <one-to-many class="ArticleNewsgroup"/>
+    </set>
   </class>
 </hibernate-mapping>

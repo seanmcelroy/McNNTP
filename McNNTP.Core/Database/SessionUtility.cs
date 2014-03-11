@@ -31,6 +31,7 @@ namespace McNNTP.Core.Database
         {
             var configuration = new Configuration();
             configuration.AddAssembly(typeof(Newsgroup).Assembly);
+            
             return configuration.BuildSessionFactory();
         });
 

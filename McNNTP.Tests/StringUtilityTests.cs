@@ -4,9 +4,19 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace McNNTP.Tests
 {
+    using System;
+
     [TestClass]
     public class StringUtilityTests
     {
+        [TestMethod]
+        public void ParseDates()
+        {
+            DateTime dateTime;
+            Assert.IsTrue("Mon, 10 Mar 2014 22:23:31 -0500".TryParseNewsgroupDateHeader(out dateTime));
+
+        }
+
         [TestMethod]
         public void SeekThroughDelimiters()
         {

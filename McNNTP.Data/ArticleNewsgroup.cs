@@ -11,6 +11,8 @@
 
 namespace McNNTP.Data
 {
+    using System;
+
     using JetBrains.Annotations;
 
     /// <summary>
@@ -26,6 +28,7 @@ namespace McNNTP.Data
         /// Gets or sets the auto-incrementing primary key identify for this entity
         /// </summary>
         // ReSharper disable once UnusedAutoPropertyAccessor.Global
+        [PublicAPI]
         public virtual int Id { get; set; }
 
         /// <summary>
