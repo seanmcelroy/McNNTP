@@ -1,4 +1,4 @@
-﻿namespace McNNTP.Service
+﻿namespace McNNTP.Server.Service
 {
     partial class NntpServiceInstaller
     {

@@ -14,9 +14,9 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = ".nuget", ".nuget", "{322986
 		.nuget\NuGet.targets = .nuget\NuGet.targets
 	EndProjectSection
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McNNTP.Service", "McNNTP.Service\McNNTP.Service\McNNTP.Service.csproj", "{F387D186-8ED5-4F60-AE64-2F694671BEAA}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McNNTP.Server.Service", "McNNTP.Server.Service\McNNTP.Server.Service.csproj", "{F387D186-8ED5-4F60-AE64-2F694671BEAA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McNNTP.Console", "McNNTP.Console\McNNTP.Console.csproj", "{59030E8E-EEAE-494C-AEC0-ADE8DD2A61C4}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McNNTP.Server.Console", "McNNTP.Server.Console\McNNTP.Server.Console.csproj", "{59030E8E-EEAE-494C-AEC0-ADE8DD2A61C4}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution Items", "{BD85F287-EAB6-47ED-B4C0-23C12DC9E513}"
 	ProjectSection(SolutionItems) = preProject
@@ -27,6 +27,8 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McNNTP.Data", "McNNTP.Data\McNNTP.Data.csproj", "{C66623BC-1C36-4747-8EA8-94188A8DC049}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McNNTP.Common", "McNNTP.Common\McNNTP.Common.csproj", "{F84582B7-D84F-4AF5-972F-3DAA26DD69BD}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McNNTP.Client.Console", "McNNTP.Client.Console\McNNTP.Client.Console.csproj", "{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -98,6 +100,16 @@ Global
 		{F84582B7-D84F-4AF5-972F-3DAA26DD69BD}.Release|Mixed Platforms.ActiveCfg = Release|Any CPU
 		{F84582B7-D84F-4AF5-972F-3DAA26DD69BD}.Release|Mixed Platforms.Build.0 = Release|Any CPU
 		{F84582B7-D84F-4AF5-972F-3DAA26DD69BD}.Release|x86.ActiveCfg = Release|Any CPU
+		{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}.Debug|Mixed Platforms.ActiveCfg = Debug|Any CPU
+		{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}.Debug|Mixed Platforms.Build.0 = Debug|Any CPU
+		{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}.Release|Any CPU.Build.0 = Release|Any CPU
+		{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}.Release|Mixed Platforms.ActiveCfg = Release|Any CPU
+		{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}.Release|Mixed Platforms.Build.0 = Release|Any CPU
+		{92D783B8-FC22-44E5-BEDA-7F9B7F6A8830}.Release|x86.ActiveCfg = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

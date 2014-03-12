@@ -1,4 +1,4 @@
-﻿namespace McNNTP.Service
+﻿namespace McNNTP.Server.Service
 {
     using System.Configuration;
     using System.Linq;

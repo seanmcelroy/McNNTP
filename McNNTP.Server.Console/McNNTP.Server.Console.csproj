@@ -4,15 +4,15 @@
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
-    <ProjectGuid>{F387D186-8ED5-4F60-AE64-2F694671BEAA}</ProjectGuid>
-    <OutputType>WinExe</OutputType>
+    <ProjectGuid>{59030E8E-EEAE-494C-AEC0-ADE8DD2A61C4}</ProjectGuid>
+    <OutputType>Exe</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>McNNTP.Service</RootNamespace>
-    <AssemblyName>McNNTP.Service</AssemblyName>
+    <RootNamespace>McNNTP.Server.Console</RootNamespace>
+    <AssemblyName>McNNTP.Server.Console</AssemblyName>
     <TargetFrameworkVersion>v4.5.1</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
-    <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\..\</SolutionDir>
+    <SolutionDir Condition="$(SolutionDir) == '' Or $(SolutionDir) == '*Undefined*'">..\</SolutionDir>
     <RestorePackages>true</RestorePackages>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
@@ -36,39 +36,27 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="CommandLine">
-      <HintPath>..\..\packages\CommandLineParser.1.9.71\lib\net45\CommandLine.dll</HintPath>
+      <HintPath>..\packages\CommandLineParser.1.9.71\lib\net45\CommandLine.dll</HintPath>
     </Reference>
     <Reference Include="Iesi.Collections">
-      <HintPath>..\..\packages\Iesi.Collections.3.2.0.1001\lib\Net35\Iesi.Collections.dll</HintPath>
+      <HintPath>..\packages\Iesi.Collections.3.2.0.1001\lib\Net35\Iesi.Collections.dll</HintPath>
     </Reference>
     <Reference Include="log4net">
-      <HintPath>..\..\packages\log4net.2.0.3\lib\net40-full\log4net.dll</HintPath>
+      <HintPath>..\packages\log4net.2.0.3\lib\net40-full\log4net.dll</HintPath>
     </Reference>
     <Reference Include="NHibernate">
-      <HintPath>..\..\packages\NHibernate.3.3.3.4001\lib\Net35\NHibernate.dll</HintPath>
+      <HintPath>..\packages\NHibernate.3.3.3.4001\lib\Net35\NHibernate.dll</HintPath>
     </Reference>
     <Reference Include="System" />
-    <Reference Include="System.Configuration" />
-    <Reference Include="System.Configuration.Install" />
+    <Reference Include="System.configuration" />
     <Reference Include="System.Core" />
-    <Reference Include="System.Management" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Data" />
-    <Reference Include="System.ServiceProcess" />
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="NntpService.cs">
-      <SubType>Component</SubType>
-    </Compile>
-    <Compile Include="NntpServiceInstaller.cs">
-      <SubType>Component</SubType>
-    </Compile>
-    <Compile Include="NntpServiceInstaller.Designer.cs">
-      <DependentUpon>NntpServiceInstaller.cs</DependentUpon>
-    </Compile>
     <Compile Include="Program.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
@@ -77,13 +65,13 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="..\..\McNNTP.Common\McNNTP.Common.csproj">
-      <Project>{f84582b7-d84f-4af5-972f-3daa26dd69bd}</Project>
-      <Name>McNNTP.Common</Name>
-    </ProjectReference>
-    <ProjectReference Include="..\..\McNNTP.Core\McNNTP.Core.csproj">
+    <ProjectReference Include="..\McNNTP.Core\McNNTP.Core.csproj">
       <Project>{6d45d38f-85c0-46bd-950a-f4d0dcf61691}</Project>
       <Name>McNNTP.Core</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\McNNTP.Data\McNNTP.Data.csproj">
+      <Project>{c66623bc-1c36-4747-8ea8-94188a8dc049}</Project>
+      <Name>McNNTP.Data</Name>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

@@ -18,9 +18,15 @@
 
     public class NntpServer
     {
+        /// <summary>
+        /// A list of threads and the associated TCP new-connection listeners that are serviced by each by the client
+        /// </summary>
         private readonly List<Tuple<Thread, NntpListener>> _listeners = new List<Tuple<Thread, NntpListener>>();
 
-        private static readonly ILog _logger = LogManager.GetLogger(typeof(NntpServer));
+        /// <summary>
+        /// The logging utility instance to use to log events from this class
+        /// </summary>
+        private static readonly ILog Logger = LogManager.GetLogger(typeof(NntpServer));
 
         private readonly List<Connection> _connections = new List<Connection>();
 
@@ -35,6 +41,10 @@
             ShowData = true;
         }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether or not to allow users to post to the server.
+        /// When this value is set to false, the server is read-only for regular client connections.
+        /// </summary>
         public bool AllowPosting { get; set; }
 
         public bool AllowStartTLS { get; set; }
@@ -85,7 +95,7 @@
         /// <summary>
         /// Starts listener threads to begin processing requests
         /// </summary>
-        /// <exception cref="CryptographicException">Thrown when an error occurs while a SSL certificate is loaded to support TLS-enabled ports</exception>
+        /// <exception cref="System.Security.Cryptography.CryptographicException">Thrown when an error occurs while a SSL certificate is loaded to support TLS-enabled ports</exception>
         public void Start()
         {
             _listeners.Clear();
@@ -93,7 +103,7 @@
             // Test LDAP connection, if configured
             if (LdapDirectoryConfiguration != null)
             {
-                _logger.InfoFormat("Testing LDAP connection to {0} with lookup account {1}", LdapDirectoryConfiguration.LdapServer, LdapDirectoryConfiguration.LookupAccountUsername);
+                Logger.InfoFormat("Testing LDAP connection to {0} with lookup account {1}", LdapDirectoryConfiguration.LdapServer, LdapDirectoryConfiguration.LookupAccountUsername);
 
                 if (LdapUtility.UserExists(
                     LdapDirectoryConfiguration.LdapServer,
@@ -101,10 +111,10 @@
                     LdapDirectoryConfiguration.LookupAccountUsername,
                     LdapDirectoryConfiguration.LookupAccountPassword,
                     LdapDirectoryConfiguration.LookupAccountUsername))
-                    _logger.Info("LDAP lookup account successfully found.");
+                    Logger.Info("LDAP lookup account successfully found.");
                 else
                 {
-                    _logger.Warn("Unable to find LDAP lookup account.  LDAP authentication is being disabled.");
+                    Logger.Warn("Unable to find LDAP lookup account.  LDAP authentication is being disabled.");
                     LdapDirectoryConfiguration = null;
                 }
             }
@@ -119,14 +129,14 @@
                     var collection = store.Certificates.Find(X509FindType.FindByThumbprint, SslServerCertificateThumbprint, true);
                     if (collection.Cast<X509Certificate2>().Count(c => c.HasPrivateKey) == 0)
                     {
-                        _logger.WarnFormat(@"No valid certificate with a public and private key could be found in the LocalMachine\Personal store with thumbprint: {0}.  Disabling SSL.", SslServerCertificateThumbprint);
+                        Logger.WarnFormat(@"No valid certificate with a public and private key could be found in the LocalMachine\Personal store with thumbprint: {0}.  Disabling SSL.", SslServerCertificateThumbprint);
                         AllowStartTLS = false;
                         this.NntpExplicitTLSPorts = new int[0];
                         this.NntpImplicitTLSPorts = new int[0];
                     }
                     else
                     {
-                        _logger.InfoFormat("Located valid certificate with subject '{0}' and serial {1}", collection[0].Subject, collection[0].SerialNumber);
+                        Logger.InfoFormat("Located valid certificate with subject '{0}' and serial {1}", collection[0].Subject, collection[0].SerialNumber);
                         _serverAuthenticationCertificate = collection[0];
                     }
                 }
@@ -174,11 +184,11 @@
                 try
                 {
                     listener.Item1.Start();
-                    _logger.InfoFormat("Listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                    Logger.InfoFormat("Listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
                 }
                 catch (OutOfMemoryException oom)
                 {
-                    _logger.Error("Unable to start listener thread.  Not enough memory.", oom);
+                    Logger.Error("Unable to start listener thread.  Not enough memory.", oom);
                 }
             }
         }
@@ -188,7 +198,7 @@
             foreach (var listener in _listeners)
             {
                 listener.Item2.Stop();
-                _logger.InfoFormat("Stopped listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                Logger.InfoFormat("Stopped listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
             }
 
             Task.WaitAll(_connections.Select(connection => connection.Shutdown()).ToArray());
@@ -201,14 +211,14 @@
                 }
                 catch (SecurityException se)
                 {
-                    _logger.Error(
+                    Logger.Error(
                         "Unable to abort the thread due to a security exception.  Application will now exit.",
                         se);
                     Environment.Exit(se.HResult);
                 }
                 catch (ThreadStateException tse)
                 {
-                    _logger.Error(
+                    Logger.Error(
                         "Unable to abort the thread due to a thread state exception.  Application will now exit.",
                         tse);
                     Environment.Exit(tse.HResult);
@@ -219,16 +229,16 @@
         internal void AddConnection([NotNull] Connection connection)
         {
             _connections.Add(connection);
-            _logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort);
+            Logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort);
         }
 
         internal void RemoveConnection([NotNull] Connection connection)
         {
             _connections.Remove(connection);
             if (connection.Identity == null)
-                _logger.VerboseFormat("Disconnection from {0}:{1}", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort);
+                Logger.VerboseFormat("Disconnection from {0}:{1}", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort);
             else
-                _logger.VerboseFormat("Disconnection from {0}:{1} ({2})", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort, connection.Identity.Username);
+                Logger.VerboseFormat("Disconnection from {0}:{1} ({2})", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort, connection.Identity.Username);
         }
 
         #endregion

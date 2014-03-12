@@ -1,6 +1,6 @@
 ﻿using System.ServiceProcess;
 
-namespace McNNTP.Service
+namespace McNNTP.Server.Service
 {
     static class Program
     {

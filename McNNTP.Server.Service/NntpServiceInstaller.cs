@@ -2,7 +2,7 @@
 using System.ServiceProcess;
 using JetBrains.Annotations;
 
-namespace McNNTP.Service
+namespace McNNTP.Server.Service
 {
     [RunInstaller(true), UsedImplicitly]
     public partial class NntpServiceInstaller : System.Configuration.Install.Installer

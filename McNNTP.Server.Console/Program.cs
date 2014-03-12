@@ -7,7 +7,7 @@
 // </summary>
 // --------------------------------------------------------------------------------------------------------------------
 
-namespace McNNTP.Console
+namespace McNNTP.Server.Console
 {
     using System;
     using System.Collections.Generic;
@@ -61,7 +61,7 @@ namespace McNNTP.Console
         public static int Main(string[] args)
         {
             var version = Assembly.GetEntryAssembly().GetName().Version;
-            Console.WriteLine("McNNTP Console Harness v{0}", version);
+            Console.WriteLine("McNNTP Server Console Harness v{0}", version);
             
             try
             {
@@ -155,7 +155,7 @@ namespace McNNTP.Console
             Console.WriteLine("GROUP <name> CREATOR <value>    : Toggles moderation of a group (value is 'true' or 'false')");
             Console.WriteLine("GROUP <name> MODERATION <value> : Toggles moderation of a group (value is 'true' or 'false')");
             Console.WriteLine("SHOWCONN                        : Show active connections");
-            Console.WriteLine("QUIT                            : Exit the program, klling all connections");
+            Console.WriteLine("QUIT                            : Exit the program, killing all connections");
             return false;
         }
 

@@ -19,6 +19,8 @@
 
         public NntpClient()
         {
+            // Establish default values
+            CanPost = true;
             Port = 119;
         }
 
