@@ -151,6 +151,9 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Database\GenerateSchema.sql" />
+    <Content Include="MOTD.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="HelpFile.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

@@ -49,6 +49,16 @@ namespace McNNTP.Server.Console
         };
 
         /// <summary>
+        /// The strings that evaluate to 'true' for a Boolean value
+        /// </summary>
+        private static readonly string[] YesStrings = new[] { "ENABLE", "T", "TRUE", "ON", "Y", "YES", "1" };
+
+        /// <summary>
+        /// The strings that evaluate to 'false' for a Boolean value
+        /// </summary>
+        private static readonly string[] NoStrings = new[] { "DISABLE", "F", "FALSE", "OFF", "N", "NO", "0" };
+
+        /// <summary>
         /// The NNTP server object instance
         /// </summary>
         private static NntpServer server;
@@ -144,16 +154,20 @@ namespace McNNTP.Server.Console
         /// <returns>A value indicating whether the server should terminate</returns>
         private static bool Help()
         {
-            Console.WriteLine("ADMIN <name> CREATE <pass>      : Creates a new news administrator on the server");
+            Console.WriteLine("ADMIN <name> CREATE <pass>      : Creates a new news administrator");
             Console.WriteLine("DB ANNIHILATE                   : Completely wipe and rebuild the news database");
-            Console.WriteLine("DB UPDATE                       : Updates the database schema integrity to match the code object definitions");
-            Console.WriteLine("DB VERIFY                       : Verify the database schema integrity against the code object definitions");
+            Console.WriteLine("DB UPDATE                       : Updates the database schema integrity to\r\n" +
+                              "                                  match the code object definitions");
+            Console.WriteLine("DB VERIFY                       : Verify the database schema integrity against\r\n" +
+                              "                                  the code object definitions");
             Console.WriteLine("DEBUG BYTES <value>             : Toggles showing bytes and destinations");
             Console.WriteLine("DEBUG COMMANDS <value>          : Toggles showing commands and responses");
             Console.WriteLine("DEBUG DATA <value>              : Toggles showing all data in and out");
             Console.WriteLine("GROUP <name> CREATE <desc>      : Creates a new news group on the server");
-            Console.WriteLine("GROUP <name> CREATOR <value>    : Toggles moderation of a group (value is 'true' or 'false')");
-            Console.WriteLine("GROUP <name> MODERATION <value> : Toggles moderation of a group (value is 'true' or 'false')");
+            Console.WriteLine("GROUP <name> CREATOR <value>    : Sets the addr-spec (name and email)");
+            Console.WriteLine("GROUP <name> DENYLOCAL <value>  : Toggles denial of local postings to a group");
+            Console.WriteLine("GROUP <name> DENYPEER <value>   : Toggles denial of peer postings to a group");
+            Console.WriteLine("GROUP <name> MODERATION <value> : Toggles moderation of a group (true or false)");
             Console.WriteLine("SHOWCONN                        : Show active connections");
             Console.WriteLine("QUIT                            : Exit the program, killing all connections");
             return false;
@@ -278,6 +292,70 @@ namespace McNNTP.Server.Console
                     break;
                 }
 
+                case "denylocal":
+                {
+                    var val = parts[3];
+
+                    using (var session = SessionUtility.OpenSession())
+                    {
+                        var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
+                        if (newsgroup == null)
+                            Console.WriteLine("No newsgroup named '{0}' exists.", name);
+                        else if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        {
+                            newsgroup.DenyLocalPosting = true;
+                            session.SaveOrUpdate(newsgroup);
+                            session.Flush();
+                            Console.WriteLine("Local posting to newsgroup {0} denied.", name);
+                        }
+                        else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        {
+                            newsgroup.DenyLocalPosting = false;
+                            session.SaveOrUpdate(newsgroup);
+                            session.Flush();
+                            Console.WriteLine("Local posting to newsgroup {0} re-enabled.", name);
+                        }
+                        else
+                            Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
+
+                        session.Close();
+                    }
+
+                    break;
+                }
+
+                case "denypeer":
+                {
+                    var val = parts[3];
+
+                    using (var session = SessionUtility.OpenSession())
+                    {
+                        var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
+                        if (newsgroup == null)
+                            Console.WriteLine("No newsgroup named '{0}' exists.", name);
+                        else if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        {
+                            newsgroup.DenyPeerPosting = true;
+                            session.SaveOrUpdate(newsgroup);
+                            session.Flush();
+                            Console.WriteLine("Peer posting to newsgroup {0} denied.", name);
+                        }
+                        else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        {
+                            newsgroup.DenyPeerPosting = false;
+                            session.SaveOrUpdate(newsgroup);
+                            session.Flush();
+                            Console.WriteLine("Peer posting to newsgroup {0} re-enabled.", name);
+                        }
+                        else
+                            Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
+
+                        session.Close();
+                    }
+
+                    break;
+                }
+
                 case "moderation":
                 {
                     var val = parts[3];
@@ -287,14 +365,14 @@ namespace McNNTP.Server.Console
                         var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
                         if (newsgroup == null)
                             Console.WriteLine("No newsgroup named '{0}' exists.", name);
-                        else if (new[] { "ENABLE", "TRUE", "ON", "YES", "1" }.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        else if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         {
                             newsgroup.Moderated = true;
                             session.SaveOrUpdate(newsgroup);
                             session.Flush();
                             Console.WriteLine("Moderation of newsgroup {0} enabled.", name);
                         }
-                        else if (new[] { "DISABLE", "FALSE", "OFF", "NO", "0" }.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         {
                             newsgroup.Moderated = false;
                             session.SaveOrUpdate(newsgroup);
@@ -401,9 +479,9 @@ namespace McNNTP.Server.Console
                 {
                     var val = parts[2];
 
-                    if (new[] { "ENABLE", "TRUE", "ON", "YES", "1" }.Contains(val, StringComparer.OrdinalIgnoreCase))
+                    if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         server.ShowBytes = true;
-                    else if (new[] { "DISABLE", "FALSE", "OFF", "NO", "0" }.Contains(val, StringComparer.OrdinalIgnoreCase))
+                    else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         server.ShowBytes = false;
                     else
                         Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
@@ -422,9 +500,9 @@ namespace McNNTP.Server.Console
                 {
                     var val = parts[2];
 
-                    if (new[] { "ENABLE", "TRUE", "ON", "YES", "1" }.Contains(val, StringComparer.OrdinalIgnoreCase))
+                    if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         server.ShowCommands = true;
-                    else if (new[] { "DISABLE", "FALSE", "OFF", "NO", "0" }.Contains(val, StringComparer.OrdinalIgnoreCase))
+                    else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         server.ShowCommands = false;
                     else
                         Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
@@ -443,9 +521,9 @@ namespace McNNTP.Server.Console
                 {
                     var val = parts[2];
 
-                    if (new[] { "ENABLE", "TRUE", "ON", "YES", "1" }.Contains(val, StringComparer.OrdinalIgnoreCase))
+                    if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         server.ShowData = true;
-                    else if (new[] { "DISABLE", "FALSE", "OFF", "NO", "0" }.Contains(val, StringComparer.OrdinalIgnoreCase))
+                    else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         server.ShowData = false;
                     else
                         Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);

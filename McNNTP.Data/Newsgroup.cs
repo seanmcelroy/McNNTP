@@ -5,11 +5,19 @@ using NHibernate;
 
 namespace McNNTP.Data
 {
+    /// <summary>
+    /// A related forum for articles to be posted into and replied within
+    /// </summary>
     public class Newsgroup
     {
         public virtual int Id { get; set; }
+
+        /// <summary>
+        /// Gets or sets the canonical name of the newsgroup
+        /// </summary>
         [NotNull]
         public virtual string Name { get; set; }
+
         [CanBeNull]
         public virtual string Description { get; set; }
         public virtual bool Moderated { get; set; }
@@ -20,7 +28,17 @@ namespace McNNTP.Data
         [CanBeNull]
         public virtual string CreatorEntity { get; set; }
 
-        public virtual IList<Newsgroup> ModeratedBy { get; set; }
+        /// <summary>
+        /// Gets or sets a value indicating whether local connections may post to this group at all
+        /// </summary>
+        public virtual bool DenyLocalPosting { get; set; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether peers may post to this group at all
+        /// </summary>
+        public virtual bool DenyPeerPosting { get; set; }
+
+        public virtual IList<Administrator> ModeratedBy { get; set; }
 
 
         [NotNull, Pure]

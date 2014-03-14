@@ -1,1 +1,24 @@
-﻿HAI
+﻿  ARTICLE [message-ID|number]
+  AUTHINFO USER name|PASS password|GENERIC program [argument ...]
+  BODY [message-ID|number]
+  CAPABILITIES
+  DATE
+  GROUP newsgroup
+  HDR header [message-ID|range]
+  HEAD [message-ID|number]
+  HELP
+  IHAVE message-ID
+  LAST
+  LIST [ACTIVE [wildmat]|ACTIVE.TIMES [wildmat]|COUNTS [wildmat]|DISTRIB.PATS|DISTRIBUTIONS|HEADERS [MSGID|RANGE]|MOTD|NEWSGROUPS [wildmat]|OVERVIEW.FMT]
+  LISTGROUP [newsgroup [range]]
+  MODE READER
+  NEWGROUPS [yy]yymmdd hhmmss [GMT]
+  NEWNEWS wildmat [yy]yymmdd hhmmss [GMT]
+  NEXT
+  OVER [range]
+  POST
+  QUIT
+  STAT [message-ID|number]
+  XHDR header [message-ID|range]
+  XOVER [range]
+  XPAT header message-ID|range pattern [pattern ...]

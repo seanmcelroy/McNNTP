@@ -10,8 +10,10 @@
     <property name="PostCount" not-null="true" type="Int32" formula="(SELECT count(an.Id) FROM ArticleNewsgroup an WHERE an.NewsGroupId = Id AND an.Cancelled = 0 AND an.Pending = 0)"/>
     <property name="LowWatermark" type="Int32" formula="(SELECT min(an.Number) FROM ArticleNewsgroup an WHERE an.NewsGroupId = Id AND an.Cancelled = 0 AND an.Pending = 0)" />
     <property name="HighWatermark" type="Int32" formula="(SELECT max(an.Number) FROM ArticleNewsgroup an WHERE an.NewsGroupId = Id AND an.Cancelled = 0 AND an.Pending = 0)" />
-    <property name="CreateDate"/>
+    <property name="CreateDate" not-null="true" type="DateTime"/>
     <property name="CreatorEntity"/>
+    <property name="DenyLocalPosting" not-null="true"/>
+    <property name="DenyPeerPosting" not-null="true"/>
 
     <bag name="ModeratedBy" table="NewsgroupModerator">
       <key>

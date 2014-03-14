@@ -12,5 +12,8 @@ namespace McNNTP.Data
 
         [NotNull]
         public virtual string Distribution { get; set; }
+
+        [CanBeNull]
+        public virtual string Description { get; set; }
     }
 }

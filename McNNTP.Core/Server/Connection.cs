@@ -136,11 +136,12 @@ namespace McNNTP.Core.Server
                     { "NEXT", async (c, data) => await c.Next() },
                     { "OVER", async (c, data) => await c.Over(data) },
                     { "POST", async (c, data) => await c.Post() },
+                    { "QUIT", async (c, data) => await c.Quit() },
                     { "STAT", async (c, data) => await c.Stat(data) },
                     { "XFEATURE", async (c, data) => await c.XFeature(data) },
                     { "XHDR", async (c, data) => await c.XHDR(data) },
                     { "XOVER", async (c, data) => await c.XOver(data) },
-                    { "QUIT", async (c, data) => await c.Quit() }
+                    { "XPAT", async (c, data) => await c.XPAT(data) }
                 };
         }
 
@@ -505,6 +506,15 @@ namespace McNNTP.Core.Server
         #endregion
 
         #region Commands
+        /// <summary>
+        /// Retrieves the headers and body of a single article
+        /// </summary>
+        /// <param name="content">The full command request provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-6.2.1">RFC 3977</a> for more information.</remarks>
+        /// <example>
+        /// ARTICLE [message-ID|number]
+        /// </example>
         private async Task<CommandProcessingResult> Article(string content)
         {
             var param = 
@@ -747,6 +757,14 @@ namespace McNNTP.Core.Server
             return new CommandProcessingResult(true);
         }
 
+        /// <summary>
+        /// Retrieves the body of a single article
+        /// <param name="content">The full command request provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-6.2.3">RFC 3977</a> for more information.</remarks>
+        /// <example>
+        /// BODY [message-ID|number]
+        /// </example>
         private async Task<CommandProcessingResult> Body(string content)
         {
             var param = (string.Compare(content, "BODY\r\n", StringComparison.OrdinalIgnoreCase) == 0)
@@ -1050,8 +1068,20 @@ namespace McNNTP.Core.Server
                     Func<Article, string> headerFunction;
                     switch (parts[1].ToUpperInvariant())
                     {
+                        case "APPROVED":
+                            headerFunction = a => a.Approved;
+                            break;
+                        case "CONTROL":
+                            headerFunction = a => a.Control;
+                            break;
+                        case "INJECTIONDATE":
+                            headerFunction = a => a.InjectionDate;
+                            break;
                         case "DATE":
                             headerFunction = a => a.Date;
+                            break;
+                        case "DISTRIBUTION":
+                            headerFunction = a => a.Distribution;
                             break;
                         case "FROM":
                             headerFunction = a => a.From;
@@ -1059,11 +1089,20 @@ namespace McNNTP.Core.Server
                         case "MESSAGE-ID":
                             headerFunction = a => a.MessageId;
                             break;
+                        case "ORGANIZATION":
+                            headerFunction = a => a.Organization;
+                            break;
                         case "REFERENCES":
                             headerFunction = a => a.References;
                             break;
                         case "SUBJECT":
                             headerFunction = a => a.Subject;
+                            break;
+                        case "USERAGENT":
+                            headerFunction = a => a.UserAgent;
+                            break;
+                        case "XREF":
+                            headerFunction = a => a.Xref;
                             break;
                         default:
                             {
@@ -1301,110 +1340,52 @@ namespace McNNTP.Core.Server
             if (string.Compare(content, "LIST ACTIVE.TIMES\r\n", StringComparison.OrdinalIgnoreCase) == 0 ||
                 content.StartsWith("LIST ACTIVE.TIMES ", StringComparison.OrdinalIgnoreCase))
             {
-                IList<Newsgroup> newsGroups = null;
-
                 var wildmat = contentParts.Length == 2
                     ? null
                     : content.TrimEnd('\r', '\n').Split(' ').Skip(2).Aggregate((c, n) => c + " " + n);
-
-                var send403 = false;
-
-                try
-                {
-                    using (var session = Database.SessionUtility.OpenSession())
-                    {
-                        newsGroups = wildmat == null
-                            ? session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList()
-                            : session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
-                        session.Close();
-                    }
-                }
-                catch (MappingException mex)
-                {
-                    send403 = true;
-                    Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
-                }
-                catch (Exception ex)
-                {
-                    send403 = true;
-                    Logger.Error("Exception when trying to handle LIST", ex);
-                }
-
-                if (send403)
-                {
-                    await Send("403 Archive server temporarily offline\r\n");
-                    return new CommandProcessingResult(true);
-                }
-
-                await Send("215 information follows\r\n");
-                var epoch = new DateTime(1970, 1, 1);
-                foreach (var ng in newsGroups)
-                    await Send("{0} {1} {2}\r\n", ng.Name, (ng.CreateDate - epoch).TotalSeconds, ng.CreatorEntity);
-                await Send(".\r\n");
-
+                
+                await ListActiveTimes(wildmat);
                 return new CommandProcessingResult(true);
             }
 
             if (string.Compare(content, "LIST DISTRIB.PATS\r\n", StringComparison.OrdinalIgnoreCase) == 0)
             {
-                List<DistributionPattern> pats;
+                await ListDistribPats();
+                return new CommandProcessingResult(true);
+            }
 
-                using (var session = Database.SessionUtility.OpenSession())
-                {
-                    pats = session.Query<DistributionPattern>().ToList();
-                    session.Close();
-                }
+            if (string.Compare(content, "LIST DISTRIBUTIONS\r\n", StringComparison.OrdinalIgnoreCase) == 0)
+            {
+                await ListDistributions();
+                return new CommandProcessingResult(true);
+            }
 
-                await Send("215 information follows\r\n");
-                foreach (var pat in pats)
-                    await Send("{0}:{1}:{2}\r\n", pat.Weight, pat.Wildmat, pat.Distribution);
-                await Send(".\r\n");
-
+            if (content.StartsWith("LIST DISTRIBUTIONS ", StringComparison.OrdinalIgnoreCase))
+            {
+                /* The distributions list is not newsgroup-based, and an argument MUST
+                 * NOT be specified.  Otherwise, a 501 response code MUST be returned.
+                 */
+                await Send("501 Syntax Error\r\n");
                 return new CommandProcessingResult(true);
             }
 
             if (content.StartsWith("LIST HEADERS", StringComparison.OrdinalIgnoreCase))
             {
-                await Send("215 information follows\r\n:\r\n.\r\n");
+                await ListHeaders();
+                return new CommandProcessingResult(true);
+            }
+
+            // This server does NOT support the LIST MODERATORS option on purpose
+
+            if (content.StartsWith("LIST MOTD", StringComparison.OrdinalIgnoreCase))
+            {
+                await ListMotd();
                 return new CommandProcessingResult(true);
             }
 
             if (string.Compare(content, "LIST NEWSGROUPS\r\n", StringComparison.OrdinalIgnoreCase) == 0)
             {
-                IList<Newsgroup> newsGroups = null;
-
-                var send403 = false;
-
-                try
-                {
-                    using (var session = Database.SessionUtility.OpenSession())
-                    {
-                        newsGroups = session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList();
-                        session.Close();
-                    }
-                }
-                catch (MappingException mex)
-                {
-                    send403 = true;
-                    Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
-                }
-                catch (Exception ex)
-                {
-                    send403 = true;
-                    Logger.Error("Exception when trying to handle LIST", ex);
-                }
-
-                if (send403)
-                {
-                    await Send("403 Archive server temporarily offline\r\n");
-                    return new CommandProcessingResult(true);
-                }
-
-                await Send("215 information follows\r\n");
-                foreach (var ng in newsGroups)
-                    await Send("{0}\t{1}\r\n", ng.Name, ng.Description);
-                await Send(".\r\n");
-
+                await ListNewsgroups();
                 return new CommandProcessingResult(true);
             }
 
@@ -1429,50 +1410,7 @@ namespace McNNTP.Core.Server
                 content.StartsWith("LIST ", StringComparison.OrdinalIgnoreCase) ||
                 content.StartsWith("LIST ACTIVE ", StringComparison.OrdinalIgnoreCase))
             {
-                IList<Newsgroup> newsGroups = null;
-
-                string wildmat;
-                if (content.EndsWith("LIST\r\n", StringComparison.OrdinalIgnoreCase) ||
-                    content.EndsWith("ACTIVE\r\n", StringComparison.OrdinalIgnoreCase))
-                    wildmat = null;
-                else if (content.StartsWith("LIST ACTIVE ", StringComparison.OrdinalIgnoreCase))
-                    wildmat = content.TrimEnd('\r', '\n').Split(' ').Skip(2).Aggregate((c, n) => c + " " + n);
-                else
-                    wildmat = content.TrimEnd('\r', '\n').Split(' ').Skip(1).Aggregate((c, n) => c + " " + n);
-
-                var send403 = false;
-
-                try
-                {
-                    using (var session = Database.SessionUtility.OpenSession())
-                    {
-                        newsGroups = wildmat == null
-                            ? session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList()
-                            : session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
-                        session.Close();
-                    }
-                }
-                catch (MappingException mex)
-                {
-                    Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
-                    send403 = true;
-                }
-                catch (Exception ex)
-                {
-                    Logger.Error("Exception when trying to handle LIST", ex);
-                    send403 = true;
-                }
-
-                if (send403)
-                {
-                    await Send("403 Archive server temporarily offline\r\n");
-                    return new CommandProcessingResult(true);
-                }
-
-                await Send("215 list of newsgroups follows\r\n");
-                foreach (var ng in newsGroups)
-                    await Send("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark ?? 0, ng.LowWatermark ?? 0, ng.Moderated ? "m" : CanPost ? "y" : "n");
-                await Send(".\r\n");
+                await ListActive(content);
                 return new CommandProcessingResult(true);
             }
 
@@ -1480,6 +1418,284 @@ namespace McNNTP.Core.Server
             return new CommandProcessingResult(true);
         }
 
+        private async Task ListActive(string content)
+        {
+            IList<Newsgroup> newsGroups = null;
+
+            string wildmat;
+            if (content.EndsWith("LIST\r\n", StringComparison.OrdinalIgnoreCase) ||
+                content.EndsWith("ACTIVE\r\n", StringComparison.OrdinalIgnoreCase))
+                wildmat = null;
+            else if (content.StartsWith("LIST ACTIVE ", StringComparison.OrdinalIgnoreCase))
+                wildmat = content.TrimEnd('\r', '\n').Split(' ').Skip(2).Aggregate((c, n) => c + " " + n);
+            else
+                wildmat = content.TrimEnd('\r', '\n').Split(' ').Skip(1).Aggregate((c, n) => c + " " + n);
+
+            var send403 = false;
+
+            try
+            {
+                using (var session = Database.SessionUtility.OpenSession())
+                {
+                    newsGroups = wildmat == null
+                        ? session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList()
+                        : session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
+                    session.Close();
+                }
+            }
+            catch (MappingException mex)
+            {
+                Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                send403 = true;
+            }
+            catch (Exception ex)
+            {
+                Logger.Error("Exception when trying to handle LIST", ex);
+                send403 = true;
+            }
+
+            if (send403)
+            {
+                await Send("403 Archive server temporarily offline\r\n");
+                return;
+            }
+
+            await Send("215 list of newsgroups follows\r\n");
+            foreach (var ng in newsGroups)
+                await Send("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark ?? 0, ng.LowWatermark ?? 0, 
+                    ng.Moderated ? "m" : 
+                    !CanPost || (ng.DenyLocalPosting && ng.DenyPeerPosting) ? "n" :
+                    ng.DenyPeerPosting ? "x" :
+                    ng.DenyLocalPosting ? "j" :
+                    "y");
+            await Send(".\r\n");
+        }
+
+        private async Task ListActiveTimes([CanBeNull] string wildmat)
+        {
+            IList<Newsgroup> newsGroups = null;
+
+            var send403 = false;
+
+            try
+            {
+                using (var session = Database.SessionUtility.OpenSession())
+                {
+                    newsGroups = wildmat == null
+                        ? session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList()
+                        : session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
+                    session.Close();
+                }
+            }
+            catch (MappingException mex)
+            {
+                send403 = true;
+                Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+            }
+            catch (Exception ex)
+            {
+                send403 = true;
+                Logger.Error("Exception when trying to handle LIST", ex);
+            }
+
+            if (send403)
+            {
+                await Send("403 Archive server temporarily offline\r\n");
+                return;
+            }
+
+            await Send("215 information follows\r\n");
+            var epoch = new DateTime(1970, 1, 1);
+            foreach (var ng in newsGroups)
+                await Send("{0} {1} {2}\r\n", ng.Name, (ng.CreateDate - epoch).TotalSeconds, ng.CreatorEntity);
+            await Send(".\r\n");
+        }
+
+        /// <summary>
+        /// The LIST COUNTS command returns a list of valid newsgroups carried by
+        /// the news server along with associated information, the "counts list",
+        /// and is similar to LIST ACTIVE.
+        /// </summary>
+        /// <param name="wildmat">
+        /// The counts list is newsgroup-based, and a wildmat MAY be specified,
+        /// in which case the response is limited to only the groups, if any,
+        /// whose names match the wildmat.  If no wildmat is specified, the
+        /// server MUST include every newsgroup that the client is permitted to
+        /// select with the GROUP command (see Section 6.1.1 of [RFC3977]).</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc6048#section-2.2">RFC 6048</a> for more information.</remarks>
+        private async Task ListCounts([CanBeNull] string wildmat)
+        {
+            IList<Newsgroup> newsGroups = null;
+
+            var send403 = false;
+
+            try
+            {
+                using (var session = Database.SessionUtility.OpenSession())
+                {
+                    newsGroups = wildmat == null
+                        ? session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList()
+                        : session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name.MatchesWildmat(wildmat)).ToList();
+                    session.Close();
+                }
+            }
+            catch (MappingException mex)
+            {
+                send403 = true;
+                Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+            }
+            catch (Exception ex)
+            {
+                send403 = true;
+                Logger.Error("Exception when trying to handle LIST", ex);
+            }
+
+            if (send403)
+            {
+                await Send("403 Archive server temporarily offline\r\n");
+                return;
+            }
+
+            await Send("215 List of newsgroups follows\r\n");
+            var epoch = new DateTime(1970, 1, 1);
+            foreach (var ng in newsGroups)
+                await Send("{0} {1} {2} {3} {4}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, ng.PostCount, ng.Moderated ? "m" : CanPost ? "y" : "n");
+            await Send(".\r\n");
+        }
+
+        private async Task ListDistribPats()
+        {
+            List<DistributionPattern> pats;
+
+            using (var session = Database.SessionUtility.OpenSession())
+            {
+                pats = session.Query<DistributionPattern>().ToList();
+                session.Close();
+            }
+
+            await Send("215 information follows\r\n");
+            foreach (var pat in pats)
+                await Send("{0}:{1}:{2}\r\n", pat.Weight, pat.Wildmat, pat.Distribution);
+            await Send(".\r\n");
+        }
+
+        /// <summary>
+        /// A "distributions list" is maintained by some NNTP servers to contain
+        /// the name of each distribution that is known by the news server and a
+        /// short description about the meaning of the distribution.
+        /// 
+        /// Distributions are used by clients as potential values for the
+        /// Distribution header field body of a news article being posted (see 
+        /// Section 3.2.4 of [RFC5536] for the definition of this header field).
+        /// </summary>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc6048#section-2.3">RFC 6048</a> for more information.</remarks>
+        private async Task ListDistributions()
+        {
+            List<DistributionPattern> pats;
+
+            using (var session = Database.SessionUtility.OpenSession())
+            {
+                pats = session.Query<DistributionPattern>().ToList();
+                session.Close();
+            }
+
+            await Send("215 information follows\r\n");
+            foreach (var pat in pats)
+                await Send("{0} {1}\r\n", pat.Distribution, pat.Description);
+            await Send(".\r\n");
+        }
+
+        /// <summary>
+        /// The LIST HEADERS command returns a list of fields that may be
+        /// retrieved using the HDR command.
+        /// </summary>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc6048#section-8.6">RFC 6048</a> for more information.</remarks>
+        private async Task ListHeaders()
+        {
+            var sb = new StringBuilder();
+            sb.Append("215 headers supported:\r\n");
+            sb.Append("Approved\r\n");
+            sb.Append("Control\r\n");
+            sb.Append("InjectionDate\r\n");
+            sb.Append("Date\r\n");
+            sb.Append("Distribution\r\n");
+            sb.Append("From\r\n");
+            sb.Append("Message-ID\r\n");
+            sb.Append("Organization\r\n");
+            sb.Append("References\r\n");
+            sb.Append("Subject\r\n");
+            sb.Append("UserAgent\r\n");
+            sb.Append("Xref\r\n");
+            sb.Append(".\r\n");
+
+            await Send(sb.ToString());
+            return;
+        }
+        
+        private async Task ListMotd()
+        {
+            var sb = new StringBuilder();
+            sb.Append("215 Message of the day follows\r\n");
+
+            var dirName = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+            if (dirName != null && File.Exists(Path.Combine(dirName, "MOTD.txt")))
+            {
+                using (var sr = new StreamReader(Path.Combine(dirName, "MOTD.txt"), Encoding.UTF8))
+                {
+                    sb.Append(await sr.ReadToEndAsync());
+                    sr.Close();
+                }
+            }
+            else
+                sb.Append("There is no MOTD.TXT file\r\n");
+
+            if (!sb.ToString().EndsWith("\r\n.\r\n"))
+                sb.Append("\r\n.\r\n");
+
+            await Send(sb.ToString());
+            return;
+        }
+
+        private async Task ListNewsgroups()
+        {
+            IList<Newsgroup> newsGroups = null;
+
+            var send403 = false;
+
+            try
+            {
+                using (var session = Database.SessionUtility.OpenSession())
+                {
+                    newsGroups = session.Query<Newsgroup>().AddMetagroups(session, Identity).OrderBy(n => n.Name).ToList();
+                    session.Close();
+                }
+            }
+            catch (MappingException mex)
+            {
+                send403 = true;
+                Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+            }
+            catch (Exception ex)
+            {
+                send403 = true;
+                Logger.Error("Exception when trying to handle LIST", ex);
+            }
+
+            if (send403)
+            {
+                await Send("403 Archive server temporarily offline\r\n");
+                return;
+            }
+
+            await Send("215 information follows\r\n");
+            foreach (var ng in newsGroups)
+                await Send("{0}\t{1}\r\n", ng.Name, ng.Description);
+            await Send(".\r\n");
+        }
+       
         /// <summary>
         /// Handles the LISTGROUP command from a client, which allows a client to set the currently
         /// selected newsgroup and also retrieve a list of article numbers.
@@ -1959,7 +2175,16 @@ namespace McNNTP.Core.Server
                             // We don't add metagroups here, you can't 'post' directly to a meta group.
                             var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == newsgroupNameClosure);
                             if (newsgroup == null)
+                            {
+                                Logger.VerboseFormat("Cross-post of message {0} to {1} failed - newsgroup not found", article.MessageId, newsgroupNameClosure);
                                 continue;
+                            }
+
+                            if (newsgroup.DenyLocalPosting)
+                            {
+                                Logger.VerboseFormat("Cross-post of message {0} to {1} failed - local posting denied", article.MessageId, newsgroupNameClosure);
+                                continue;
+                            }
 
                             var articleNewsgroup = new ArticleNewsgroup
                             {
@@ -2151,7 +2376,7 @@ namespace McNNTP.Core.Server
             var header = content.Split(' ')[1];
             var rangeExpression = content.Split(' ')[2].TrimEnd('\r', '\n');
             
-            if (CurrentNewsgroup == null)
+            if (CurrentNewsgroup == null && !rangeExpression.StartsWith("<", StringComparison.OrdinalIgnoreCase))
             {
                 await Send("412 No news group current selected\r\n");
                 return new CommandProcessingResult(true);
@@ -2200,6 +2425,12 @@ namespace McNNTP.Core.Server
                                 .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number == CurrentArticleNumber)
                                 .OrderBy(a => a.Number)
                                 .ToList();
+                    }
+                    else if (rangeExpression.StartsWith("<", StringComparison.OrdinalIgnoreCase))
+                    {
+                        articleNewsgroups = session.Query<ArticleNewsgroup>()
+                            .Where(an => an.Article.MessageId == rangeExpression)
+                            .ToList();
                     }
                     else
                     {
@@ -2427,6 +2658,177 @@ namespace McNNTP.Core.Server
 
             return new CommandProcessingResult(true);
         }
+
+        /// <summary>
+        /// The XPAT command is used to retrieve specific headers from specific
+        /// articles, based on pattern matching on the contents of the header. 
+        ///
+        /// </summary>
+        /// <param name="content">The full command request provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="http://tools.ietf.org/html/rfc2980#section-2.6">RFC 2980</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> XPAT([NotNull] string content)
+        {
+            var contentSplit = content.Split(' ');
+            if (contentSplit.Length < 4)
+            {
+                await Send("501 Syntax Error\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            var header = contentSplit[1];
+            var rangeExpression = contentSplit[2].TrimEnd('\r', '\n');
+            var pats = contentSplit.Skip(3).ToArray();
+
+            if (CurrentNewsgroup == null && !rangeExpression.StartsWith("<", StringComparison.OrdinalIgnoreCase))
+            {
+                await Send("412 No news group current selected\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            if (header == null)
+            {
+                await Send(".\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            IList<ArticleNewsgroup> articleNewsgroups = null;
+
+            var send403 = false;
+            try
+            {
+                using (var session = Database.SessionUtility.OpenSession())
+                {
+                    var ng = session.Query<Newsgroup>().AddMetagroups(session, Identity).SingleOrDefault(n => n.Name == CurrentNewsgroup);
+                    if (ng == null)
+                    {
+                        await Send("412 No news group current selected\r\n");
+                        return new CommandProcessingResult(true);
+                    }
+
+                    if (string.IsNullOrEmpty(rangeExpression))
+                    {
+                        if (CurrentArticleNumber == null)
+                        {
+                            await Send("420 No article(s) selected\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+
+                        if (CurrentNewsgroup.EndsWith(".deleted"))
+                            articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                .Where(an => an.Cancelled && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number == CurrentArticleNumber)
+                                .OrderBy(a => a.Number)
+                                .ToList();
+                        else if (CurrentNewsgroup.EndsWith(".pending"))
+                            articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                .Where(an => an.Pending && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number == CurrentArticleNumber)
+                                .OrderBy(a => a.Number)
+                                .ToList();
+                        else
+                            articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number == CurrentArticleNumber)
+                                .OrderBy(a => a.Number)
+                                .ToList();
+                    }
+                    else if (rangeExpression.StartsWith("<", StringComparison.OrdinalIgnoreCase))
+                    {
+                        articleNewsgroups = session.Query<ArticleNewsgroup>()
+                            .Where(an => an.Article.MessageId == rangeExpression)
+                            .ToList();
+
+                        if (articleNewsgroups.Count == 0)
+                        {
+                            await Send("430 No article with that message-id\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+                    }
+                    else
+                    {
+                        var range = ParseRange(rangeExpression);
+                        if (range == null || range.Equals(default(System.Tuple<int, int?>)))
+                        {
+                            await Send("501 Syntax Error\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+
+                        if (!range.Item2.HasValue)
+                        {
+                            // LOW-
+                            if (CurrentNewsgroup.EndsWith(".deleted"))
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                    .Where(an => an.Cancelled && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1)
+                                    .OrderBy(an => an.Number)
+                                    .ToList();
+                            else if (CurrentNewsgroup.EndsWith(".pending"))
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                    .Where(an => an.Pending && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1)
+                                    .OrderBy(an => an.Number)
+                                    .ToList();
+                            else
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                    .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number >= range.Item1)
+                                    .OrderBy(an => an.Number)
+                                    .ToList();
+                        }
+                        else
+                        {
+                            // LOW-HIGH
+                            if (CurrentNewsgroup.EndsWith(".deleted"))
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                    .Where(an => an.Cancelled && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
+                                    .OrderBy(an => an.Number)
+                                    .ToList();
+                            else if (CurrentNewsgroup.EndsWith(".pending"))
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                    .Where(an => an.Pending && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
+                                    .OrderBy(an => an.Number)
+                                    .ToList();
+                            else
+                                articleNewsgroups = session.Query<ArticleNewsgroup>()
+                                    .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
+                                    .OrderBy(an => an.Number)
+                                    .ToList();
+                        }
+                    }
+
+                    session.Close();
+                }
+            }
+            catch (Exception ex)
+            {
+                send403 = true;
+                Logger.Error("Exception when trying to handle XHDR", ex);
+            }
+
+            if (send403)
+            {
+                await Send("403 Archive server temporarily offline\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            if (!articleNewsgroups.Any())
+            {
+                await Send(".\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            await Send("221 Header follows\r\n");
+            var sb = new StringBuilder();
+            foreach (var articleNewsgroup in articleNewsgroups)
+            {
+                var headerValue = articleNewsgroup.Article.GetHeader(header);
+                if (string.IsNullOrEmpty(headerValue))
+                    continue;
+
+                if (pats.Any(p => headerValue.MatchesWildmat(p)))
+                    sb.AppendFormat("{0} {1}\r\n", articleNewsgroup.Number, headerValue);
+            }
+            sb.Append(".\r\n");
+            await this.SendCompressed(sb.ToString());
+
+            return new CommandProcessingResult(true);
+        }
+
         #endregion
 
         /// <summary>

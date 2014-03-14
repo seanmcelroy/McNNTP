@@ -1,0 +1,3 @@
+﻿McNNTP - by Sean McElroy 2014.
+
+There is no message in the MOTD.TXT file.
