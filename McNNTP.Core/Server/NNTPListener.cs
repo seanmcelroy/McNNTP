@@ -57,7 +57,7 @@ namespace McNNTP.Core.Server
 
                         try
                         {
-                            sslStream.AuthenticateAsServer(_server._serverAuthenticationCertificate);
+                            await sslStream.AuthenticateAsServerAsync(_server._serverAuthenticationCertificate);
                         }
                         catch (IOException ioe)
                         {

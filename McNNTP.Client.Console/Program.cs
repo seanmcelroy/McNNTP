@@ -69,8 +69,8 @@
         /// <returns><c>true</c></returns>
         private static bool Quit()
         {
-            if (client != null)
-                client.Close();
+            //if (client != null)
+            //    client.Close();
             return true;
         }
         #endregion

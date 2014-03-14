@@ -118,11 +118,15 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Client\Connection.cs" />
     <Compile Include="Client\NntpClient.cs" />
     <Compile Include="Client\NntpException.cs" />
+    <Compile Include="Client\NntpMultilineResponse.cs" />
+    <Compile Include="Client\NntpResponse.cs" />
     <Compile Include="Database\DatabaseUtility.cs" />
     <Compile Include="Database\SessionUtility.cs" />
     <Compile Include="GlobalSuppressions.cs" />
+    <Compile Include="NntpStreamReader.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Server\CertificateUtility.cs" />
     <Compile Include="Server\CommandProcessingResult.cs" />
