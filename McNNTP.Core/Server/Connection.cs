@@ -759,6 +759,7 @@ namespace McNNTP.Core.Server
 
         /// <summary>
         /// Retrieves the body of a single article
+        /// </summary>
         /// <param name="content">The full command request provided by the client</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-6.2.3">RFC 3977</a> for more information.</remarks>
