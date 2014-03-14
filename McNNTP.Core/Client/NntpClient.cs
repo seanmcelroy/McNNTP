@@ -1,16 +1,14 @@
 ﻿namespace McNNTP.Core.Client
 {
-    using System;
+    using JetBrains.Annotations;
     using System.Collections.Generic;
     using System.Collections.ObjectModel;
     using System.Globalization;
+    using System.IO;
     using System.Linq;
+    using System.Net.Security;
     using System.Net.Sockets;
     using System.Threading.Tasks;
-
-    using JetBrains.Annotations;
-    using System.IO;
-    using System.Net.Security;
 
     [UsedImplicitly]
     public class NntpClient
@@ -34,6 +32,9 @@
         [PublicAPI]
         public long? CurrentArticleNumber { get; private set; }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="NntpClient"/> class.
+        /// </summary>
         public NntpClient()
         {
             // Establish default values
@@ -42,7 +43,7 @@
         }
 
         #region Connections
-        public async void Connect(string hostName, bool? tls = null)
+        public async Task Connect(string hostName, bool? tls = null)
         {
             var tcpClient = new TcpClient();
             await tcpClient.ConnectAsync(hostName, Port);
@@ -57,11 +58,12 @@
             else
                 stream = tcpClient.GetStream();
 
-            Connection = new Client.Connection(tcpClient, stream);
+            Connection = new Connection(tcpClient, stream);
 
             var response = await Connection.Receive();
 
-            switch (response.Code){
+            switch (response.Code)
+            {
                 case 200:
                     CanPost = true;
                     break;
@@ -99,12 +101,7 @@
             if (response.Code != 215)
                 throw new NntpException(response.Message);
 
-            var retval = new List<string>();
-            foreach (var line in response.Lines)
-            {
-                var values = line.Split(' ');
-                retval.Add(values[0]);
-            }
+            var retval = response.Lines.Select(line => line.Split(' ')).Select(values => values[0]).ToList();
 
             return retval.AsReadOnly();
         }
@@ -152,6 +149,14 @@
             response = await Connection.Receive();
             if (response.Code != 240)
                 throw new NntpException(response.Message);
+        }
+
+        public async Task SetCurrentGroup(string newsgroup)
+        {
+            await Connection.Send("GROUP {0}\r\n", newsgroup);
+            var response = await Connection.Receive();
+            if (response.Code == 411)
+                throw new NntpException("No such group: {0}", new [] { newsgroup });
         }
     }
 }

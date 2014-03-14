@@ -10,39 +10,25 @@
 namespace McNNTP.Core.Client
 {
     using System;
-    using System.Collections.Generic;
-    using System.Diagnostics;
     using System.Globalization;
     using System.IO;
-    using System.Linq;
     using System.Net;
+    using System.Net.Security;
     using System.Net.Sockets;
-    using System.Reflection;
-    using System.Security.Cryptography;
     using System.Text;
     using System.Threading.Tasks;
-    using JetBrains.Annotations;
-    using log4net;
-    using McNNTP.Common;
-    using McNNTP.Data;
 
-    using MoreLinq;
-    using NHibernate;
-    using NHibernate.Criterion;
-    using NHibernate.Linq;
-    using NHibernate.Transform;
-    using System.Net.Security;
+    using JetBrains.Annotations;
+
+    using log4net;
+    
+    using McNNTP.Common;
 
     /// <summary>
     /// A connection from a server to a client
     /// </summary>
     internal class Connection
     {
-        /// <summary>
-        /// The size of the stream receive buffer
-        /// </summary>
-        private const int BufferSize = 1024;
-
         /// <summary>
         /// The logging utility instance to use to log events from this class
         /// </summary>
@@ -65,18 +51,6 @@ namespace McNNTP.Core.Client
         /// </summary>
         [NotNull]
         private readonly NntpStreamReader reader;
-
-        /// <summary>
-        /// The stream receive buffer
-        /// </summary>
-        [NotNull]
-        private readonly byte[] buffer = new byte[BufferSize];
-
-        /// <summary>
-        /// The received data buffer appended to from the stream buffer
-        /// </summary>
-        [NotNull]
-        private readonly StringBuilder builder = new StringBuilder();
 
         /// <summary>
         /// The remote IP address to which the connection is established
@@ -105,7 +79,6 @@ namespace McNNTP.Core.Client
         /// </summary>
         /// <param name="client">The <see cref="TcpClient"/> that created this connection</param>
         /// <param name="stream">The <see cref="Stream"/> from the <paramref name="client"/></param>
-        /// <param name="tls">Whether or not the connection has implicit Transport Layer Security</param>
         public Connection(
             [NotNull] TcpClient client,
             [NotNull] Stream stream)
@@ -123,15 +96,41 @@ namespace McNNTP.Core.Client
             this.localPort = localIpEndpoint.Port;
         }
         
+        /// <summary>
+        /// Gets a value indicating whether the user can POST messages to the server
+        /// </summary>
+        [PublicAPI]
         public bool CanPost { get; private set; }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether the byte transmitted counts are logged to the logging instance
+        /// </summary>
+        [PublicAPI]
         public bool ShowBytes { get; set; }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether the commands transmitted are logged to the logging instance
+        /// </summary>
+        [PublicAPI]
         public bool ShowCommands { get; set; }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether the actual bytes (data) transmitted are logged to the logging instance
+        /// </summary>
+        [PublicAPI]
         public bool ShowData { get; set; }
 
-        public bool TLS { get { return stream is SslStream; } }
+        /// <summary>
+        /// Gets a value indicating whether the connection is secured by Transport Layer Security
+        /// </summary>
+        [PublicAPI]
+        public bool TLS
+        {
+            get
+            {
+                return stream is SslStream;
+            }
+        }
 
         #region Compression
         /// <summary>
@@ -153,12 +152,11 @@ namespace McNNTP.Core.Client
         public bool CompressionTerminator { get; private set; }
         #endregion
                 
-
         #region Derived instance properties
         /// <summary>
         /// Gets the remote IP address to which the connection is established
         /// </summary>
-        [NotNull]
+        [NotNull, PublicAPI]
         public IPAddress RemoteAddress
         {
             get { return this.remoteAddress; }
@@ -167,6 +165,7 @@ namespace McNNTP.Core.Client
         /// <summary>
         /// Gets the remote TCP port number for the remote endpoint to which the connection is established
         /// </summary>
+        [PublicAPI]
         public int RemotePort
         {
             get { return this.remotePort; }
@@ -175,7 +174,7 @@ namespace McNNTP.Core.Client
         /// <summary>
         /// Gets the local IP address to which the connection is established
         /// </summary>
-        [NotNull]
+        [NotNull, PublicAPI]
         public IPAddress LocalAddress
         {
             get { return this.localAddress; }
@@ -184,6 +183,7 @@ namespace McNNTP.Core.Client
         /// <summary>
         /// Gets the local TCP port number for the local endpoint to which the connection is established
         /// </summary>
+        [PublicAPI]
         public int LocalPort
         {
             get { return this.localPort; }
@@ -191,16 +191,28 @@ namespace McNNTP.Core.Client
         #endregion
 
         #region IO and Connection Management
-
+        /// <summary>
+        /// Receive the next response from the server
+        /// </summary>
+        /// <param name="multiLine">A value indicating whether a multi-line response is expected</param>
+        /// <returns>A <see cref="NntpResponse"/> that wraps the return code, message, and if a multi-line response, the lines included in the response</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the message comes back incomplete or malformed</exception>
+        /// <exception cref="NntpException">Thrown when the message comes back incomplete or malformed</exception>
+        /// <exception cref="InvalidOperationException">Thrown when an attempt is made to receive a response from the server, but the connection is not connected to a server</exception>
+        /// <exception cref="ObjectDisposedException">Thrown when an attempt to read data from the connection is made when the underlying stream is already disposed or closed</exception>
+        [NotNull]
         internal async Task<NntpResponse> Receive(bool multiLine = false)
         {
+            if (!client.Connected)
+                throw new InvalidOperationException("The connection is not currently connected to a server");
+
             var line = await reader.ReadLineAsync();
 
             if (line == null)
                 throw new NntpException("Did not receive response from server.");
 
             int code;
-            if (line.Length < 4 || !int.TryParse(line.Substring(0, 3), out code))
+            if (line.Length < 5 || !int.TryParse(line.Substring(0, 3), out code))
                 throw new NntpException("Received invalid response from server.");
 
             var message = line.Substring(4);
@@ -210,6 +222,14 @@ namespace McNNTP.Core.Client
                 : new NntpResponse(code, message);
         }
 
+        /// <summary>
+        /// Receive the next multi-line response from the server
+        /// </summary>
+        /// <returns>A <see cref="NntpMultilineResponse"/> that wraps the return code, message, and lines included in this multi-line response</returns>
+        /// <exception cref="ArgumentOutOfRangeException">Thrown when the message comes back incomplete or malformed</exception>
+        /// <exception cref="NntpException">Thrown when the message comes back incomplete or malformed</exception>
+        /// <exception cref="InvalidOperationException">Thrown when an attempt is made to receive a response from the server, but the connection is not connected to a server</exception>
+        /// <exception cref="ObjectDisposedException">Thrown when an attempt to read data from the connection is made when the underlying stream is already disposed or closed</exception>
         internal async Task<NntpMultilineResponse> ReceiveMultiline()
         {
             return (NntpMultilineResponse)(await Receive(true));
@@ -311,6 +331,5 @@ namespace McNNTP.Core.Client
             //this.server.RemoveConnection(this);
         }
         #endregion
-
     }
 }

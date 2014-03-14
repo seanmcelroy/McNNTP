@@ -1,11 +1,23 @@
-﻿namespace McNNTP.Core.Server
+﻿// --------------------------------------------------------------------------------------------------------------------
+// <copyright file="NntpServer.cs" company="Sean McElroy">
+//   Copyright Sean McElroy, 2014.  All rights reserved.
+// </copyright>
+// <summary>
+//   Defines the an NNTP server utility that provides connection management and command handling to expose
+//   a fully functioning USENET news server.
+// </summary>
+// --------------------------------------------------------------------------------------------------------------------
+
+namespace McNNTP.Core.Server
 {
     using System;
     using System.Collections.Generic;
     using System.Linq;
     using System.Net;
+    using System.Net.Sockets;
     using System.Security;
     using System.Security.Cryptography.X509Certificates;
+    using System.Security.Permissions;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -16,22 +28,27 @@
     using McNNTP.Common;
     using McNNTP.Core.Server.Configuration;
 
+    /// <summary>
+    /// Defines the an NNTP server utility that provides connection management and command handling to expose
+    /// a fully functioning USENET news server.
+    /// </summary>
     public class NntpServer
     {
-        /// <summary>
-        /// A list of threads and the associated TCP new-connection listeners that are serviced by each by the client
-        /// </summary>
-        private readonly List<Tuple<Thread, NntpListener>> _listeners = new List<Tuple<Thread, NntpListener>>();
-
         /// <summary>
         /// The logging utility instance to use to log events from this class
         /// </summary>
         private static readonly ILog Logger = LogManager.GetLogger(typeof(NntpServer));
 
-        private readonly List<Connection> _connections = new List<Connection>();
+        /// <summary>
+        /// A list of threads and the associated TCP new-connection listeners that are serviced by each by the client
+        /// </summary>
+        private readonly List<Tuple<Thread, NntpListener>> listeners = new List<Tuple<Thread, NntpListener>>();
 
-        internal X509Certificate2 _serverAuthenticationCertificate;
-        
+        /// <summary>
+        /// A list of connections currently established to this server instance
+        /// </summary>
+        private readonly List<Connection> connections = new List<Connection>();
+
         /// <summary>
         /// Initializes a new instance of the <see cref="NntpServer"/> class.
         /// </summary>
@@ -66,6 +83,10 @@
 
         public bool SslGenerateSelfSignedServerCertificate { get; set; }
 
+        /// <summary>
+        /// Gets or sets the thumbprint of the X.509 certificate to lookup for presentation to clients requesting
+        /// secure access over transport layer security (TLS)
+        /// </summary>
         [CanBeNull]
         public string SslServerCertificateThumbprint { get; set; }
 
@@ -74,7 +95,7 @@
         {
             get
             {
-                return _connections.Select(c => new ConnectionMetadata
+                return this.connections.Select(c => new ConnectionMetadata
                 {
                     AuthenticatedUsername = c.Identity == null ? null : c.Identity.Username,
                     RemoteAddress = c.RemoteAddress,
@@ -85,20 +106,41 @@
             }
         }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether the byte transmitted counts are logged to the logging instance
+        /// </summary>
+        [PublicAPI]
         public bool ShowBytes { get; set; }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether the commands transmitted are logged to the logging instance
+        /// </summary>
+        [PublicAPI]
         public bool ShowCommands { get; set; }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether the actual bytes (data) transmitted are logged to the logging instance
+        /// </summary>
+        [PublicAPI]
         public bool ShowData { get; set; }
+
+        /// <summary>
+        /// Gets the X.509 server certificate this instance presents to clients
+        /// attempting to connect via TLS.
+        /// </summary>
+        [CanBeNull]
+        internal X509Certificate2 ServerAuthenticationCertificate { get; private set; }
 
         #region Connection and IO
         /// <summary>
         /// Starts listener threads to begin processing requests
         /// </summary>
         /// <exception cref="System.Security.Cryptography.CryptographicException">Thrown when an error occurs while a SSL certificate is loaded to support TLS-enabled ports</exception>
+        /// <exception cref="SecurityException">Thrown when the certificate store cannot be successfully opened to look up a SSL certificate by its thumbprint</exception>
+        [StorePermission(SecurityAction.Demand, EnumerateCertificates = true, OpenStore = true)]
         public void Start()
         {
-            _listeners.Clear();
+            this.listeners.Clear();
 
             // Test LDAP connection, if configured
             if (LdapDirectoryConfiguration != null)
@@ -137,7 +179,7 @@
                     else
                     {
                         Logger.InfoFormat("Located valid certificate with subject '{0}' and serial {1}", collection[0].Subject, collection[0].SerialNumber);
-                        _serverAuthenticationCertificate = collection[0];
+                        this.ServerAuthenticationCertificate = collection[0];
                     }
                 }
                 finally
@@ -148,7 +190,7 @@
             else if (SslGenerateSelfSignedServerCertificate || this.NntpExplicitTLSPorts.Any() || this.NntpImplicitTLSPorts.Any())
             {
                 var pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
-                _serverAuthenticationCertificate = new X509Certificate2(pfx, "password");
+                this.ServerAuthenticationCertificate = new X509Certificate2(pfx, "password");
             }
 
             foreach (var clearPort in this.NntpClearPorts)
@@ -162,7 +204,7 @@
                     PortType = PortClass.ClearText
                 };
 
-                _listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
+                this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
             }
 
             foreach (var implicitTlsPort in this.NntpImplicitTLSPorts)
@@ -176,10 +218,10 @@
                     PortType = PortClass.ImplicitTLS
                 };
 
-                _listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
+                this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
             }
 
-            foreach (var listener in _listeners)
+            foreach (var listener in this.listeners)
             {
                 try
                 {
@@ -195,15 +237,22 @@
 
         public void Stop()
         {
-            foreach (var listener in _listeners)
+            foreach (var listener in this.listeners)
             {
-                listener.Item2.Stop();
-                Logger.InfoFormat("Stopped listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                try
+                {
+                    listener.Item2.Stop();
+                    Logger.InfoFormat("Stopped listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                }
+                catch (SocketException)
+                {
+                    Logger.ErrorFormat("Exception attempting to stop listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                }
             }
 
-            Task.WaitAll(_connections.Select(connection => connection.Shutdown()).ToArray());
+            Task.WaitAll(this.connections.Select(connection => connection.Shutdown()).ToArray());
 
-            foreach (var thread in _listeners)
+            foreach (var thread in this.listeners)
             {
                 try
                 {
@@ -228,19 +277,18 @@
 
         internal void AddConnection([NotNull] Connection connection)
         {
-            _connections.Add(connection);
+            this.connections.Add(connection);
             Logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort);
         }
 
         internal void RemoveConnection([NotNull] Connection connection)
         {
-            _connections.Remove(connection);
+            this.connections.Remove(connection);
             if (connection.Identity == null)
                 Logger.VerboseFormat("Disconnection from {0}:{1}", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort);
             else
                 Logger.VerboseFormat("Disconnection from {0}:{1} ({2})", connection.RemoteAddress, connection.RemotePort, connection.LocalAddress, connection.LocalPort, connection.Identity.Username);
         }
-
         #endregion
     }
 }

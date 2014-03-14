@@ -1,13 +1,29 @@
-﻿using System.Configuration;
+﻿// --------------------------------------------------------------------------------------------------------------------
+// <copyright file="LdapDirectoryConfigurationElement.cs" company="Sean McElroy">
+//   Copyright Sean McElroy, 2014.  All rights reserved.
+// </copyright>
+// <summary>
+//   The configuration element that specifies how a user may authenticate to the server instance using an
+//   LDAP protocol lookup to a directory server
+// </summary>
+// --------------------------------------------------------------------------------------------------------------------
 
 namespace McNNTP.Core.Server.Configuration
 {
+    using System.Configuration;
+
+    using JetBrains.Annotations;
+
+    /// <summary>
+    /// The configuration element that specifies how a user may authenticate to the server instance using an
+    /// LDAP protocol lookup to a directory server
+    /// </summary>
     public class LdapDirectoryConfigurationElement : UserDirectoryConfigurationElement
     {
         /// <summary>
-        /// The LDAP server hostname or IP
+        /// Gets or sets the LDAP server hostname or IP
         /// </summary>
-        [ConfigurationProperty("ldapServer", IsRequired = true)]
+        [ConfigurationProperty("ldapServer", IsRequired = true), PublicAPI]
         public string LdapServer
         {
             get { return (string)this["ldapServer"]; }
@@ -15,9 +31,9 @@ namespace McNNTP.Core.Server.Configuration
         }
 
         /// <summary>
-        /// The LDAP search path to use to find users
+        /// Gets or sets the LDAP search path to use to find users
         /// </summary>
-        [ConfigurationProperty("searchPath", IsRequired = true)]
+        [ConfigurationProperty("searchPath", IsRequired = true), PublicAPI]
         public string SearchPath
         {
             get { return (string)this["searchPath"]; }
@@ -25,9 +41,9 @@ namespace McNNTP.Core.Server.Configuration
         }
 
         /// <summary>
-        /// The username of a credential used to search the directory
+        /// Gets or sets the username of a credential used to search the directory
         /// </summary>
-        [ConfigurationProperty("lookupAccountUsername", IsRequired = true)]
+        [ConfigurationProperty("lookupAccountUsername", IsRequired = true), PublicAPI]
         public string LookupAccountUsername
         {
             get { return (string)this["lookupAccountUsername"]; }
@@ -35,9 +51,9 @@ namespace McNNTP.Core.Server.Configuration
         }
 
         /// <summary>
-        /// The password of a credential used to search the directory
+        /// Gets or sets the password of a credential used to search the directory
         /// </summary>
-        [ConfigurationProperty("lookupAccountPassword", IsRequired = true)]
+        [ConfigurationProperty("lookupAccountPassword", IsRequired = true), PublicAPI]
         public string LookupAccountPassword
         {
             get { return (string)this["lookupAccountPassword"]; }
@@ -45,11 +61,11 @@ namespace McNNTP.Core.Server.Configuration
         }
 
         /// <summary>
-        /// Whether or not users who do not exist in the local database
+        /// Gets or sets a value indicating whether users who do not exist in the local database
         /// but successfully authenticate to LDAP should be automatically
         /// added to the local database.
         /// </summary>
-        [ConfigurationProperty("autoEnroll", IsRequired = false)]
+        [ConfigurationProperty("autoEnroll", IsRequired = false), PublicAPI]
         public bool AutoEnroll
         {
             get { return (bool)this["autoEnroll"]; }
@@ -57,11 +73,11 @@ namespace McNNTP.Core.Server.Configuration
         }
 
         /// <summary>
-        /// The group that if an auto-enrolled LDAP user has a membership in
+        /// Gets or sets the group that if an auto-enrolled LDAP user has a membership in
         /// at the time of enrollment, the user will be treated as a local
         /// news server admin
         /// </summary>
-        [ConfigurationProperty("autoEnrollAdminGroup", IsRequired = false)]
+        [ConfigurationProperty("autoEnrollAdminGroup", IsRequired = false), PublicAPI]
         public string AutoEnrollAdminGroup
         {
             get { return (string)this["autoEnrollAdminGroup"]; }

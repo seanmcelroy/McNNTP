@@ -77,22 +77,29 @@ namespace McNNTP.Common
 
         private const string REGEX_PATTERN_ATEXT = @"[A-Za-z0-9!#$%&'*+-/=?^_`{|}~]";
 
-        private const string REGEX_PATTERN_ATOM = @"(" + REGEX_PATTERN_CFWS + ")?" + REGEX_PATTERN_ATEXT + "+(" + REGEX_PATTERN_CFWS + ")?";
+        private const string REGEX_PATTERN_ATOM =
+            @"(" + REGEX_PATTERN_CFWS + ")?" + REGEX_PATTERN_ATEXT + "+(" + REGEX_PATTERN_CFWS + ")?";
 
-        private const string REGEX_PATTERN_CFWS = @"((((" + REGEX_PATTERN_FWS + ")?("+REGEX_PATTERN_COMMENT+"))+(" + REGEX_PATTERN_FWS + ")?)|(" + REGEX_PATTERN_FWS + "))";
+        private const string REGEX_PATTERN_CFWS =
+            @"((((" + REGEX_PATTERN_FWS + ")?(" + REGEX_PATTERN_COMMENT + "))+(" + REGEX_PATTERN_FWS + ")?)|("
+            + REGEX_PATTERN_FWS + "))";
 
-        private const string REGEX_PATTERN_COMMENT = @"\(((" + REGEX_PATTERN_FWS + ")?(" + REGEX_PATTERN_CCONTENT + "))*(" + REGEX_PATTERN_FWS + @")?\)";
+        private const string REGEX_PATTERN_COMMENT =
+            @"\(((" + REGEX_PATTERN_FWS + ")?(" + REGEX_PATTERN_CCONTENT + "))*(" + REGEX_PATTERN_FWS + @")?\)";
 
-        private const string REGEX_PATTERN_CCONTENT = @"([" + REGEX_CHAR_CTEXT + "]+|("+ REGEX_PATTERN_QUOTED_PAIR +"))";
+        private const string REGEX_PATTERN_CCONTENT =
+            @"([" + REGEX_CHAR_CTEXT + "]+|(" + REGEX_PATTERN_QUOTED_PAIR + "))";
 
         private const string REGEX_PATTERN_DOT_ATOM_TEXT = REGEX_PATTERN_ATEXT + @"+(\." + REGEX_PATTERN_ATEXT + @"+)*";
 
-        private const string REGEX_PATTERN_DOT_ATOM = @"(" + REGEX_PATTERN_CFWS + ")?(" + REGEX_PATTERN_DOT_ATOM_TEXT + ")(" + REGEX_PATTERN_CFWS + ")?";
+        private const string REGEX_PATTERN_DOT_ATOM =
+            @"(" + REGEX_PATTERN_CFWS + ")?(" + REGEX_PATTERN_DOT_ATOM_TEXT + ")(" + REGEX_PATTERN_CFWS + ")?";
 
         /// <summary>
         /// FOLDING WHITESPACE
         /// </summary>
-        private const string REGEX_PATTERN_FWS = "(["+ REGEX_CHAR_WSP + "]*(" + REGEX_CHAR_CRLF + "))?[" + REGEX_CHAR_WSP + "]+";
+        private const string REGEX_PATTERN_FWS =
+            "([" + REGEX_CHAR_WSP + "]*(" + REGEX_CHAR_CRLF + "))?[" + REGEX_CHAR_WSP + "]+";
 
         /// <summary>
         /// Use of this linear-white-space rule permits lines containing only white

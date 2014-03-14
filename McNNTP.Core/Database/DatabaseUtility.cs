@@ -1,15 +1,32 @@
-﻿using System.Security;
-using McNNTP.Data;
-using NHibernate.Cfg;
-using NHibernate.Linq;
-using NHibernate.Tool.hbm2ddl;
-using System;
-using System.Data.SQLite;
-using System.Linq;
-using log4net;
+﻿// --------------------------------------------------------------------------------------------------------------------
+// <copyright file="DatabaseUtility.cs" company="Sean McElroy">
+//   Copyright Sean McElroy, 2014.  All rights reserved.
+// </copyright>
+// <summary>
+//   A set of utility classes that assist with the setup, upgrading, and use of databases
+//   as brokered through the NHibernate library.
+// </summary>
+// --------------------------------------------------------------------------------------------------------------------
 
 namespace McNNTP.Core.Database
 {
+    using System;
+    using System.Data.SQLite;
+    using System.Linq;
+    using System.Security;
+
+    using log4net;
+
+    using McNNTP.Data;
+
+    using NHibernate.Cfg;
+    using NHibernate.Linq;
+    using NHibernate.Tool.hbm2ddl;
+
+    /// <summary>
+    /// A set of utility classes that assist with the setup, upgrading, and use of databases
+    /// as brokered through the NHibernate library.
+    /// </summary>
     public static class DatabaseUtility
     {
         private static readonly ILog Logger = LogManager.GetLogger(typeof(DatabaseUtility));
@@ -42,6 +59,7 @@ namespace McNNTP.Core.Database
 
             return false;
         }
+
         public static bool UpdateSchema()
         {
             var configuration = new Configuration();
@@ -64,6 +82,7 @@ namespace McNNTP.Core.Database
             WriteBaselineData();
             return true;
         }
+
         public static bool VerifyDatabase(bool quiet = false)
         {
             var configuration = new Configuration();

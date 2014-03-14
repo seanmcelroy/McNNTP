@@ -11,7 +11,7 @@ namespace McNNTP.Core.Server
         public bool IsQuitting { get; set; }
         
         /// <summary>
-        /// If not null, this indicates the request was the 
+        /// Gets or sets a value that, if not null, indicates the request was the 
         /// start of a message that should be read until its end,
         /// at which time this function should be invoked on the result.
         /// </summary>

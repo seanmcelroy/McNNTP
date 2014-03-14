@@ -96,8 +96,8 @@ namespace McNNTP.Server.Console
                     NntpImplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS").Select(p => p.Port).ToArray(), 
                     LdapDirectoryConfiguration = mcnntpConfigurationSection.Authentication.UserDirectories.OfType<LdapDirectoryConfigurationElement>().OrderBy(l => l.Priority).FirstOrDefault(), 
                     PathHost = mcnntpConfigurationSection.PathHost, 
-                    SslGenerateSelfSignedServerCertificate = mcnntpConfigurationSection.SSL == null || mcnntpConfigurationSection.SSL.GenerateSelfSignedServerCertificate, 
-                    SslServerCertificateThumbprint = mcnntpConfigurationSection.SSL == null ? null : mcnntpConfigurationSection.SSL.ServerCertificateThumbprint
+                    SslGenerateSelfSignedServerCertificate = mcnntpConfigurationSection.Ssl == null || mcnntpConfigurationSection.Ssl.GenerateSelfSignedServerCertificate, 
+                    SslServerCertificateThumbprint = mcnntpConfigurationSection.Ssl == null ? null : mcnntpConfigurationSection.Ssl.ServerCertificateThumbprint
                 };
                 
                 server.Start();

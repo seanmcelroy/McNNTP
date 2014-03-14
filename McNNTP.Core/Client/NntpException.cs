@@ -31,8 +31,19 @@ namespace McNNTP.Core.Client
         /// Initializes a new instance of the <see cref="NntpException"/> class.
         /// </summary>
         /// <param name="message">The exception message</param>
-        public NntpException(string message)
+        public NntpException([NotNull] string message)
             : base(message)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="NntpException"/> class.
+        /// </summary>
+        /// <param name="format">The format string for the exception message</param>
+        /// <param name="args">The format string arguments for the exception message</param>
+        [StringFormatMethod("format")]
+        public NntpException([NotNull] string format, object[] args)
+            : base(string.Format(format, args))
         {
         }
 
@@ -41,7 +52,7 @@ namespace McNNTP.Core.Client
         /// </summary>
         /// <param name="message">The exception message</param>
         /// <param name="innerException">The underlying exception that this exception wraps, if any</param>
-        public NntpException(string message, Exception innerException)
+        public NntpException([NotNull] string message, Exception innerException)
             : base(message, innerException)
         {
         }

@@ -15,7 +15,6 @@ namespace McNNTP.Common
     using System.Globalization;
     using System.IO;
     using System.Linq;
-    using System.Runtime.Remoting.Messaging;
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
@@ -130,14 +129,33 @@ namespace McNNTP.Common
 
             return false;
         }
-        
-        [NotNull, Pure]
+
+        /// <summary>
+        /// Searches through a block of text for delimiters that separate them into segments and provides an
+        /// enumeration over each delimited segment
+        /// </summary>
+        /// <param name="block">The string block of text over which to enumerate segments</param>
+        /// <param name="delimiter">The delimiter that separates each segment</param>
+        /// <returns>An enumeration of the <paramref name="block"/> separated by each <see cref="delimiter"/>.  The delimiter is not returned as part of any segment</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the block of text or the delimiter is null or an empty string</exception>
+        /// <exception cref="OverflowException">Thrown when the length of the delimiter is longer than Int32.MaxValue</exception>
+        [PublicAPI, NotNull, Pure]
         public static IEnumerable<string> SeekThroughDelimiters([NotNull] this string block, [NotNull] string delimiter)
         {
             return block.ToCharArray().SeekThroughDelimiters(delimiter.ToCharArray()).Select(s => new string(s));
         }
 
-        [NotNull, Pure]
+        /// <summary>
+        /// Searches through a an array for delimiters that separate them into segments and provides an
+        /// enumeration over each delimited array segment
+        /// </summary>
+        /// <typeparam name="T">The type of the enumerable array within which to search for the delimiter sub-array</typeparam>
+        /// <param name="block">The string block of text over which to enumerate segments</param>
+        /// <param name="delimiter">The delimiter that separates each segment</param>
+        /// <returns>An enumeration of the <paramref name="block"/> separated by each <see cref="delimiter"/>.  The delimiter is not returned as part of any segment</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the block of text or the delimiter is null or an empty string</exception>
+        /// <exception cref="OverflowException">Thrown when the length of the delimiter array is longer than Int32.MaxValue</exception>
+        [PublicAPI, NotNull, Pure]
         public static IEnumerable<T[]> SeekThroughDelimiters<T>([NotNull] this T[] block, [NotNull] T[] delimiter)
             where T : IComparable
         {
@@ -169,40 +187,54 @@ namespace McNNTP.Common
                 yield return block.Skip(start).ToArray();
         }
 
-        [Pure]
+        /// <summary>
+        /// Attempts to parse a date in the value of a Date header field of a newsgroup article
+        /// </summary>
+        /// <param name="headerValue">The value of the Date header field</param>
+        /// <param name="dateTime">The parsed <see cref="DateTime"/> value as parsed from the <paramref name="headerValue"/></param>
+        /// <returns>A value indicating whether or not the parsing of the header value was successful</returns>
+        [PublicAPI, Pure]
         public static bool TryParseNewsgroupDateHeader([CanBeNull] this string headerValue, out DateTime dateTime)
         {
             dateTime = DateTime.MinValue;
 
-            if (string.IsNullOrEmpty(headerValue)) return false;
+            if (string.IsNullOrEmpty(headerValue)) 
+                return false;
 
-            if (DateTime.TryParseExact(
-                headerValue,
-                "dd MMM yyyy HH:mm:ss K",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out dateTime)) return true;
+            try
+            {
+                if (DateTime.TryParseExact(
+                    headerValue,
+                    "dd MMM yyyy HH:mm:ss K",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out dateTime)) return true;
 
-            if (DateTime.TryParseExact(
-                headerValue,
-                "dd MMM yyyy HH:mm:ss",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal,
-                out dateTime)) return true;
+                if (DateTime.TryParseExact(
+                    headerValue,
+                    "dd MMM yyyy HH:mm:ss",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal,
+                    out dateTime)) return true;
 
-            if (DateTime.TryParseExact(
-                headerValue,
-                "ddd, dd MMM yyyy HH:mm:ss K",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.None,
-                out dateTime)) return true;
+                if (DateTime.TryParseExact(
+                    headerValue,
+                    "ddd, dd MMM yyyy HH:mm:ss K",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out dateTime)) return true;
 
-            if (DateTime.TryParseExact(
-                headerValue,
-                "ddd, dd MMM yyyy HH:mm:ss",
-                CultureInfo.InvariantCulture,
-                DateTimeStyles.AssumeUniversal,
-                out dateTime)) return true;
+                if (DateTime.TryParseExact(
+                    headerValue,
+                    "ddd, dd MMM yyyy HH:mm:ss",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.AssumeUniversal,
+                    out dateTime)) return true;
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
 
             return false;
         }
