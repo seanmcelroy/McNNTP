@@ -12,6 +12,7 @@ namespace McNNTP.Server.Console
     using System;
     using System.Collections.Generic;
     using System.Configuration;
+    using System.IO;
     using System.Linq;
     using System.Reflection;
     using System.Security;
@@ -42,6 +43,7 @@ namespace McNNTP.Server.Console
             { "DB", DatabaseCommand }, 
             { "DEBUG", DebugCommand }, 
             { "GROUP", GroupCommand }, 
+            { "PEER", PeerCommand }, 
             { "PURGEDB", DatabaseUtility.RebuildSchema }, 
             { "SHOWCONN", s => ShowConn() }, 
             { "EXIT", s => Quit() }, 
@@ -51,12 +53,12 @@ namespace McNNTP.Server.Console
         /// <summary>
         /// The strings that evaluate to 'true' for a Boolean value
         /// </summary>
-        private static readonly string[] YesStrings = new[] { "ENABLE", "T", "TRUE", "ON", "Y", "YES", "1" };
+        private static readonly string[] YesStrings = { "ENABLE", "T", "TRUE", "ON", "Y", "YES", "1" };
 
         /// <summary>
         /// The strings that evaluate to 'false' for a Boolean value
         /// </summary>
-        private static readonly string[] NoStrings = new[] { "DISABLE", "F", "FALSE", "OFF", "N", "NO", "0" };
+        private static readonly string[] NoStrings = { "DISABLE", "F", "FALSE", "OFF", "N", "NO", "0" };
 
         /// <summary>
         /// The NNTP server object instance
@@ -66,13 +68,17 @@ namespace McNNTP.Server.Console
         /// <summary>
         /// The main program message loop
         /// </summary>
-        /// <param name="args">Command line arguments passed into the program</param>
         /// <returns>An error code, indicating an error condition when the value returned is non-zero</returns>
-        public static int Main(string[] args)
+        /// <exception cref="FormatException">Thrown when an attempt to construct a format string fails to properly format a finalized message</exception>
+        /// <exception cref="IOException">Thrown when the process is unable to write status to the console window</exception>
+        /// <exception cref="ArgumentNullException">Thrown when a 'null' value is attempted to be written to the console window</exception>
+        /// <exception cref="ConfigurationErrorsException">Thrown when the configuration file for the process cannot be parsed</exception>
+        /// <exception cref="SecurityException">Thrown when the X.509 certificate store cannot be opened or enumerated when constructing SSL ports</exception>
+        public static int Main()
         {
             var version = Assembly.GetEntryAssembly().GetName().Version;
             Console.WriteLine("McNNTP Server Console Harness v{0}", version);
-            
+
             try
             {
                 // Setup LOG4NET
@@ -86,30 +92,48 @@ namespace McNNTP.Server.Console
                 logger.InfoFormat("Loaded configuration from {0}", config.FilePath);
 
                 // Verify Database
-                if (DatabaseUtility.VerifyDatabase())
-                    DatabaseUtility.UpdateSchema();
+                if (DatabaseUtility.VerifyDatabase()) DatabaseUtility.UpdateSchema();
                 else if (DatabaseUtility.UpdateSchema() && !DatabaseUtility.VerifyDatabase(true))
                 {
-                    Console.WriteLine("Unable to verify a database.  Would you like to create and initialize a database?");
+                    Console.WriteLine(
+                        "Unable to verify a database.  Would you like to create and initialize a database?");
                     var resp = Console.ReadLine();
-                    if (resp != null && new[] {"y", "yes"}.Contains(resp.ToLowerInvariant().Trim()))
+                    if (resp != null && new[] { "y", "yes" }.Contains(resp.ToLowerInvariant().Trim()))
                     {
                         DatabaseUtility.RebuildSchema();
                     }
                 }
 
                 server = new NntpServer
-                {
-                    AllowPosting = true, 
-                    NntpClearPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText").Select(p => p.Port).ToArray(), 
-                    NntpExplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS").Select(p => p.Port).ToArray(), 
-                    NntpImplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS").Select(p => p.Port).ToArray(), 
-                    LdapDirectoryConfiguration = mcnntpConfigurationSection.Authentication.UserDirectories.OfType<LdapDirectoryConfigurationElement>().OrderBy(l => l.Priority).FirstOrDefault(), 
-                    PathHost = mcnntpConfigurationSection.PathHost, 
-                    SslGenerateSelfSignedServerCertificate = mcnntpConfigurationSection.Ssl == null || mcnntpConfigurationSection.Ssl.GenerateSelfSignedServerCertificate, 
-                    SslServerCertificateThumbprint = mcnntpConfigurationSection.Ssl == null ? null : mcnntpConfigurationSection.Ssl.ServerCertificateThumbprint
-                };
-                
+                             {
+                                 AllowPosting = true,
+                                 NntpClearPorts =
+                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText")
+                                     .Select(p => p.Port)
+                                     .ToArray(),
+                                 NntpExplicitTLSPorts =
+                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS")
+                                     .Select(p => p.Port)
+                                     .ToArray(),
+                                 NntpImplicitTLSPorts =
+                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS")
+                                     .Select(p => p.Port)
+                                     .ToArray(),
+                                 LdapDirectoryConfiguration =
+                                     mcnntpConfigurationSection.Authentication.UserDirectories
+                                     .OfType<LdapDirectoryConfigurationElement>()
+                                     .OrderBy(l => l.Priority)
+                                     .FirstOrDefault(),
+                                 PathHost = mcnntpConfigurationSection.PathHost,
+                                 SslGenerateSelfSignedServerCertificate =
+                                     mcnntpConfigurationSection.Ssl == null
+                                     || mcnntpConfigurationSection.Ssl.GenerateSelfSignedServerCertificate,
+                                 SslServerCertificateThumbprint =
+                                     mcnntpConfigurationSection.Ssl == null
+                                         ? null
+                                         : mcnntpConfigurationSection.Ssl.ServerCertificateThumbprint
+                             };
+
                 server.Start();
 
                 Console.WriteLine("Type QUIT and press Enter to end the server.");
@@ -124,8 +148,7 @@ namespace McNNTP.Server.Console
                         continue;
                     }
 
-                    if (!CommandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input))
-                        continue;
+                    if (!CommandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input)) continue;
 
                     server.Stop();
                     return 0;
@@ -133,10 +156,15 @@ namespace McNNTP.Server.Console
             }
             catch (AggregateException ae)
             {
-                foreach (var ex in ae.InnerExceptions)
-                    Console.WriteLine(ex.ToString());
+                foreach (var ex in ae.InnerExceptions) Console.WriteLine(ex.ToString());
                 Console.ReadLine();
                 return -2;
+            }
+            catch (SecurityException sex)
+            {
+                Console.WriteLine(sex.ToString());
+                Console.ReadLine();
+                return -3;
             }
             catch (Exception ex)
             {
@@ -154,22 +182,26 @@ namespace McNNTP.Server.Console
         /// <returns>A value indicating whether the server should terminate</returns>
         private static bool Help()
         {
-            Console.WriteLine("ADMIN <name> CREATE <pass>      : Creates a new news administrator");
-            Console.WriteLine("DB ANNIHILATE                   : Completely wipe and rebuild the news database");
-            Console.WriteLine("DB UPDATE                       : Updates the database schema integrity to\r\n" +
-                              "                                  match the code object definitions");
-            Console.WriteLine("DB VERIFY                       : Verify the database schema integrity against\r\n" +
-                              "                                  the code object definitions");
-            Console.WriteLine("DEBUG BYTES <value>             : Toggles showing bytes and destinations");
-            Console.WriteLine("DEBUG COMMANDS <value>          : Toggles showing commands and responses");
-            Console.WriteLine("DEBUG DATA <value>              : Toggles showing all data in and out");
-            Console.WriteLine("GROUP <name> CREATE <desc>      : Creates a new news group on the server");
-            Console.WriteLine("GROUP <name> CREATOR <value>    : Sets the addr-spec (name and email)");
-            Console.WriteLine("GROUP <name> DENYLOCAL <value>  : Toggles denial of local postings to a group");
-            Console.WriteLine("GROUP <name> DENYPEER <value>   : Toggles denial of peer postings to a group");
-            Console.WriteLine("GROUP <name> MODERATION <value> : Toggles moderation of a group (true or false)");
-            Console.WriteLine("SHOWCONN                        : Show active connections");
-            Console.WriteLine("QUIT                            : Exit the program, killing all connections");
+            Console.WriteLine("ADMIN <name> CREATE <pass>       : Creates a new news administrator");
+            Console.WriteLine("DB ANNIHILATE                    : Completely wipe and rebuild the news database");
+            Console.WriteLine("DB UPDATE                        : Updates the database schema integrity to\r\n" +
+                              "                                   match the code object definitions");
+            Console.WriteLine("DB VERIFY                        : Verify the database schema integrity against\r\n" +
+                              "                                   the code object definitions");
+            Console.WriteLine("DEBUG BYTES <value>              : Toggles showing bytes and destinations");
+            Console.WriteLine("DEBUG COMMANDS <value>           : Toggles showing commands and responses");
+            Console.WriteLine("DEBUG DATA <value>               : Toggles showing all data in and out");
+            Console.WriteLine("GROUP <name> CREATE <desc>       : Creates a new news group on the server");
+            Console.WriteLine("GROUP <name> CREATOR <value>     : Sets the addr-spec (name and email)");
+            Console.WriteLine("GROUP <name> DENYLOCAL <value>   : Toggles denial of local postings to a group");
+            Console.WriteLine("GROUP <name> DENYPEER <value>    : Toggles denial of peer postings to a group");
+            Console.WriteLine("GROUP <name> MODERATION <value>  : Toggles moderation of a group (true or false)");
+            Console.WriteLine("PEER <host>[:port] CREATE        : Creates a peer server for article exchange");
+            Console.WriteLine("PEER <host> SUCK [wildmat]       : Configures the active receive (suck)\r\n" +
+                              "                                   distribution wildmat.  If the wildmat is\r\n" +
+                              "                                   blank, the current wildmat will be displayed");
+            Console.WriteLine("SHOWCONN                         : Show active connections");
+            Console.WriteLine("QUIT                             : Exit the program, killing all connections");
             return false;
         }
 
@@ -541,6 +573,80 @@ namespace McNNTP.Server.Console
                 default:
                 Console.WriteLine("Unknown parameter {0} specified for Debug command", parts[1]);
                    break;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// The Peer command handler, which handles peer server management functions
+        /// </summary>
+        /// <param name="input">The full console command input</param>
+        /// <returns>A value indicating whether the server should terminate</returns>
+        private static bool PeerCommand(string input)
+        {
+            var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 4)
+            {
+                Console.WriteLine("Three parameters are required.");
+                return false;
+            }
+
+            var hostname = parts[1].IndexOf(':') > -1
+                ? parts[1].Substring(0, parts[1].IndexOf(':'))
+                : parts[1];
+
+            switch (parts[2].ToLowerInvariant())
+            {
+                case "create":
+                    {
+                        int port;
+                        port = parts[1].IndexOf(':') > -1 ? int.TryParse(parts[1].Substring(parts[1].IndexOf(':') + 1), out port) ? port : 119 : 119;
+
+                        using (var session = SessionUtility.OpenSession())
+                        {
+                            session.Save(new Peer
+                            {
+                                Hostname = hostname, 
+                                Port = port,
+                                ActiveReceiveDistribution = null,
+                                PassiveReceiveDistribution = null,
+                                SendDistribution = null
+                            });
+                            session.Close();
+                            Console.WriteLine("Peer {0}:{1} created.", hostname, port);
+                        }
+
+                        break;
+                    }
+
+                // PEER <host> SUCK [wildmat]
+                case "suck":
+                    {
+                        var wildmat = parts.Skip(3).Aggregate((c, n) => c + " " + n);
+
+                        using (var session = SessionUtility.OpenSession())
+                        {
+                            var peer = session.Query<Peer>().SingleOrDefault(n => n.Hostname == hostname);
+                            if (peer == null)
+                                Console.WriteLine("No peer '{0}' exists.", hostname);
+                            else
+                            {
+                                peer.ActiveReceiveDistribution = string.IsNullOrWhiteSpace(wildmat) ? null : wildmat;
+                                session.SaveOrUpdate(peer);
+                                session.Flush();
+                                Console.WriteLine("Peer {0}'s active 'suck' for newsgroups is wildmat: {1}", hostname, wildmat);
+                            }
+
+                            session.Close();
+                        }
+
+                        break;
+                    }
+
+                default:
+                    Console.WriteLine("Unknown parameter {0} specified for Group command", parts[2]);
+                    break;
             }
 
             return false;

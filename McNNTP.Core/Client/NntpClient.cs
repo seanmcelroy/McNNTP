@@ -1,6 +1,5 @@
 ﻿namespace McNNTP.Core.Client
 {
-    using JetBrains.Annotations;
     using System.Collections.Generic;
     using System.Collections.ObjectModel;
     using System.Globalization;
@@ -9,6 +8,8 @@
     using System.Net.Security;
     using System.Net.Sockets;
     using System.Threading.Tasks;
+
+    using JetBrains.Annotations;
 
     [UsedImplicitly]
     public class NntpClient

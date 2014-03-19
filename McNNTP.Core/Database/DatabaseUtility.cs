@@ -130,6 +130,13 @@ namespace McNNTP.Core.Database
                     else if (!quiet)
                         Logger.InfoFormat("Verified database has {0} local admin{1}", adminCount, adminCount == 1 ? null : "s");
 
+                    var peerCount = session.Query<Peer>().Count();
+                    if (peerCount == 0 && !quiet)
+                        Logger.Warn("Verified database has 0 distribution patterns");
+                    else if (!quiet)
+                        Logger.InfoFormat("Verified database has {0} distribution pattern{1}", peerCount, peerCount == 1 ? null : "s");
+
+
                     var distPatternCount = session.Query<DistributionPattern>().Count();
                     if (distPatternCount == 0 && !quiet)
                         Logger.Warn("Verified database has 0 distribution patterns");

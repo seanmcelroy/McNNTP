@@ -2072,7 +2072,7 @@ namespace McNNTP.Core.Server
         {
             if (
                 // Message ends naturally
-                    msg != null && msg.EndsWith("\r\n.\r\n", StringComparison.OrdinalIgnoreCase) ||
+                    (msg != null && msg.EndsWith("\r\n.\r\n", StringComparison.OrdinalIgnoreCase)) ||
                 // Message delimiter comes in second batch
                     (prev != null && prev.Message != null && prev.Message.EndsWith("\r\n", StringComparison.OrdinalIgnoreCase) && msg != null && msg.EndsWith(".\r\n", StringComparison.OrdinalIgnoreCase)))
             {
@@ -2081,7 +2081,7 @@ namespace McNNTP.Core.Server
                 try
                 {
                     Article article;
-                    if (!Data.Article.TryParse(prev.Message == null ? msg.Substring(0, msg.Length - 5) : prev.Message + msg, out article))
+                    if (!Data.Article.TryParse(prev.Message == null ? msg.Substring(0, msg.Length - 5) : prev.Message + msg.Substring(0, msg.Length - 3), out article))
                     {
                         await Send("441 Posting failed\r\n");
                         return new CommandProcessingResult(true, true);

@@ -1,0 +1,14 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<hibernate-mapping xmlns="urn:nhibernate-mapping-2.2" auto-import="true" assembly="McNNTP.Data" namespace="McNNTP.Data">
+  <class name="Peer" table="Peer" lazy="true">
+    <id name="Id" type="Int32">
+      <generator class="native" />
+    </id>
+
+    <property name="Hostname" not-null="true" length="1000" />
+    <property name="Port" not-null="true" />
+    <property name="ActiveReceiveDistribution" length="1000" />
+    <property name="PassiveReceiveDistribution" length="1000" />
+    <property name="SendDistribution" length="1000" />
+  </class>
+</hibernate-mapping>
