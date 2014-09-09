@@ -40,6 +40,8 @@ namespace McNNTP.Data
 
         public virtual IList<Newsgroup> Moderates { get; set; }
 
+        public virtual DateTime? LastLogin { get; set; }
+
 
         public virtual void SetPassword(SecureString password)
         {

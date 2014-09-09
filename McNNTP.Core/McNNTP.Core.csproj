@@ -140,9 +140,14 @@
     <Compile Include="Server\Configuration\PortConfigurationElementCollection.cs" />
     <Compile Include="Server\Configuration\McNNTPConfigurationSection.cs" />
     <Compile Include="Server\ConnectionMetadata.cs" />
+    <Compile Include="Server\ImapConnection.cs">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Server\ImapListener.cs" />
     <Compile Include="Server\NntpListener.cs" />
+    <Compile Include="Server\ImapServer.cs" />
     <Compile Include="Server\NntpServer.cs" />
-    <Compile Include="Server\Connection.cs" />
+    <Compile Include="Server\NntpConnection.cs" />
     <Compile Include="Server\PortClass.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -60,6 +60,10 @@ namespace McNNTP.Core.Database
             return false;
         }
 
+        /// <summary>
+        /// Updates a news database schema to the latest as dictated by the object relational model in code
+        /// </summary>
+        /// <returns>A value indicating whether the update schema method was successful</returns>
         public static bool UpdateSchema()
         {
             var configuration = new Configuration();
@@ -169,6 +173,18 @@ namespace McNNTP.Core.Database
                         Name = "freenews.config"
                     });
                     Logger.InfoFormat("Created 'freenews.config' group");
+                }
+
+                if (!session.Query<Newsgroup>().Any(n => n.Name == "freenews.misc"))
+                {
+                    session.Save(new Newsgroup
+                    {
+                        CreateDate = DateTime.UtcNow,
+                        Description = "Test group for the repository",
+                        Moderated = false,
+                        Name = "freenews.misc"
+                    });
+                    Logger.InfoFormat("Created 'freenews.misc' group");
                 }
 
                 if (!session.Query<Newsgroup>().Any(n => n.Name == "junk"))

@@ -28,7 +28,7 @@ namespace McNNTP.Server.Console
     using NHibernate.Linq;
 
     /// <summary>
-    /// A console host for the NNTP server process
+    /// A console host for the NNTP nntpServer process
     /// </summary>
     public static class Program
     {
@@ -61,9 +61,14 @@ namespace McNNTP.Server.Console
         private static readonly string[] NoStrings = { "DISABLE", "F", "FALSE", "OFF", "N", "NO", "0" };
 
         /// <summary>
+        /// The IMAP server object instance
+        /// </summary>
+        private static ImapServer imapServer;
+
+        /// <summary>
         /// The NNTP server object instance
         /// </summary>
-        private static NntpServer server;
+        private static NntpServer nntpServer;
 
         /// <summary>
         /// The main program message loop
@@ -104,19 +109,46 @@ namespace McNNTP.Server.Console
                     }
                 }
 
-                server = new NntpServer
+                imapServer = new ImapServer
+                                 {
+                                     AllowPosting = true,
+                                     ImapClearPorts =
+                                         mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText" && p.Protocol == "imap")
+                                         .Select(p => p.Port)
+                                         .ToArray(),
+                                     ImapExplicitTLSPorts =
+                                        mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS" && p.Protocol == "imap")
+                                        .Select(p => p.Port)
+                                        .ToArray(),
+                                     ImapImplicitTLSPorts =
+                                         mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS" && p.Protocol == "imap")
+                                         .Select(p => p.Port)
+                                         .ToArray(),
+                                     PathHost = mcnntpConfigurationSection.PathHost,
+                                     SslGenerateSelfSignedServerCertificate =
+                                         mcnntpConfigurationSection.Ssl == null
+                                         || mcnntpConfigurationSection.Ssl.GenerateSelfSignedServerCertificate,
+                                     SslServerCertificateThumbprint =
+                                         mcnntpConfigurationSection.Ssl == null
+                                             ? null
+                                             : mcnntpConfigurationSection.Ssl.ServerCertificateThumbprint
+                                 };
+
+                imapServer.Start();
+
+                nntpServer = new NntpServer
                              {
                                  AllowPosting = true,
                                  NntpClearPorts =
-                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText")
+                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText" && p.Protocol == "nntp")
                                      .Select(p => p.Port)
                                      .ToArray(),
                                  NntpExplicitTLSPorts =
-                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS")
+                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ExplicitTLS" && p.Protocol == "nntp")
                                      .Select(p => p.Port)
                                      .ToArray(),
                                  NntpImplicitTLSPorts =
-                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS")
+                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS" && p.Protocol == "nntp")
                                      .Select(p => p.Port)
                                      .ToArray(),
                                  LdapDirectoryConfiguration =
@@ -134,7 +166,7 @@ namespace McNNTP.Server.Console
                                          : mcnntpConfigurationSection.Ssl.ServerCertificateThumbprint
                              };
 
-                server.Start();
+                nntpServer.Start();
 
                 Console.WriteLine("Type QUIT and press Enter to end the server.");
 
@@ -150,7 +182,8 @@ namespace McNNTP.Server.Console
 
                     if (!CommandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input)) continue;
 
-                    server.Stop();
+                    imapServer.Stop();
+                    nntpServer.Stop();
                     return 0;
                 }
             }
@@ -179,7 +212,7 @@ namespace McNNTP.Server.Console
         /// <summary>
         /// The Help command handler, which shows a help banner on the console
         /// </summary>
-        /// <returns>A value indicating whether the server should terminate</returns>
+        /// <returns>A value indicating whether the nntpServer should terminate</returns>
         private static bool Help()
         {
             Console.WriteLine("ADMIN <name> CREATE <pass>       : Creates a new news administrator");
@@ -191,12 +224,12 @@ namespace McNNTP.Server.Console
             Console.WriteLine("DEBUG BYTES <value>              : Toggles showing bytes and destinations");
             Console.WriteLine("DEBUG COMMANDS <value>           : Toggles showing commands and responses");
             Console.WriteLine("DEBUG DATA <value>               : Toggles showing all data in and out");
-            Console.WriteLine("GROUP <name> CREATE <desc>       : Creates a new news group on the server");
+            Console.WriteLine("GROUP <name> CREATE <desc>       : Creates a new news group on the nntpServer");
             Console.WriteLine("GROUP <name> CREATOR <value>     : Sets the addr-spec (name and email)");
             Console.WriteLine("GROUP <name> DENYLOCAL <value>   : Toggles denial of local postings to a group");
             Console.WriteLine("GROUP <name> DENYPEER <value>    : Toggles denial of peer postings to a group");
             Console.WriteLine("GROUP <name> MODERATION <value>  : Toggles moderation of a group (true or false)");
-            Console.WriteLine("PEER <host>[:port] CREATE        : Creates a peer server for article exchange");
+            Console.WriteLine("PEER <host>[:port] CREATE        : Creates a peer nntpServer for article exchange");
             Console.WriteLine("PEER <host> SUCK [wildmat]       : Configures the active receive (suck)\r\n" +
                               "                                   distribution wildmat.  If the wildmat is\r\n" +
                               "                                   blank, the current wildmat will be displayed");
@@ -209,7 +242,7 @@ namespace McNNTP.Server.Console
         /// The Admin command handler, which handles console commands for administration management
         /// </summary>
         /// <param name="input">The full console command input</param>
-        /// <returns>A value indicating whether the server should terminate</returns>
+        /// <returns>A value indicating whether the nntpServer should terminate</returns>
         private static bool AdminCommand(string input)
         {
             var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -264,7 +297,7 @@ namespace McNNTP.Server.Console
         /// The Group command handler, which handles console commands for group management
         /// </summary>
         /// <param name="input">The full console command input</param>
-        /// <returns>A value indicating whether the server should terminate</returns>
+        /// <returns>A value indicating whether the nntpServer should terminate</returns>
         private static bool GroupCommand(string input)
         {
             var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -429,15 +462,15 @@ namespace McNNTP.Server.Console
         }
 
         /// <summary>
-        /// Shows all open connection to the server process
+        /// Shows all open connection to the nntpServer process
         /// </summary>
-        /// <returns>A value indicating whether the server should terminate</returns>
+        /// <returns>A value indicating whether the nntpServer should terminate</returns>
         private static bool ShowConn()
         {
-            server.ShowBytes = !server.ShowBytes;
-            Console.WriteLine("\r\nConnections ({0})", server.Connections.Count);
+            nntpServer.ShowBytes = !nntpServer.ShowBytes;
+            Console.WriteLine("\r\nConnections ({0})", nntpServer.Connections.Count);
             Console.WriteLine("-----------");
-            foreach (var connection in server.Connections)
+            foreach (var connection in nntpServer.Connections)
             {
                 if (connection.AuthenticatedUsername == null)
                     Console.WriteLine("{0}:{1}", connection.RemoteAddress, connection.RemotePort);
@@ -452,7 +485,7 @@ namespace McNNTP.Server.Console
         /// The Database command handler, which handles console commands for database file and schema management
         /// </summary>
         /// <param name="input">The full console command input</param>
-        /// <returns>A value indicating whether the server should terminate</returns>
+        /// <returns>A value indicating whether the nntpServer should terminate</returns>
         private static bool DatabaseCommand(string input)
         {
             var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -495,7 +528,7 @@ namespace McNNTP.Server.Console
         /// The Debug command handler, which handles console commands for enabling verbose debug log display
         /// </summary>
         /// <param name="input">The full console command input</param>
-        /// <returns>A value indicating whether the server should terminate</returns>
+        /// <returns>A value indicating whether the nntpServer should terminate</returns>
         private static bool DebugCommand(string input)
         {
             var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -512,16 +545,16 @@ namespace McNNTP.Server.Console
                     var val = parts[2];
 
                     if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        server.ShowBytes = true;
+                        nntpServer.ShowBytes = true;
                     else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        server.ShowBytes = false;
+                        nntpServer.ShowBytes = false;
                     else
                         Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
 
                     Console.Write("[DEBUG BYTES: ");
                     var orig = Console.ForegroundColor;
-                    Console.ForegroundColor = server.ShowBytes ? ConsoleColor.Green : ConsoleColor.Red;
-                    Console.Write(server.ShowBytes ? "ON" : "OFF");
+                    Console.ForegroundColor = nntpServer.ShowBytes ? ConsoleColor.Green : ConsoleColor.Red;
+                    Console.Write(nntpServer.ShowBytes ? "ON" : "OFF");
                     Console.ForegroundColor = orig;
                     Console.Write("]");
 
@@ -533,16 +566,16 @@ namespace McNNTP.Server.Console
                     var val = parts[2];
 
                     if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        server.ShowCommands = true;
+                        nntpServer.ShowCommands = true;
                     else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        server.ShowCommands = false;
+                        nntpServer.ShowCommands = false;
                     else
                         Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
 
                     Console.Write("[DEBUG COMMANDS: ");
                     var orig = Console.ForegroundColor;
-                    Console.ForegroundColor = server.ShowCommands ? ConsoleColor.Green : ConsoleColor.Red;
-                    Console.Write(server.ShowCommands ? "ON" : "OFF");
+                    Console.ForegroundColor = nntpServer.ShowCommands ? ConsoleColor.Green : ConsoleColor.Red;
+                    Console.Write(nntpServer.ShowCommands ? "ON" : "OFF");
                     Console.ForegroundColor = orig;
                     Console.Write("]");
 
@@ -554,16 +587,16 @@ namespace McNNTP.Server.Console
                     var val = parts[2];
 
                     if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        server.ShowData = true;
+                        nntpServer.ShowData = true;
                     else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        server.ShowData = false;
+                        nntpServer.ShowData = false;
                     else
                         Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
 
                     Console.Write("[DEBUG DATA: ");
                     var orig = Console.ForegroundColor;
-                    Console.ForegroundColor = server.ShowData ? ConsoleColor.Green : ConsoleColor.Red;
-                    Console.Write(server.ShowData ? "ON" : "OFF");
+                    Console.ForegroundColor = nntpServer.ShowData ? ConsoleColor.Green : ConsoleColor.Red;
+                    Console.Write(nntpServer.ShowData ? "ON" : "OFF");
                     Console.ForegroundColor = orig;
                     Console.Write("]");
 
@@ -579,10 +612,10 @@ namespace McNNTP.Server.Console
         }
 
         /// <summary>
-        /// The Peer command handler, which handles peer server management functions
+        /// The Peer command handler, which handles peer nntpServer management functions
         /// </summary>
         /// <param name="input">The full console command input</param>
-        /// <returns>A value indicating whether the server should terminate</returns>
+        /// <returns>A value indicating whether the nntpServer should terminate</returns>
         private static bool PeerCommand(string input)
         {
             var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
@@ -653,13 +686,13 @@ namespace McNNTP.Server.Console
         }
 
         /// <summary>
-        /// The Quit command handler, which causes the server process to stop and a value to be returned as 'true',
-        /// indicating to the caller the server should terminate.
+        /// The Quit command handler, which causes the nntpServer process to stop and a value to be returned as 'true',
+        /// indicating to the caller the nntpServer should terminate.
         /// </summary>
         /// <returns><c>true</c></returns>
         private static bool Quit()
         {
-            server.Stop();
+            nntpServer.Stop();
             return true;
         }
         #endregion

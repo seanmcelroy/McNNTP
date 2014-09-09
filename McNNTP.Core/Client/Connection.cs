@@ -1,5 +1,5 @@
 ﻿// --------------------------------------------------------------------------------------------------------------------
-// <copyright file="Connection.cs" company="Sean McElroy">
+// <copyright file="NntpConnection.cs" company="Sean McElroy">
 //   Copyright Sean McElroy, 2014.  All rights reserved.
 // </copyright>
 // <summary>

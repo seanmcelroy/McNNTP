@@ -79,5 +79,21 @@ namespace McNNTP.Core.Server.Configuration
                 this["ssl"] = portType.ToString();
             }
         }
+
+        /// <summary>
+        /// Gets or sets the protocol to listen for on the port
+        /// </summary>
+        [ConfigurationProperty("proto", IsRequired = true)]
+        public string Protocol
+        {
+            get
+            {
+                return (string)this["proto"]; 
+            }
+            set
+            {
+                this["proto"] = value;
+            }
+        }
     }
 }

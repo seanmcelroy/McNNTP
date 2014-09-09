@@ -1,5 +1,5 @@
 ﻿// --------------------------------------------------------------------------------------------------------------------
-// <copyright file="NntpServer.cs" company="Sean McElroy">
+// <copyright file="ImapServer.cs" company="Sean McElroy">
 //   Copyright Sean McElroy, 2014.  All rights reserved.
 // </copyright>
 // <summary>
@@ -29,30 +29,30 @@ namespace McNNTP.Core.Server
     using McNNTP.Core.Server.Configuration;
 
     /// <summary>
-    /// Defines the an NNTP server utility that provides connection management and command handling to expose
-    /// a fully functioning USENET news server.
+    /// Defines the an IMAP server utility that provides connection management and command handling to expose
+    /// a fully functioning USENET news server over the IMAP protocol.
     /// </summary>
-    public class NntpServer
+    public class ImapServer
     {
         /// <summary>
         /// The logging utility instance to use to log events from this class
         /// </summary>
-        private static readonly ILog Logger = LogManager.GetLogger(typeof(NntpServer));
+        private static readonly ILog Logger = LogManager.GetLogger(typeof(ImapServer));
 
         /// <summary>
         /// A list of threads and the associated TCP new-connection listeners that are serviced by each by the client
         /// </summary>
-        private readonly List<Tuple<Thread, NntpListener>> listeners = new List<Tuple<Thread, NntpListener>>();
+        private readonly List<Tuple<Thread, ImapListener>> listeners = new List<Tuple<Thread, ImapListener>>();
 
         /// <summary>
         /// A list of connections currently established to this server instance
         /// </summary>
-        private readonly List<NntpConnection> connections = new List<NntpConnection>();
+        private readonly List<ImapConnection> connections = new List<ImapConnection>();
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="NntpServer"/> class.
+        /// Initializes a new instance of the <see cref="ImapServer"/> class.
         /// </summary>
-        public NntpServer()
+        public ImapServer()
         {
             AllowStartTLS = true;
             ShowData = true;
@@ -67,13 +67,13 @@ namespace McNNTP.Core.Server
         public bool AllowStartTLS { get; set; }
 
         [NotNull]
-        public int[] NntpClearPorts { get; set; }
+        public int[] ImapClearPorts { get; set; }
 
         [NotNull]
-        public int[] NntpExplicitTLSPorts { get; set; }
+        public int[] ImapExplicitTLSPorts { get; set; }
 
         [NotNull]
-        public int[] NntpImplicitTLSPorts { get; set; }
+        public int[] ImapImplicitTLSPorts { get; set; }
 
         [CanBeNull]
         public LdapDirectoryConfigurationElement LdapDirectoryConfiguration { get; set; }
@@ -173,8 +173,8 @@ namespace McNNTP.Core.Server
                     {
                         Logger.WarnFormat(@"No valid certificate with a public and private key could be found in the LocalMachine\Personal store with thumbprint: {0}.  Disabling SSL.", SslServerCertificateThumbprint);
                         AllowStartTLS = false;
-                        this.NntpExplicitTLSPorts = new int[0];
-                        this.NntpImplicitTLSPorts = new int[0];
+                        this.ImapExplicitTLSPorts = new int[0];
+                        this.ImapImplicitTLSPorts = new int[0];
                     }
                     else
                     {
@@ -187,38 +187,38 @@ namespace McNNTP.Core.Server
                     store.Close();
                 }
             }
-            else if (SslGenerateSelfSignedServerCertificate || this.NntpExplicitTLSPorts.Any() || this.NntpImplicitTLSPorts.Any())
+            else if (SslGenerateSelfSignedServerCertificate || this.ImapExplicitTLSPorts.Any() || this.ImapImplicitTLSPorts.Any())
             {
                 var pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
                 this.ServerAuthenticationCertificate = new X509Certificate2(pfx, "password");
             }
 
-            foreach (var clearPort in this.NntpClearPorts)
+            foreach (var clearPort in this.ImapClearPorts)
             {
                 // Establish the local endpoint for the socket.
                 var localEndPoint = new IPEndPoint(IPAddress.Any, clearPort);
 
                 // Create a TCP/IP socket.
-                var listener = new NntpListener(this, localEndPoint)
+                var listener = new ImapListener(this, localEndPoint)
                 {
                     PortType = PortClass.ClearText
                 };
 
-                this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
+                this.listeners.Add(new Tuple<Thread, ImapListener>(new Thread(listener.StartAccepting), listener));
             }
 
-            foreach (var implicitTlsPort in this.NntpImplicitTLSPorts)
+            foreach (var implicitTlsPort in this.ImapImplicitTLSPorts)
             {
                 // Establish the local endpoint for the socket.
                 var localEndPoint = new IPEndPoint(IPAddress.Any, implicitTlsPort);
 
                 // Create a TCP/IP socket.
-                var listener = new NntpListener(this, localEndPoint)
+                var listener = new ImapListener(this, localEndPoint)
                 {
                     PortType = PortClass.ImplicitTLS
                 };
 
-                this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
+                this.listeners.Add(new Tuple<Thread, ImapListener>(new Thread(listener.StartAccepting), listener));
             }
 
             foreach (var listener in this.listeners)
@@ -275,19 +275,19 @@ namespace McNNTP.Core.Server
             }
         }
 
-        internal void AddConnection([NotNull] NntpConnection nntpConnection)
+        internal void AddConnection([NotNull] ImapConnection ImapConnection)
         {
-            this.connections.Add(nntpConnection);
-            Logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort);
+            this.connections.Add(ImapConnection);
+            Logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", ImapConnection.RemoteAddress, ImapConnection.RemotePort, ImapConnection.LocalAddress, ImapConnection.LocalPort);
         }
 
-        internal void RemoveConnection([NotNull] NntpConnection nntpConnection)
+        internal void RemoveConnection([NotNull] ImapConnection ImapConnection)
         {
-            this.connections.Remove(nntpConnection);
-            if (nntpConnection.Identity == null)
-                Logger.VerboseFormat("Disconnection from {0}:{1}", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort);
+            this.connections.Remove(ImapConnection);
+            if (ImapConnection.Identity == null)
+                Logger.VerboseFormat("Disconnection from {0}:{1}", ImapConnection.RemoteAddress, ImapConnection.RemotePort, ImapConnection.LocalAddress, ImapConnection.LocalPort);
             else
-                Logger.VerboseFormat("Disconnection from {0}:{1} ({2})", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort, nntpConnection.Identity.Username);
+                Logger.VerboseFormat("Disconnection from {0}:{1} ({2})", ImapConnection.RemoteAddress, ImapConnection.RemotePort, ImapConnection.LocalAddress, ImapConnection.LocalPort, ImapConnection.Identity.Username);
         }
         #endregion
     }

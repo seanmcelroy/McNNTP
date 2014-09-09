@@ -64,7 +64,7 @@ namespace McNNTP.Data
         }
 
         [NotNull, Pure]
-        public virtual Newsgroup GetMetaPendinGroup([NotNull] ISession session)
+        public virtual Newsgroup GetMetaPendingGroup([NotNull] ISession session)
         {
             var counts = (object[])session.CreateQuery(
                    "select min(an.Number), max(an.Number), count(an.Id) from ArticleNewsgroup an where an.Pending = 1 and an.Newsgroup.Name = :NewsgroupName")

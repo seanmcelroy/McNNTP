@@ -7,11 +7,11 @@
 // </summary>
 // --------------------------------------------------------------------------------------------------------------------
 
-using System.Configuration;
-using JetBrains.Annotations;
-
 namespace McNNTP.Core.Server.Configuration
 {
+    using System.Configuration;
+    using JetBrains.Annotations;
+
     /// <summary>
     /// The primary configuration section for the server instance
     /// </summary>
@@ -42,7 +42,7 @@ namespace McNNTP.Core.Server.Configuration
         }
 
         /// <summary>
-        /// Gets or sets the configuration element relating to how networking ports are made available to connect to this server instance
+        /// Gets the configuration element relating to how networking ports are made available to connect to this server instance
         /// </summary>
         [ConfigurationProperty("ports", IsDefaultCollection = true)]
         [ConfigurationCollection(typeof(PortConfigurationElementCollection), AddItemName = "add", ClearItemsName = "clear", RemoveItemName = "remove")]

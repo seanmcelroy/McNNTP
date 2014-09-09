@@ -19,7 +19,7 @@ namespace McNNTP.Data
                 if (identity != null && (identity.CanCancel || identity.Moderates.Any(g => g.Name == group.Name)))
                     yield return group.GetMetaCancelledGroup(session);
                 if (identity != null && (identity.CanApproveAny || identity.Moderates.Any(g => g.Name == group.Name)))
-                    yield return group.GetMetaPendinGroup(session);
+                    yield return group.GetMetaPendingGroup(session);
             }
         }
     }

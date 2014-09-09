@@ -35,7 +35,7 @@ namespace McNNTP.Core.Server
     /// <summary>
     /// A connection from a client to the server
     /// </summary>
-    internal class Connection
+    internal class NntpConnection
     {
         /// <summary>
         /// The size of the stream receive buffer
@@ -45,12 +45,12 @@ namespace McNNTP.Core.Server
         /// <summary>
         /// A command-indexed dictionary with function pointers to support client command
         /// </summary>
-        private static readonly Dictionary<string, Func<Connection, string, Task<CommandProcessingResult>>> CommandDirectory;
+        private static readonly Dictionary<string, Func<NntpConnection, string, Task<CommandProcessingResult>>> CommandDirectory;
 
         /// <summary>
         /// The logging utility instance to use to log events from this class
         /// </summary>
-        private static readonly ILog Logger = LogManager.GetLogger(typeof(Connection));
+        private static readonly ILog Logger = LogManager.GetLogger(typeof(NntpConnection));
 
         /// <summary>
         /// The server instance to which this connection belongs
@@ -112,11 +112,11 @@ namespace McNNTP.Core.Server
         private CommandProcessingResult inProcessCommand;
 
         /// <summary>
-        /// Initializes static members of the <see cref="Connection"/> class.
+        /// Initializes static members of the <see cref="NntpConnection"/> class.
         /// </summary>
-        static Connection()
+        static NntpConnection()
         {
-            CommandDirectory = new Dictionary<string, Func<Connection, string, Task<CommandProcessingResult>>>
+            CommandDirectory = new Dictionary<string, Func<NntpConnection, string, Task<CommandProcessingResult>>>
                 {
                     { "ARTICLE", async (c, data) => await c.Article(data) },
                     { "AUTHINFO", async (c, data) => await c.AuthInfo(data) },
@@ -146,13 +146,13 @@ namespace McNNTP.Core.Server
         }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="Connection"/> class.
+        /// Initializes a new instance of the <see cref="NntpConnection"/> class.
         /// </summary>
         /// <param name="server">The server instance that owns this connection</param>
         /// <param name="client">The <see cref="TcpClient"/> that accepted this connection</param>
         /// <param name="stream">The <see cref="Stream"/> from the <paramref name="client"/></param>
         /// <param name="tls">Whether or not the connection has implicit Transport Layer Security</param>
-        public Connection(
+        public NntpConnection(
             [NotNull] NntpServer server,
             [NotNull] TcpClient client,
             [NotNull] Stream stream,

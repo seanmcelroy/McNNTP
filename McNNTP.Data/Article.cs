@@ -219,6 +219,54 @@
         /// </summary>
         public virtual ICollection<ArticleNewsgroup> ArticleNewsgroups { get; set; }
 
+        public virtual string GetHeader(string headerName)
+        {
+            switch (headerName.ToUpperInvariant())
+            {
+                case "APPROVED":
+                    return Approved;
+                case "CONTROL":
+                    return Control;
+                case "INJECTIONDATE":
+                    return InjectionDate;
+                case "DATE":
+                    return Date;
+                case "DISTRIBUTION":
+                    return Distribution;
+                case "FROM":
+                    return From;
+                case "MESSAGE-ID":
+                    return MessageId;
+                case "ORGANIZATION":
+                    return Organization;
+                case "REFERENCES":
+                    return References;
+                case "SUBJECT":
+                    return Subject;
+                case "USERAGENT":
+                    return UserAgent;
+                case "XREF":
+                    return Xref;
+                default:
+                {
+                    Dictionary<string, string> headers, headersAndFullLines;
+                    if (!TryParseHeaders(this.Headers, out headers, out headersAndFullLines))
+                        return null;
+                    if (headers.ContainsKey(headerName.ToUpperInvariant()))
+                        return headers[headerName.ToUpperInvariant()];
+                    return null;
+                }
+            }
+        }
+
+        public virtual string GetHeaderFullLine(string headerName)
+        {
+            Dictionary<string, string> headers, headersAndFullLines;
+            if (!TryParseHeaders(this.Headers, out headers, out headersAndFullLines))
+                return null;
+            return headers.ContainsKey(headerName.ToUpperInvariant()) ? headersAndFullLines[headerName.ToUpperInvariant()] : null;
+        }
+
         [Pure]
         public static bool TryParse([NotNull] string block, out Article article)
         {

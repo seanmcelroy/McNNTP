@@ -8,13 +8,13 @@ using log4net;
 
 namespace McNNTP.Core.Server
 {
-    internal class NntpListener : TcpListener
+    internal class ImapListener : TcpListener
     {
         // Thread signal.
-        private readonly NntpServer _server;
-        private static readonly ILog _logger = LogManager.GetLogger(typeof(NntpListener));
+        private readonly ImapServer _server;
+        private static readonly ILog _logger = LogManager.GetLogger(typeof(ImapListener));
 
-        public NntpListener([NotNull] NntpServer server, [NotNull] IPEndPoint localEp)
+        public ImapListener([NotNull] ImapServer server, [NotNull] IPEndPoint localEp)
             : base(localEp)
         {
             _server = server;
@@ -28,7 +28,7 @@ namespace McNNTP.Core.Server
             var localEndPoint = new IPEndPoint(IPAddress.Any, ((IPEndPoint)LocalEndpoint).Port);
 
             // Create a TCP/IP socket.
-            var listener = new NntpListener(_server, localEndPoint);
+            var listener = new ImapListener(_server, localEndPoint);
 
             // Bind the socket to the local endpoint and listen for incoming connections.
             try
@@ -41,14 +41,14 @@ namespace McNNTP.Core.Server
                     var handler = await listener.AcceptTcpClientAsync();
 
                     // Create the state object.
-                    NntpConnection nntpConnection;
+                    ImapConnection ImapConnection;
 
                     if (PortType == PortClass.ClearText ||
                         PortType == PortClass.ExplicitTLS)
                     {
                         var stream = handler.GetStream();
 
-                        nntpConnection = new NntpConnection(_server, handler, stream);
+                        ImapConnection = new ImapConnection(_server, handler, stream);
                     }
                     else
                     {
@@ -65,12 +65,12 @@ namespace McNNTP.Core.Server
                             return;
                         }
 
-                        nntpConnection = new NntpConnection(_server, handler, sslStream, true);
+                        ImapConnection = new ImapConnection(_server, handler, sslStream, true);
                     }
 
-                    _server.AddConnection(nntpConnection);
+                    _server.AddConnection(ImapConnection);
 
-                    nntpConnection.Process();
+                    ImapConnection.Process();
                 }
 
             }
