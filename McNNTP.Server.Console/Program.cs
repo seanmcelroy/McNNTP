@@ -267,9 +267,9 @@ namespace McNNTP.Server.Console
                         Username = name, 
                         CanApproveAny = true, 
                         CanCancel = true, 
-                        CanCheckGroups = true, 
-                        CanCreateGroup = true, 
-                        CanDeleteGroup = true, 
+                        CanCheckCatalogs = true, 
+                        CanCreateCatalogs = true, 
+                        CanDeleteCatalogs = true, 
                         CanInject = false
                     };
 

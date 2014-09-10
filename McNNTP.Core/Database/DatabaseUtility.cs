@@ -205,9 +205,9 @@ namespace McNNTP.Core.Database
                     {
                         CanApproveAny = true,
                         CanCancel = true,
-                        CanCheckGroups = true,
-                        CanCreateGroup = true,
-                        CanDeleteGroup = true,
+                        CanCheckCatalogs = true,
+                        CanCreateCatalogs = true,
+                        CanDeleteCatalogs = true,
                         CanInject = true,
                         LocalAuthenticationOnly = true,
                         Username = "LOCALADMIN"

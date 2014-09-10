@@ -69,6 +69,10 @@
     <None Include="packages.config" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\McNNTP.Common\McNNTP.Common.csproj">
+      <Project>{F84582B7-D84F-4AF5-972F-3DAA26DD69BD}</Project>
+      <Name>McNNTP.Common</Name>
+    </ProjectReference>
     <ProjectReference Include="..\McNNTP.Core\McNNTP.Core.csproj">
       <Project>{6d45d38f-85c0-46bd-950a-f4d0dcf61691}</Project>
       <Name>McNNTP.Core</Name>

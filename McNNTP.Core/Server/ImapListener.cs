@@ -1,16 +1,22 @@
-﻿using System;
-using System.IO;
-using System.Net;
-using System.Net.Security;
-using System.Net.Sockets;
-using JetBrains.Annotations;
-using log4net;
-
-namespace McNNTP.Core.Server
+﻿namespace McNNTP.Core.Server
 {
+    using System;
+    using System.IO;
+    using System.Net;
+    using System.Net.Security;
+    using System.Net.Sockets;
+
+    using JetBrains.Annotations;
+
+    using log4net;
+
+    using McNNTP.Common;
+    using McNNTP.Core.Database;
+
     internal class ImapListener : TcpListener
     {
         // Thread signal.
+        private static readonly IStoreProvider _store = new SqliteStoreProvider(); // TODO: Make loaded by configuration
         private readonly ImapServer _server;
         private static readonly ILog _logger = LogManager.GetLogger(typeof(ImapListener));
 
@@ -48,7 +54,7 @@ namespace McNNTP.Core.Server
                     {
                         var stream = handler.GetStream();
 
-                        ImapConnection = new ImapConnection(_server, handler, stream);
+                        ImapConnection = new ImapConnection(_store, _server, handler, stream);
                     }
                     else
                     {
@@ -65,7 +71,7 @@ namespace McNNTP.Core.Server
                             return;
                         }
 
-                        ImapConnection = new ImapConnection(_server, handler, sslStream, true);
+                        ImapConnection = new ImapConnection(_store, _server, handler, sslStream, true);
                     }
 
                     _server.AddConnection(ImapConnection);

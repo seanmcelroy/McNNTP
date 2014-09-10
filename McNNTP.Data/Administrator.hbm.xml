@@ -13,9 +13,9 @@
 
     <property name="CanApproveAny" not-null="true" />
     <property name="CanCancel" not-null="true" />
-    <property name="CanCreateGroup" not-null="true" />
-    <property name="CanDeleteGroup" not-null="true" />
-    <property name="CanCheckGroups" not-null="true" />
+    <property name="CanCreateCatalogs" not-null="true" />
+    <property name="CanDeleteCatalogs" not-null="true" />
+    <property name="CanCheckCatalogs" not-null="true" />
     <property name="CanInject" not-null="true" />
 
     <bag name="Moderates" inverse="true" table="NewsgroupModerator">

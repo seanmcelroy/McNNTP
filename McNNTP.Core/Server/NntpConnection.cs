@@ -944,11 +944,11 @@ namespace McNNTP.Core.Server
                 CurrentArticleNumber = ng.LowWatermark;
 
                 // ReSharper disable ConvertIfStatementToConditionalTernaryExpression
-                if (ng.PostCount == 0)
+                if (ng.MessageCount == 0)
                     // ReSharper restore ConvertIfStatementToConditionalTernaryExpression
                     await Send("211 0 0 0 {0}\r\n", ng.Name);
                 else
-                    await Send("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name);
+                    await Send("211 {0} {1} {2} {3}\r\n", ng.MessageCount, ng.LowWatermark, ng.HighWatermark, ng.Name);
             }
 
             return new CommandProcessingResult(true);
@@ -1561,7 +1561,7 @@ namespace McNNTP.Core.Server
             await Send("215 List of newsgroups follows\r\n");
             var epoch = new DateTime(1970, 1, 1);
             foreach (var ng in newsGroups)
-                await Send("{0} {1} {2} {3} {4}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, ng.PostCount, ng.Moderated ? "m" : CanPost ? "y" : "n");
+                await Send("{0} {1} {2} {3} {4}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, ng.MessageCount, ng.Moderated ? "m" : CanPost ? "y" : "n");
             await Send(".\r\n");
         }
 
@@ -1723,7 +1723,7 @@ namespace McNNTP.Core.Server
                 }
 
                 CurrentNewsgroup = ng.Name;
-                if (ng.PostCount == 0)
+                if (ng.MessageCount == 0)
                 {
                     await Send("211 0 0 0 {0}\r\n", ng.Name);
                     return new CommandProcessingResult(true);
@@ -1752,7 +1752,7 @@ namespace McNNTP.Core.Server
 
                 CurrentArticleNumber = !articleNewsgroups.Any() ? default(long?) : articleNewsgroups.First().Number;
 
-                await Send("211 {0} {1} {2} {3}\r\n", ng.PostCount, ng.LowWatermark, ng.HighWatermark, ng.Name);
+                await Send("211 {0} {1} {2} {3}\r\n", ng.MessageCount, ng.LowWatermark, ng.HighWatermark, ng.Name);
                 foreach (var article in articleNewsgroups)
                     await Send("{0}\r\n", article.Number.ToString(CultureInfo.InvariantCulture));
                 await Send(".\r\n");
@@ -2133,9 +2133,9 @@ namespace McNNTP.Core.Server
 
                             if ((article.Control != null && Identity == null) ||
                                 (article.Control != null && Identity != null && article.Control.StartsWith("cancel ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCancel) ||
-                                (article.Control != null && Identity != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCreateGroup) ||
-                                (article.Control != null && Identity != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanDeleteGroup) ||
-                                (article.Control != null && Identity != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCheckGroups))
+                                (article.Control != null && Identity != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCreateCatalogs) ||
+                                (article.Control != null && Identity != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !Identity.CanDeleteCatalogs) ||
+                                (article.Control != null && Identity != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !Identity.CanCheckCatalogs))
                             {
                                 await Send("480 Permission to issue control message denied\r\n");
                                 return new CommandProcessingResult(true, true);

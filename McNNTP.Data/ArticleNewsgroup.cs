@@ -12,8 +12,13 @@
 namespace McNNTP.Data
 {
     using System;
+    using System.Collections.Generic;
+    using System.Globalization;
+    using System.Linq;
 
     using JetBrains.Annotations;
+
+    using McNNTP.Common;
 
     /// <summary>
     /// The join table that links an article to a newsgroup for a post.  Articles may
@@ -22,7 +27,7 @@ namespace McNNTP.Data
     /// </summary>
     [PublicAPI]
     // ReSharper disable once ClassWithVirtualMembersNeverInherited.Global
-    public class ArticleNewsgroup
+    public class ArticleNewsgroup : IMessage
     {
         /// <summary>
         /// Gets or sets the auto-incrementing primary key identify for this entity
@@ -30,6 +35,18 @@ namespace McNNTP.Data
         // ReSharper disable once UnusedAutoPropertyAccessor.Global
         [PublicAPI]
         public virtual int Id { get; set; }
+
+        /// <summary>
+        /// Gets or sets the unique identifier for the catalog within a store
+        /// </summary>
+        /// <remarks>This field must be unique</remarks>
+        string IMessage.Id
+        {
+            get
+            {
+                return Number.ToString(CultureInfo.InvariantCulture);
+            }
+        }
 
         /// <summary>
         /// Gets or sets the article that is posted to the newsgroup
@@ -57,5 +74,41 @@ namespace McNNTP.Data
         /// Gets or sets a value indicating whether the message is pending approval from a moderator
         /// </summary>
         public virtual bool Pending { get; set; }
+
+        /// <summary>
+        /// Gets a dictionary of headers, keyed by the header name, and containing a tuple of just the header value, and the raw header line that includes the full header
+        /// </summary>
+        Dictionary<string, Tuple<string, string>> IMessage.Headers
+        {
+            get
+            {
+                Dictionary<string, string> headers, headersAndFullLines;
+                return !Article.TryParseHeaders(this.Article.Headers, out headers, out headersAndFullLines)
+                    ? null 
+                    : headersAndFullLines.ToDictionary(k => k.Key, v => new Tuple<string, string>(headers[v.Key], v.Value));
+            }
+        }
+
+        /// <summary>
+        /// Gets the raw header block for this message
+        /// </summary>
+        string IMessage.HeaderRaw
+        {
+            get
+            {
+                return Article.Headers;
+            }
+        }
+
+        /// <summary>
+        /// Gets the body of the message
+        /// </summary>
+        string IMessage.Body
+        {
+            get
+            {
+                return Article.Body;
+            }
+        }
     }
 }

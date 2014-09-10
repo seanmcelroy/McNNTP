@@ -52,10 +52,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="Annotations.cs" />
+    <Compile Include="IIdentity.cs" />
     <Compile Include="InternetMessageFormatUtility.cs" />
     <Compile Include="LdapUtility.cs" />
     <Compile Include="LogUtility.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ICatalog.cs" />
+    <Compile Include="IMessage.cs" />
+    <Compile Include="IStoreProvider.cs" />
     <Compile Include="StringUtility.cs" />
   </ItemGroup>
   <ItemGroup>

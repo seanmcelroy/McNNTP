@@ -1,30 +1,81 @@
-﻿using System;
-using JetBrains.Annotations;
-using System.Collections.Generic;
-using NHibernate;
+﻿// --------------------------------------------------------------------------------------------------------------------
+// <copyright file="Newsgroup.cs" company="Copyright Sean McElroy">
+//   Copyright Sean McElroy
+// </copyright>
+// <summary>
+//   A related forum for articles to be posted into and replied within
+// </summary>
+// --------------------------------------------------------------------------------------------------------------------
 
 namespace McNNTP.Data
 {
+    using System;
+    using System.Collections.Generic;
+    using System.Globalization;
+
+    using JetBrains.Annotations;
+
+    using McNNTP.Common;
+
+    using NHibernate;
+
     /// <summary>
     /// A related forum for articles to be posted into and replied within
     /// </summary>
-    public class Newsgroup
+    public class Newsgroup : ICatalog
     {
         public virtual int Id { get; set; }
+
+        string ICatalog.Id
+        {
+            get
+            {
+                return Id.ToString(CultureInfo.InvariantCulture);
+            }
+
+            set
+            {
+                int id;
+                if (int.TryParse(value, out id))
+                    Id = id;
+                Id = -1;
+            }
+        }
 
         /// <summary>
         /// Gets or sets the canonical name of the newsgroup
         /// </summary>
-        [NotNull]
         public virtual string Name { get; set; }
 
         [CanBeNull]
         public virtual string Description { get; set; }
+
         public virtual bool Moderated { get; set; }
-        public virtual int PostCount { get; set; }
+
+        public virtual int MessageCount { get; set; }
+
         public virtual int? LowWatermark { get; set; }
+
+        /// <summary>
+        /// Gets the highest message number in the catalog
+        /// </summary>
         public virtual int? HighWatermark { get; set; }
+
         public virtual DateTime CreateDate { get; set; }
+
+        DateTime? ICatalog.CreateDateUtc
+        {
+            get
+            {
+                return CreateDate;
+            }
+
+            set
+            {
+                CreateDate = value ?? new DateTime(1970, 1, 1);
+            }
+        }
+
         [CanBeNull]
         public virtual string CreatorEntity { get; set; }
 
@@ -39,7 +90,6 @@ namespace McNNTP.Data
         public virtual bool DenyPeerPosting { get; set; }
 
         public virtual IList<Administrator> ModeratedBy { get; set; }
-
 
         [NotNull, Pure]
         public virtual Newsgroup GetMetaCancelledGroup([NotNull] ISession session)
@@ -57,7 +107,7 @@ namespace McNNTP.Data
                 HighWatermark = counts[1] == null ? 0 : (int)counts[1],
                 Id = 0,
                 LowWatermark = counts[0] == null ? 0 : (int)counts[0],
-                PostCount = Convert.ToInt32(counts[2]),
+                MessageCount = Convert.ToInt32(counts[2]),
                 Name = Name + ".deleted",
                 Moderated = true
             };
@@ -79,7 +129,7 @@ namespace McNNTP.Data
                 HighWatermark = counts[1] == null ? 0 : (int)counts[1],
                 Id = 0,
                 LowWatermark = counts[0] == null ? 0 : (int)counts[0],
-                PostCount = Convert.ToInt32(counts[2]),
+                MessageCount = Convert.ToInt32(counts[2]),
                 Name = Name + ".pending",
                 Moderated = true
             };

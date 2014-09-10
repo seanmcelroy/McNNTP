@@ -125,6 +125,7 @@
     <Compile Include="Client\NntpResponse.cs" />
     <Compile Include="Database\DatabaseUtility.cs" />
     <Compile Include="Database\SessionUtility.cs" />
+    <Compile Include="Database\SqliteStoreProvider.cs" />
     <Compile Include="GlobalSuppressions.cs" />
     <Compile Include="NntpStreamReader.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
