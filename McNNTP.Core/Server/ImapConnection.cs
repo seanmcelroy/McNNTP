@@ -587,6 +587,9 @@ namespace McNNTP.Core.Server
 
             Logger.InfoFormat("User {0} authenticated from {1}", Identity.Username, RemoteAddress);
 
+            // Ensure user has personal INBOX defined.
+            _store.Ensure(Identity);
+
             await Send("{0} OK LOGIN completed", tag);
             return new CommandProcessingResult(true);
         }
@@ -660,6 +663,10 @@ namespace McNNTP.Core.Server
             if (!match.Success)
             {
                 await Send("{0} BAD Unable to parse SELECT parameters", tag);
+                
+                // RFC 3501 3.1 - A failed SELECT command will move from Selected to Authenticated state
+                CurrentCatalog = null;
+
                 return new CommandProcessingResult(true);
             }
 
@@ -680,7 +687,12 @@ namespace McNNTP.Core.Server
             // TODO: Note section 6.3.1 of RFC 3501 - I'm not implementing some optional elements I probably should like UNSEEN, PERMANENTFLAGS
             await Send("* OK [UIDNEXT {0}]", ng.HighWatermark == null ? 1 : ng.HighWatermark + 1);
             await Send("* OK [UIDVALIDITY {0:yyyyMMddhhmm}]", ng.CreateDateUtc);
-            await Send("{0} OK [READ-ONLY] SELECT completed", tag);
+
+            if (ng.Owner != null && ng.Owner.Equals(Identity))
+                await Send("{0} OK [READ-WRITE] SELECT completed", tag);
+            else
+                await Send("{0} OK [READ-ONLY] SELECT completed", tag);
+
             return new CommandProcessingResult(true);
         }
 
@@ -713,15 +725,26 @@ namespace McNNTP.Core.Server
                 return new CommandProcessingResult(true);
             }
 
-            var catalogs = _store.GetCatalogs(Identity);
-            if (catalogs == null)
+            var globalCatalogs = _store.GetGlobalCatalogs(Identity);
+            if (globalCatalogs == null)
             {
-                await Send("{0} BAD Archive server temporarily offline", tag);
+                await Send("{0} BAD Global catalogs temporarily offline", tag);
+                return new CommandProcessingResult(true);
+            }
+    
+            foreach (var ng in globalCatalogs)
+                await Send(@"* LIST (\HasNoChildren) NIL {0}", ng.Name);
+
+            var personalCatalogs = _store.GetPersonalCatalogs(Identity);
+            if (personalCatalogs == null)
+            {
+                await Send("{0} BAD Personal catalogs temporarily offline", tag);
                 return new CommandProcessingResult(true);
             }
 
-            foreach (var ng in catalogs)
+            foreach (var ng in personalCatalogs)
                 await Send(@"* LIST (\HasNoChildren) NIL {0}", ng.Name);
+            
             await Send("{0} OK LIST completed.", tag);
             return new CommandProcessingResult(true);
         }

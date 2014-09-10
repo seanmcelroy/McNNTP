@@ -9,6 +9,7 @@
 
 namespace McNNTP.Common
 {
+    using System;
     using System.Collections.Generic;
 
     using JetBrains.Annotations;
@@ -55,5 +56,7 @@ namespace McNNTP.Common
         bool CanCheckCatalogs { get; set; }
 
         IEnumerable<ICatalog> Moderates { get; }
+
+        DateTime? LastLogin { get; set; }
     }
 }

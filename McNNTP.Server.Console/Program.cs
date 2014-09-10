@@ -473,9 +473,17 @@ namespace McNNTP.Server.Console
             foreach (var connection in nntpServer.Connections)
             {
                 if (connection.AuthenticatedUsername == null)
-                    Console.WriteLine("{0}:{1}", connection.RemoteAddress, connection.RemotePort);
+                    Console.WriteLine("{0}:{1} (nntp)", connection.RemoteAddress, connection.RemotePort);
                 else
-                    Console.WriteLine("{0}:{1} ({2})", connection.RemoteAddress, connection.RemotePort, connection.AuthenticatedUsername);
+                    Console.WriteLine("{0}:{1} (nntp:{2})", connection.RemoteAddress, connection.RemotePort, connection.AuthenticatedUsername);
+            }
+
+            foreach (var connection in imapServer.Connections)
+            {
+                if (connection.AuthenticatedUsername == null)
+                    Console.WriteLine("{0}:{1} (imap)", connection.RemoteAddress, connection.RemotePort);
+                else
+                    Console.WriteLine("{0}:{1} (imap:{2})", connection.RemoteAddress, connection.RemotePort, connection.AuthenticatedUsername);
             }
 
             return false;

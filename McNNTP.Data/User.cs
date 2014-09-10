@@ -9,7 +9,6 @@ using System.Collections.Generic;
 namespace McNNTP.Data
 {
     using System.Globalization;
-    using System.Linq;
 
     using McNNTP.Common;
 
@@ -94,6 +93,28 @@ namespace McNNTP.Data
             {
                 Marshal.FreeBSTR(bstr);
             }
+        }
+
+        public override bool Equals(object obj)
+        {
+            // If parameter is null return false.
+            if (obj == null)
+            {
+                return false;
+            }
+
+            // If parameter cannot be cast to Point return false.
+            var p = obj as User;
+            if ((object)p == null)
+                return false;
+
+            // Return true if the fields match:
+            return Id == p.Id;
+        }
+
+        public override int GetHashCode()
+        {
+            return Id;
         }
     }
 }

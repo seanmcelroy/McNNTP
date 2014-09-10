@@ -46,5 +46,18 @@ namespace McNNTP.Common
         /// Gets the highest message number in the catalog
         /// </summary>
         int? HighWatermark { get; }
+
+        /// <summary>
+        /// Gets or sets a value indicating whether the catalog is 'moderated' and requires special permission or approval to post
+        /// </summary>
+        bool Moderated { get; }
+
+        /// <summary>
+        /// Gets the 'owner' of the newsgroup.  Such groups are personal groups,
+        /// typically personal mailboxes, and can only be enumerated by the user that owns
+        /// them.
+        /// </summary>
+        [CanBeNull]
+        IIdentity Owner { get; }
     }
 }

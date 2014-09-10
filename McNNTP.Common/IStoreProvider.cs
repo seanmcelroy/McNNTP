@@ -23,6 +23,12 @@ namespace McNNTP.Common
     public interface IStoreProvider
     {
         /// <summary>
+        /// Ensures a user has any requisite initialization in the store performed prior to their execution of other store methods
+        /// </summary>
+        /// <param name="identity">The identity of the user to ensure is initialized properly in the store</param>
+        void Ensure(IIdentity identity);
+
+        /// <summary>
         /// Retrieves a catalog by its name
         /// </summary>
         /// <param name="identity">The identity of the user making the request</param>
@@ -32,13 +38,22 @@ namespace McNNTP.Common
         ICatalog GetCatalogByName(IIdentity identity, string name);
 
         /// <summary>
-        /// Retrieves an enumeration of catalogs available to an end-user at the root level in the store
+        /// Retrieves an enumeration of global catalogs available to an end-user at the root level in the store
         /// </summary>
         /// <param name="identity">The identity of the user making the request</param>
         /// <param name="parentCatalogName">The parent catalog.  When specified, this finds catalogs that are contained in this specified parent catalog</param>
         /// <returns>An enumeration of catalogs available to an end-user at the root level in the store</returns>
         [CanBeNull, Pure]
-        IEnumerable<ICatalog> GetCatalogs(IIdentity identity, [CanBeNull] string parentCatalogName = null);
+        IEnumerable<ICatalog> GetGlobalCatalogs(IIdentity identity, [CanBeNull] string parentCatalogName = null);
+
+        /// <summary>
+        /// Retrieves an enumeration of personal catalogs available to an end-user at the root level in the store
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <param name="parentCatalogName">The parent catalog.  When specified, this finds catalogs that are contained in this specified parent catalog</param>
+        /// <returns>An enumeration of catalogs available to an end-user at the root level in the store</returns>
+        [CanBeNull, Pure]
+        IEnumerable<ICatalog> GetPersonalCatalogs(IIdentity identity, string parentCatalogName = null);
 
         /// <summary>
         /// Retrieves a user by their clear-text username and password

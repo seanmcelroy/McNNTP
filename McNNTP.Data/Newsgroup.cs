@@ -43,6 +43,26 @@ namespace McNNTP.Data
         }
 
         /// <summary>
+        /// Gets or sets the 'owner' of the newsgroup.  Such groups are personal groups,
+        /// typically personal mailboxes, and can only be enumerated by the user that owns
+        /// them.
+        /// </summary>
+        public virtual User Owner { get; set; }
+
+        /// <summary>
+        /// Gets the 'owner' of the newsgroup.  Such groups are personal groups,
+        /// typically personal mailboxes, and can only be enumerated by the user that owns
+        /// them.
+        /// </summary>
+        IIdentity ICatalog.Owner
+        {
+            get
+            {
+                return Owner;
+            }
+        }
+
+        /// <summary>
         /// Gets or sets the canonical name of the newsgroup
         /// </summary>
         public virtual string Name { get; set; }
@@ -50,6 +70,9 @@ namespace McNNTP.Data
         [CanBeNull]
         public virtual string Description { get; set; }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether the newsgroup is 'moderated' and requires special permission or approval to post
+        /// </summary>
         public virtual bool Moderated { get; set; }
 
         public virtual int MessageCount { get; set; }
@@ -57,7 +80,7 @@ namespace McNNTP.Data
         public virtual int? LowWatermark { get; set; }
 
         /// <summary>
-        /// Gets the highest message number in the catalog
+        /// Gets or sets the highest message number in the catalog
         /// </summary>
         public virtual int? HighWatermark { get; set; }
 

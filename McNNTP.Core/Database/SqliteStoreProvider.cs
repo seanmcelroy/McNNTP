@@ -33,6 +33,33 @@ namespace McNNTP.Core.Database
         private static readonly ILog _Logger = LogManager.GetLogger(typeof(SqliteStoreProvider));
 
         /// <summary>
+        /// Ensures a user has any requisite initialization in the store performed prior to their execution of other store methods
+        /// </summary>
+        /// <param name="identity">The identity of the user to ensure is initialized properly in the store</param>
+        public void Ensure(IIdentity identity)
+        {
+            var personalCatalogs = GetPersonalCatalogs(identity, null);
+
+            if (personalCatalogs != null && personalCatalogs.All(c => c.Name != "INBOX"))
+            {
+                using (var session = SessionUtility.OpenSession())
+                {
+                    var ng = new Newsgroup
+                             {
+                                 CreateDate = DateTime.UtcNow,
+                                 Description = "Personal inbox for " + identity.Username,
+                                 Name = "INBOX",
+                                 Owner = (User)identity
+                             };
+
+                    session.Save(ng);
+                    session.Flush();
+                    session.Close();
+                }
+            }
+        }
+
+        /// <summary>
         /// Retrieves a catalog by its name
         /// </summary>
         /// <param name="identity">The identity of the user making the request</param>
@@ -50,12 +77,12 @@ namespace McNNTP.Core.Database
         }
 
         /// <summary>
-        /// Retrieves an enumeration of catalogs available to an end-user at the root level in the store
+        /// Retrieves an enumeration of global catalogs available to an end-user at the root level in the store
         /// </summary>
         /// <param name="identity">The identity of the user making the request</param>
         /// <param name="parentCatalogName">The parent catalog.  When specified, this finds catalogs that are contained in this specified parent catalog</param>
         /// <returns>An enumeration of catalogs available to an end-user at the root level in the store</returns>
-        public IEnumerable<ICatalog> GetCatalogs(IIdentity identity, string parentCatalogName)
+        public IEnumerable<ICatalog> GetGlobalCatalogs(IIdentity identity, string parentCatalogName)
         {
             IEnumerable<Newsgroup> newsGroups = null;
 
@@ -63,7 +90,41 @@ namespace McNNTP.Core.Database
             {
                 using (var session = SessionUtility.OpenSession())
                 {
-                    newsGroups = session.Query<Newsgroup>().AddMetagroups(session, identity).OrderBy(n => n.Name).ToList();
+                    newsGroups = session.Query<Newsgroup>().Where(n => n.Owner == null).AddMetagroups(session, identity).OrderBy(n => n.Name).ToList();
+                    session.Close();
+                }
+            }
+            catch (MappingException mex)
+            {
+                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+            }
+            catch (Exception ex)
+            {
+                _Logger.Error("Exception when trying to handle LIST", ex);
+            }
+
+            return newsGroups;
+        }
+
+        /// <summary>
+        /// Retrieves an enumeration of personal catalogs available to an end-user at the root level in the store
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <param name="parentCatalogName">The parent catalog.  When specified, this finds catalogs that are contained in this specified parent catalog</param>
+        /// <returns>An enumeration of catalogs available to an end-user at the root level in the store</returns>
+        public IEnumerable<ICatalog> GetPersonalCatalogs(IIdentity identity, string parentCatalogName)
+        {
+            IEnumerable<Newsgroup> newsGroups = null;
+
+            int identityId;
+            if (!int.TryParse(identity.Id, out identityId))
+                return null;
+
+            try
+            {
+                using (var session = SessionUtility.OpenSession())
+                {
+                    newsGroups = session.Query<Newsgroup>().Where(n => n.Owner.Id == identityId).OrderBy(n => n.Name).ToList();
                     session.Close();
                 }
             }
