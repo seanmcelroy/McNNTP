@@ -87,10 +87,10 @@ namespace McNNTP.Core.Database
         /// <returns>The user, if one was found with the matching username and password</returns>
         public IIdentity GetIdentityByClearAuth(string username, string password)
         {
-            Administrator admin;
+            User admin;
             using (var session = SessionUtility.OpenSession())
             {
-                admin = session.Query<Administrator>().Fetch(a => a.Moderates).SingleOrDefault(a => a.Username == username);
+                admin = session.Query<User>().Fetch(a => a.Moderates).SingleOrDefault(a => a.Username == username);
                 if (admin != null)
                 {
                     admin.LastLogin = DateTime.UtcNow;

@@ -53,7 +53,7 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Administrator.cs" />
+    <Compile Include="User.cs" />
     <Compile Include="Peer.cs" />
     <Compile Include="Article.cs" />
     <Compile Include="ArticleNewsgroup.cs" />
@@ -64,7 +64,7 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="Administrator.hbm.xml">
+    <EmbeddedResource Include="User.hbm.xml">
       <SubType>Designer</SubType>
     </EmbeddedResource>
     <EmbeddedResource Include="Article.hbm.xml" />

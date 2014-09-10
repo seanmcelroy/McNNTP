@@ -625,6 +625,13 @@ namespace McNNTP.Core.Server
         private async Task<CommandProcessingResult> Noop(string tag)
         {
             // TODO: See note in RFC 3501 6.1.2 - This could be improved to return unread message count for periodic polling
+            if (CurrentCatalog != null)
+            {
+                var catalog = _store.GetCatalogByName(Identity, CurrentCatalog);
+                if (catalog != null)
+                    await Send("* {0} EXISTS", catalog.MessageCount);
+            }
+
             await Send("{0} OK NOOP completed", tag);
             return new CommandProcessingResult(true);
         }
@@ -860,9 +867,10 @@ namespace McNNTP.Core.Server
                     {
                         foreach (var field in fieldMatch.Groups["header"].Value.Split(' ').Select(x => x.ToUpperInvariant()))
                         {
-                            if (message.Headers.ContainsKey(field))
+                            var headers = message.Headers;
+                            if (headers != null && headers.ContainsKey(field))
                             {
-                                var headerLine = message.Headers[field].Item2;
+                                var headerLine = headers[field].Item2;
                                 if (!string.IsNullOrWhiteSpace(headerLine))
                                     sb2.AppendLine(headerLine);
                             }

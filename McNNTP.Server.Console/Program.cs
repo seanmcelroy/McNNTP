@@ -39,7 +39,6 @@ namespace McNNTP.Server.Console
         {
             { "?", s => Help() }, 
             { "HELP", s => Help() }, 
-            { "ADMIN", AdminCommand }, 
             { "DB", DatabaseCommand }, 
             { "DEBUG", DebugCommand }, 
             { "GROUP", GroupCommand }, 
@@ -47,7 +46,8 @@ namespace McNNTP.Server.Console
             { "PURGEDB", DatabaseUtility.RebuildSchema }, 
             { "SHOWCONN", s => ShowConn() }, 
             { "EXIT", s => Quit() }, 
-            { "QUIT", s => Quit() }
+            { "QUIT", s => Quit() },
+            { "USER", UserCommand }
         };
 
         /// <summary>
@@ -215,7 +215,6 @@ namespace McNNTP.Server.Console
         /// <returns>A value indicating whether the nntpServer should terminate</returns>
         private static bool Help()
         {
-            Console.WriteLine("ADMIN <name> CREATE <pass>       : Creates a new news administrator");
             Console.WriteLine("DB ANNIHILATE                    : Completely wipe and rebuild the news database");
             Console.WriteLine("DB UPDATE                        : Updates the database schema integrity to\r\n" +
                               "                                   match the code object definitions");
@@ -235,6 +234,7 @@ namespace McNNTP.Server.Console
                               "                                   blank, the current wildmat will be displayed");
             Console.WriteLine("SHOWCONN                         : Show active connections");
             Console.WriteLine("QUIT                             : Exit the program, killing all connections");
+            Console.WriteLine("USER <name> CREATE <pass>        : Creates a new news administrator");
             return false;
         }
 
@@ -243,7 +243,7 @@ namespace McNNTP.Server.Console
         /// </summary>
         /// <param name="input">The full console command input</param>
         /// <returns>A value indicating whether the nntpServer should terminate</returns>
-        private static bool AdminCommand(string input)
+        private static bool UserCommand(string input)
         {
             var parts = input.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length < 3)
@@ -262,7 +262,7 @@ namespace McNNTP.Server.Console
                     foreach (var c in parts.Skip(3).Aggregate((c, n) => c + " " + n))
                         pass.AppendChar(c);
 
-                    var admin = new Administrator
+                    var admin = new User
                     {
                         Username = name, 
                         CanApproveAny = true, 
@@ -281,7 +281,7 @@ namespace McNNTP.Server.Console
                     }
 
                     admin.SetPassword(pass);
-                    Console.WriteLine("Administrator {0} created with all priviledges.", name);
+                    Console.WriteLine("User {0} created with all priviledges.", name);
                     break;
                 }
 

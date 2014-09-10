@@ -13,7 +13,7 @@ namespace McNNTP.Data
 
     using McNNTP.Common;
 
-    public class Administrator : IIdentity
+    public class User : IIdentity
     {
         public virtual int Id { get; set; }
 
@@ -43,7 +43,7 @@ namespace McNNTP.Data
         public virtual string PasswordSalt { get; set; }
 
         /// <summary>
-        /// Gets or sets a value indicating whether the administrator can Approve moderated messages in any group
+        /// Gets or sets a value indicating whether the user can Approve moderated messages in any group
         /// </summary>
         public virtual bool CanApproveAny { get; set; }
 
@@ -61,7 +61,7 @@ namespace McNNTP.Data
         public virtual bool CanInject { get; set; }
        
         /// <summary>
-        /// Whether or not the administrator can only authenticate from localhost
+        /// Whether or not the user can only authenticate from localhost
         /// </summary>
         public virtual bool LocalAuthenticationOnly { get; set; }
 

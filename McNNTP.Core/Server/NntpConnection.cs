@@ -200,7 +200,7 @@ namespace McNNTP.Core.Server
         public string Username { get; set; }
 
         [CanBeNull]
-        public Administrator Identity { get; set; }
+        public User Identity { get; set; }
 
         public bool TLS { get; set; }
         #endregion
@@ -669,10 +669,10 @@ namespace McNNTP.Core.Server
                 var rng = RandomNumberGenerator.Create();
                 rng.GetNonZeroBytes(saltBytes);
 
-                Administrator admin;
+                User admin;
                 using (var session = Database.SessionUtility.OpenSession())
                 {
-                    admin = session.Query<Administrator>().Fetch(a => a.Moderates).SingleOrDefault(a => a.Username == Username);
+                    admin = session.Query<User>().Fetch(a => a.Moderates).SingleOrDefault(a => a.Username == Username);
                     session.Close();
                 }
 

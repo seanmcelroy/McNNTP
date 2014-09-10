@@ -128,7 +128,7 @@ namespace McNNTP.Core.Database
                     if (!quiet)
                         Logger.InfoFormat("Verified database has {0} article{1}", articleCount, articleCount == 1 ? null : "s");
 
-                    var adminCount = session.Query<Administrator>().Count(a => a.CanInject);
+                    var adminCount = session.Query<User>().Count(a => a.CanInject);
                     if (adminCount == 0 && !quiet)
                         Logger.Warn("Verified database has 0 local admins");
                     else if (!quiet)
@@ -199,9 +199,9 @@ namespace McNNTP.Core.Database
                     Logger.InfoFormat("Created 'junk' group");
                 }
 
-                if (!session.Query<Administrator>().Any())
+                if (!session.Query<User>().Any())
                 {
-                    var admin = new Administrator
+                    var admin = new User
                     {
                         CanApproveAny = true,
                         CanCancel = true,

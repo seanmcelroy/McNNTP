@@ -89,7 +89,7 @@ namespace McNNTP.Data
         /// </summary>
         public virtual bool DenyPeerPosting { get; set; }
 
-        public virtual IList<Administrator> ModeratedBy { get; set; }
+        public virtual IList<User> ModeratedBy { get; set; }
 
         [NotNull, Pure]
         public virtual Newsgroup GetMetaCancelledGroup([NotNull] ISession session)
