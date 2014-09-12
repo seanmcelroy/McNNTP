@@ -29,6 +29,8 @@ namespace McNNTP.Core.Server
     /// </summary>
     internal class ImapConnection
     {
+        private const string HierarchyDelimiter = "/";
+
         /// <summary>
         /// The size of the stream receive buffer
         /// </summary>
@@ -115,6 +117,7 @@ namespace McNNTP.Core.Server
         {
             CommandDirectory = new Dictionary<string, Func<ImapConnection, string, string, Task<CommandProcessingResult>>>
                 {
+                    { "CLOSE", async (c, tag, command) => await c.Close(tag) },
                     { "LOGIN", async (c, tag, command) => await c.Login(tag, command) },
                     { "LSUB", async (c, tag, command) => await c.LSub(tag, command) },
                     { "CAPABILITY", async (c, tag, command) => await c.Capability(tag) },
@@ -282,23 +285,31 @@ namespace McNNTP.Core.Server
                     var bytesRead = await stream.ReadAsync(this.buffer, 0, BufferSize);
 
                     // There  might be more data, so store the data received so far.
-                    this.builder.Append(Encoding.ASCII.GetString(this.buffer, 0, bytesRead));
+                    builder.Append(Encoding.ASCII.GetString(this.buffer, 0, bytesRead));
 
                     // Not all data received OR no more but not yet ending with the delimiter. Get more.
-                    var content = this.builder.ToString();
-                    if (bytesRead == BufferSize || !content.EndsWith("\r\n", StringComparison.Ordinal))
+                    var builderString = builder.ToString();
+                    if (bytesRead == BufferSize || !builderString.EndsWith("\r\n", StringComparison.Ordinal))
                     {
                         // Read some more.
                         continue;
                     }
 
                     // There could be MORE THAN ONE command in one read.
-                    var builderMoreThanOne = content.Length > 2 && content.Substring(0, content.Length - 2).IndexOf("\r\n", StringComparison.Ordinal) > -1;
+                    var builderMoreThanOne = builderString.Length > 2 && builderString.Substring(0, builderString.Length - 2).IndexOf("\r\n", StringComparison.Ordinal) > -1;
+                    string[] inputs;
                     if (builderMoreThanOne)
                     {
-                        this.builder.Clear();
-                        this.builder.Append(content.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries).Skip(1).Aggregate((c, n) => c + "\r\n" + n));
-                        content = content.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries).First();
+                        var split = builderString.Split(new[] { "\r\n" }, StringSplitOptions.None);
+                        inputs = split.Take(split.Length - 1).ToArray();
+                        builder.Clear();
+                        if (!string.IsNullOrEmpty(split.Last()))
+                            builder.Append(split.Last());
+                    }
+                    else
+                    {
+                        inputs = new[] { builderString };
+                        builder.Clear();
                     }
 
                     // All the data has been read from the 
@@ -309,73 +320,72 @@ namespace McNNTP.Core.Server
                             RemoteAddress,
                             RemotePort,
                             TLS ? "!" : ">",
-                            content.Length,
-                            content.TrimEnd('\r', '\n'));
+                            builderString.Length,
+                            builderString.TrimEnd('\r', '\n'));
                     else if (ShowBytes)
                         Logger.TraceFormat(
                             "{0}:{1} >{2}> {3} bytes",
                             RemoteAddress,
                             RemotePort,
                             TLS ? "!" : ">",
-                            content.Length);
+                            builderString.Length);
                     else if (ShowData)
                         Logger.TraceFormat(
                             "{0}:{1} >{2}> {3}",
                             RemoteAddress,
                             RemotePort,
                             TLS ? "!" : ">",
-                            content.TrimEnd('\r', '\n'));
-
-                    if (this.inProcessCommand != null && this.inProcessCommand.MessageHandler != null)
-                    {
-                        // Ongoing read - don't parse it for commands
-                        this.inProcessCommand = await inProcessCommand.MessageHandler(content, inProcessCommand);
-                        if (inProcessCommand != null && inProcessCommand.IsQuitting)
-                            inProcessCommand = null;
-                    }
-                    else
-                    {
-                        var parts = content.Split(' ');
-                        var tag = parts.First();
-                        if (parts.Length < 2) 
-                            await Send("{0} BAD unexpected end of data", "*");
+                            builderString.TrimEnd('\r', '\n'));
+                    
+                    foreach (var input in inputs)
+                    { 
+                        if (this.inProcessCommand != null && this.inProcessCommand.MessageHandler != null)
+                        {
+                            // Ongoing read - don't parse it for commands
+                            this.inProcessCommand = await inProcessCommand.MessageHandler(input, inProcessCommand);
+                            if (inProcessCommand != null && inProcessCommand.IsQuitting)
+                                inProcessCommand = null;
+                        }
                         else
                         {
-                            var command = parts.ElementAt(1).TrimEnd('\r', '\n').ToUpperInvariant();
-                            var phrase = parts.Skip(1).Aggregate((c, n) => c + " " + n).TrimEnd('\r', '\n');
-                            if (CommandDirectory.ContainsKey(command))
-                            {
-                                try
-                                {
-                                    if (ShowCommands)
-                                        Logger.TraceFormat(
-                                            "{0}:{1} >{2}> {3}",
-                                            RemoteAddress,
-                                            RemotePort,
-                                            TLS ? "!" : ">",
-                                            phrase);
-
-                                    var result = await CommandDirectory[command].Invoke(this, tag, phrase);
-
-                                    if (!result.IsHandled) 
-                                        await Send("{0} BAD unexpected end of data", "*");
-                                    else if (result.MessageHandler != null) this.inProcessCommand = result;
-                                    else if (result.IsQuitting) return;
-                                }
-                                catch (Exception ex)
-                                {
-                                    send403 = true;
-                                    Logger.Error("Exception processing a command", ex);
-                                    break;
-                                }
-                            }
-                            else
+                            var parts = input.Split(' ');
+                            var tag = parts.First();
+                            if (parts.Length < 2) 
                                 await Send("{0} BAD unexpected end of data", "*");
+                            else
+                            {
+                                var command = parts.ElementAt(1).TrimEnd('\r', '\n').ToUpperInvariant();
+                                var phrase = parts.Skip(1).Aggregate((c, n) => c + " " + n).TrimEnd('\r', '\n');
+                                if (CommandDirectory.ContainsKey(command))
+                                {
+                                    try
+                                    {
+                                        if (ShowCommands)
+                                            Logger.TraceFormat(
+                                                "{0}:{1} >{2}> {3}",
+                                                RemoteAddress,
+                                                RemotePort,
+                                                TLS ? "!" : ">",
+                                                phrase);
+
+                                        var result = await CommandDirectory[command].Invoke(this, tag, phrase);
+
+                                        if (!result.IsHandled) 
+                                            await Send("{0} BAD unexpected end of data", "*");
+                                        else if (result.MessageHandler != null) this.inProcessCommand = result;
+                                        else if (result.IsQuitting) return;
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Logger.Error("Exception processing a command", ex);
+                                        break;
+                                    }
+                                }
+                                else
+                                    await Send("{0} BAD unexpected end of data", tag);
+                            }
                         }
                     }
-
-                    if (!builderMoreThanOne)
-                        this.builder.Clear();
                 }
             }
             catch (DecoderFallbackException dfe)
@@ -496,6 +506,18 @@ namespace McNNTP.Core.Server
         #endregion
 
         #region Commands
+
+        private async Task<CommandProcessingResult> Close(string tag)
+        {
+            // TODO: Remove all deleted messages per RFC 3.5.0 6.4.2
+
+            CurrentCatalog = null;
+            CurrentMessageNumber = null;
+            
+            await Send("{0} OK CLOSE completed", tag);
+            return new CommandProcessingResult(true);
+        }
+
         /// <summary>
         /// Allows a user to authenticate
         /// </summary>
@@ -731,9 +753,18 @@ namespace McNNTP.Core.Server
                 await Send("{0} BAD Global catalogs temporarily offline", tag);
                 return new CommandProcessingResult(true);
             }
-    
-            foreach (var ng in globalCatalogs)
-                await Send(@"* LIST (\HasNoChildren) NIL {0}", ng.Name);
+
+            var mbox = match.Groups["mbox"].Value;
+
+            if (string.IsNullOrEmpty(mbox))
+                foreach (var ng in globalCatalogs.AsParallel())
+                    await Send(@"* LIST (\HasNoChildren) {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", ng.Name);
+            else
+            {
+                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
+                foreach (var ng in globalCatalogs.AsParallel().Where(c => regex.IsMatch(c.Name)))
+                    await Send(@"* LIST (\HasNoChildren) {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", ng.Name);
+            }
 
             var personalCatalogs = _store.GetPersonalCatalogs(Identity);
             if (personalCatalogs == null)
@@ -742,8 +773,15 @@ namespace McNNTP.Core.Server
                 return new CommandProcessingResult(true);
             }
 
-            foreach (var ng in personalCatalogs)
-                await Send(@"* LIST (\HasNoChildren) NIL {0}", ng.Name);
+            if (string.IsNullOrEmpty(mbox))
+                foreach (var ng in personalCatalogs)
+                    await Send(@"* LIST (\HasNoChildren) {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", ng.Name);
+            else
+            {
+                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
+                foreach (var ng in personalCatalogs.AsParallel().Where(c => regex.IsMatch(c.Name)))
+                    await Send(@"* LIST (\HasNoChildren) {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", ng.Name);
+            }
             
             await Send("{0} OK LIST completed.", tag);
             return new CommandProcessingResult(true);
