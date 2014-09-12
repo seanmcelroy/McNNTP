@@ -117,13 +117,15 @@ namespace McNNTP.Core.Server
         {
             CommandDirectory = new Dictionary<string, Func<ImapConnection, string, string, Task<CommandProcessingResult>>>
                 {
+                    { "CHECK", async (c, tag, command) => await c.Noop("CHECK", tag) },
                     { "CLOSE", async (c, tag, command) => await c.Close(tag) },
+                    { "CREATE", async (c, tag, command) => await c.Create(tag, command) },
                     { "LOGIN", async (c, tag, command) => await c.Login(tag, command) },
                     { "LSUB", async (c, tag, command) => await c.LSub(tag, command) },
                     { "CAPABILITY", async (c, tag, command) => await c.Capability(tag) },
                     { "LIST", async (c, tag, command) => await c.List(tag, command) },
                     { "LOGOUT", async (c, tag, command) => await c.Logout(tag) },
-                    { "NOOP", async (c, tag, command) => await c.Noop(tag) },
+                    { "NOOP", async (c, tag, command) => await c.Noop("NOOP", tag) },
                     { "SELECT", async (c, tag, command) => await c.Select(tag, command) },
                     { "STATUS", async (c, tag, command) => await c.Status(tag, command) },
                     { "UID", async (c, tag, command) => await c.Uid(tag, command) }
@@ -518,6 +520,41 @@ namespace McNNTP.Core.Server
             return new CommandProcessingResult(true);
         }
 
+        private async Task<CommandProcessingResult> Create(string tag, string command)
+        {
+            if (Identity == null)
+            {
+                await Send("{0} NO Connection not yet authenticated", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            var match = Regex.Match(command, @"CREATE\s(""(?<mbox>[^""]+)""|(?<mbox>[^\s]+))", RegexOptions.IgnoreCase);
+            if (!match.Success)
+            {
+                await Send("{0} BAD Unable to parse CREATE parameters", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            // RFC 3501 6.3.3: If the mailbox name is suffixed with the server's hierarchy
+            // separator character (as returned from the server by a LIST
+            // command), this is a declaration that the client intends to create
+            // mailbox names under this name in the hierarchy.  Server
+            // implementations that do not require this declaration MUST ignore
+            // the declaration.  In any case, the name created is without the
+            // trailing hierarchy delimiter.
+            var mbox = match.Groups["mbox"].Value;
+            if (HierarchyDelimiter != "NIL" && mbox.EndsWith(HierarchyDelimiter, StringComparison.OrdinalIgnoreCase))
+                mbox = mbox.Substring(0, mbox.Length - HierarchyDelimiter.Length);
+
+            var result = _store.CreatePersonalCatalog(Identity, mbox);
+            if (result)
+                await Send("{0} OK CREATE completed", tag);
+            else
+                await Send("{0} NO CREATE failed", tag);
+
+            return new CommandProcessingResult(true);
+        }
+
         /// <summary>
         /// Allows a user to authenticate
         /// </summary>
@@ -647,17 +684,17 @@ namespace McNNTP.Core.Server
         }
 
         [NotNull]
-        private async Task<CommandProcessingResult> Noop(string tag)
+        private async Task<CommandProcessingResult> Noop(string match, string tag)
         {
             // TODO: See note in RFC 3501 6.1.2 - This could be improved to return unread message count for periodic polling
-            if (CurrentCatalog != null)
+            if (Identity != null && CurrentCatalog != null)
             {
                 var catalog = _store.GetCatalogByName(Identity, CurrentCatalog);
                 if (catalog != null)
                     await Send("* {0} EXISTS", catalog.MessageCount);
             }
 
-            await Send("{0} OK NOOP completed", tag);
+            await Send("{0} OK {1} completed", tag, match);
             return new CommandProcessingResult(true);
         }
 
@@ -720,7 +757,33 @@ namespace McNNTP.Core.Server
 
         private async Task<CommandProcessingResult> LSub(string tag, string command)
         {
-            // TODO: Implement server-side subscriptions
+            if (Identity == null)
+            {
+                await Send("{0} NO Connection not yet authenticated", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            var match = Regex.Match(command, @"LSUB\s(""(?<ref>[^""]+)""|(?<ref>[^\s]+))\s(""(?<mbox>[^""]*)""|(?<mbox>.*))", RegexOptions.IgnoreCase);
+            if (!match.Success)
+            {
+                await Send("{0} BAD Unable to parse LSUB parameters", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            var mbox = match.Groups["mbox"].Value;
+
+            var subs = _store.GetSubscriptions(Identity);
+
+            if (string.IsNullOrEmpty(mbox))
+                foreach (var sub in subs.AsParallel())
+                    await Send(@"* LSUB () {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", sub);
+            else
+            {
+                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
+                foreach (var sub in subs.AsParallel().Where(c => regex.IsMatch(c)))
+                    await Send(@"* LSUB () {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", sub);
+            }
+
             await Send("{0} OK LSUB completed", tag);
             return new CommandProcessingResult(true);
         }
@@ -774,7 +837,7 @@ namespace McNNTP.Core.Server
             }
 
             if (string.IsNullOrEmpty(mbox))
-                foreach (var ng in personalCatalogs)
+                foreach (var ng in personalCatalogs.AsParallel())
                     await Send(@"* LIST (\HasNoChildren) {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", ng.Name);
             else
             {

@@ -1,0 +1,12 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<hibernate-mapping xmlns="urn:nhibernate-mapping-2.2" auto-import="true" assembly="McNNTP.Data" namespace="McNNTP.Data">
+  <class name="Subscription" table="Subscription" lazy="true">
+    <id name="Id" type="Int32">
+      <generator class="native" />
+    </id>
+    
+    <many-to-one name="Owner" column="OwnerUserId" not-null="true" lazy="false" />
+
+    <property name="Newsgroup" not-null="true" type="String" length="8192" unique="true" update="false" />
+  </class>
+</hibernate-mapping>

@@ -25,6 +25,9 @@ namespace McNNTP.Core.Database
     using NHibernate;
     using NHibernate.Linq;
 
+    /// <summary>
+    /// A provider of a store that is backed by a SQLite database
+    /// </summary>
     public class SqliteStoreProvider : IStoreProvider
     {
         /// <summary>
@@ -141,6 +144,58 @@ namespace McNNTP.Core.Database
         }
 
         /// <summary>
+        /// Creates a personal catalog
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <param name="catalogName">The name of the personal catalog</param>
+        /// <returns>A value indicating whether the operation was successful</returns>
+        public bool CreatePersonalCatalog(IIdentity identity, string catalogName)
+        {
+            if (string.Compare(catalogName, "INBOX", StringComparison.OrdinalIgnoreCase) == 0)
+                return false;
+
+            try
+            {
+                using (var session = SessionUtility.OpenSession())
+                {
+                    var owner = session.Query<User>().SingleOrDefault(u => u.Username == identity.Username);
+                    if (owner == null)
+                        return false;
+
+                    var catalog = session.Query<Newsgroup>().SingleOrDefault(ng => ng.Name == catalogName && ng.Owner.Id == owner.Id);
+                    if (catalog != null)
+                        return false;
+
+                    catalog = new Newsgroup
+                              {
+                                  CreateDate = DateTime.UtcNow,
+                                  CreatorEntity = identity.Username,
+                                  DenyLocalPosting = false,
+                                  DenyPeerPosting = true,
+                                  Description = "Personal inbox for " + identity.Username,
+                                  Moderated = false,
+                                  Name = catalogName,
+                                  Owner = owner
+                              };
+                    session.Save(catalog);
+                    session.Close();
+                }
+            }
+            catch (MappingException mex)
+            {
+                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                _Logger.Error("Exception when trying to handle LIST", ex);
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Retrieves a user by their clear-text username and password
         /// </summary>
         /// <param name="username">The username of the user</param>
@@ -176,7 +231,7 @@ namespace McNNTP.Core.Database
         [CanBeNull]
         public IEnumerable<IMessage> GetMessages(IIdentity identity, string catalogName, int fromId, int? toId)
         {
-            IList<IMessage> articleNewsgroups = null;
+            IList<IMessage> articleNewsgroups;
 
             using (var session = SessionUtility.OpenSession())
             {
@@ -235,6 +290,38 @@ namespace McNNTP.Core.Database
             }
 
             return articleNewsgroups;
+        }
+
+        /// <summary>
+        /// Retrieves the list of catalogs a user has identified as 'active' or 'subscribed' for themselves
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <returns>A list of catalog names that are subscribed to by the specified <paramref name="identity"/></returns>
+        public IEnumerable<string> GetSubscriptions(IIdentity identity)
+        {
+            var subscriptions = new string[0];
+
+            try
+            {
+                using (var session = SessionUtility.OpenSession())
+                {
+                    var owner = session.Query<User>().SingleOrDefault(u => u.Username == identity.Username);
+                    if (owner != null)
+                        subscriptions = session.Query<Subscription>().Where(ng => ng.Owner.Id == owner.Id).Select(ng => ng.Newsgroup).ToArray();
+
+                    session.Close();
+                }
+            }
+            catch (MappingException mex)
+            {
+                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+            }
+            catch (Exception ex)
+            {
+                _Logger.Error("Exception when trying to handle LIST", ex);
+            }
+
+            return subscriptions;
         }
     }
 }

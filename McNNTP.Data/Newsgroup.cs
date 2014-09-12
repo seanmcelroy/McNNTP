@@ -22,10 +22,20 @@ namespace McNNTP.Data
     /// <summary>
     /// A related forum for articles to be posted into and replied within
     /// </summary>
+    // ReSharper disable once ClassWithVirtualMembersNeverInherited.Global
     public class Newsgroup : ICatalog
     {
+        /// <summary>
+        /// Gets or sets the unique identifier for the catalog within a store
+        /// </summary>
+        /// <remarks>This field must be unique</remarks>
+        // ReSharper disable once MemberCanBeProtected.Global
         public virtual int Id { get; set; }
 
+        /// <summary>
+        /// Gets or sets the unique identifier for the catalog within a store
+        /// </summary>
+        /// <remarks>This field must be unique</remarks>
         string ICatalog.Id
         {
             get
@@ -47,6 +57,7 @@ namespace McNNTP.Data
         /// typically personal mailboxes, and can only be enumerated by the user that owns
         /// them.
         /// </summary>
+        [CanBeNull]
         public virtual User Owner { get; set; }
 
         /// <summary>
@@ -75,6 +86,9 @@ namespace McNNTP.Data
         /// </summary>
         public virtual bool Moderated { get; set; }
 
+        /// <summary>
+        /// Gets or sets the number of total messages in the catalog
+        /// </summary>
         public virtual int MessageCount { get; set; }
 
         public virtual int? LowWatermark { get; set; }
@@ -84,8 +98,14 @@ namespace McNNTP.Data
         /// </summary>
         public virtual int? HighWatermark { get; set; }
 
+        /// <summary>
+        /// Gets or sets the date and time the catalog was created, if known
+        /// </summary>
         public virtual DateTime CreateDate { get; set; }
 
+        /// <summary>
+        /// Gets or sets the date and time the catalog was created, if known
+        /// </summary>
         DateTime? ICatalog.CreateDateUtc
         {
             get

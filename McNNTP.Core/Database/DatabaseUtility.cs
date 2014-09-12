@@ -109,7 +109,6 @@ namespace McNNTP.Core.Database
                 using (var session = SessionUtility.OpenSession())
                 {
                     var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
-                    var all = !session.Query<Newsgroup>().Any(n => n.Name == "freenews.config");
                     if (newsgroupCount == 0 && !quiet)
                         Logger.Warn("Verified database has 0 newsgroups");
                     else if (!quiet)
