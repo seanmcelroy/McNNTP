@@ -15,8 +15,6 @@ namespace McNNTP.Core.Database
     using System.Security.Cryptography;
     using System.Text;
 
-    using JetBrains.Annotations;
-
     using log4net;
 
     using McNNTP.Common;
@@ -76,6 +74,7 @@ namespace McNNTP.Core.Database
                 ng = session.Query<Newsgroup>().AddMetagroups(session, identity).SingleOrDefault(n => n.Name == name);
                 session.Close();
             }
+
             return ng;
         }
 
@@ -228,7 +227,14 @@ namespace McNNTP.Core.Database
             return admin;
         }
 
-        [CanBeNull]
+        /// <summary>
+        /// Retrieves an enumeration of messages available in the specified catalog
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <param name="catalogName">The name of the catalog in which to retrieve messages</param>
+        /// <param name="fromId">The lower bound of the message identifier range to retrieve</param>
+        /// <param name="toId">If specified, the upper bound of the message identifier range to retrieve</param>
+        /// <returns>An enumeration of messages available in the specified catalog</returns>
         public IEnumerable<IMessage> GetMessages(IIdentity identity, string catalogName, int fromId, int? toId)
         {
             IList<IMessage> articleNewsgroups;
@@ -293,6 +299,88 @@ namespace McNNTP.Core.Database
         }
 
         /// <summary>
+        /// Creates a subscription for a user to a catalog, indicating it is 'active' or 'subscribed' for that user
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <param name="catalogName">The name of the catalog in which to subscribe the user</param>
+        /// <returns>A value indicating whether the operation was successful</returns>
+        public bool CreateSubscription(IIdentity identity, string catalogName)
+        {
+            var success = false;
+            
+            try
+            {
+                using (var session = SessionUtility.OpenSession())
+                {
+                    var owner = session.Query<User>().SingleOrDefault(u => u.Username == identity.Username);
+                    if (owner != null)
+                    {
+                        session.Save(new Subscription
+                                     {
+                                         Newsgroup = catalogName,
+                                         Owner = owner
+                                     });
+                        success = true;
+                    }
+
+                    session.Close();
+                }
+            }
+            catch (MappingException mex)
+            {
+                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+            }
+            catch (Exception ex)
+            {
+                _Logger.Error("Exception when trying to handle SUBSCRIBE", ex);
+            }
+
+            return success;
+        }
+
+        /// <summary>
+        /// Deletes a subscription for a user from a catalog, indicating it is 'active' or 'subscribed' for that user
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <param name="catalogName">The name of the catalog in which to subscribe the user</param>
+        /// <returns>A value indicating whether the operation was successful</returns>
+        public bool DeleteSubscription(IIdentity identity, string catalogName)
+        {
+            var success = false;
+
+            try
+            {
+                using (var session = SessionUtility.OpenSession())
+                {
+                    var owner = session.Query<User>().SingleOrDefault(u => u.Username == identity.Username);
+                    if (owner != null)
+                    {
+                        var sub = session.Query<Subscription>().SingleOrDefault(s => s.Owner.Id == owner.Id && s.Newsgroup == catalogName);
+                        if (sub != null)
+                        {
+                            session.Delete(sub);
+                            session.Flush();
+                        }
+
+                        success = true;
+                    }
+
+                    session.Close();
+                }
+            }
+            catch (MappingException mex)
+            {
+                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+            }
+            catch (Exception ex)
+            {
+                _Logger.Error("Exception when trying to handle UNSUBSCRIBE", ex);
+            }
+
+            return success;
+        }
+
+        /// <summary>
         /// Retrieves the list of catalogs a user has identified as 'active' or 'subscribed' for themselves
         /// </summary>
         /// <param name="identity">The identity of the user making the request</param>
@@ -318,7 +406,7 @@ namespace McNNTP.Core.Database
             }
             catch (Exception ex)
             {
-                _Logger.Error("Exception when trying to handle LIST", ex);
+                _Logger.Error("Exception when trying to handle LSUB", ex);
             }
 
             return subscriptions;

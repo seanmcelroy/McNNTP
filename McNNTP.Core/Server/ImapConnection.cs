@@ -116,20 +116,22 @@ namespace McNNTP.Core.Server
         static ImapConnection()
         {
             CommandDirectory = new Dictionary<string, Func<ImapConnection, string, string, Task<CommandProcessingResult>>>
-                {
-                    { "CHECK", async (c, tag, command) => await c.Noop("CHECK", tag) },
-                    { "CLOSE", async (c, tag, command) => await c.Close(tag) },
-                    { "CREATE", async (c, tag, command) => await c.Create(tag, command) },
-                    { "LOGIN", async (c, tag, command) => await c.Login(tag, command) },
-                    { "LSUB", async (c, tag, command) => await c.LSub(tag, command) },
-                    { "CAPABILITY", async (c, tag, command) => await c.Capability(tag) },
-                    { "LIST", async (c, tag, command) => await c.List(tag, command) },
-                    { "LOGOUT", async (c, tag, command) => await c.Logout(tag) },
-                    { "NOOP", async (c, tag, command) => await c.Noop("NOOP", tag) },
-                    { "SELECT", async (c, tag, command) => await c.Select(tag, command) },
-                    { "STATUS", async (c, tag, command) => await c.Status(tag, command) },
-                    { "UID", async (c, tag, command) => await c.Uid(tag, command) }
-                };
+                               {
+                                   { "CHECK", async (c, tag, command) => await c.Noop("CHECK", tag) },
+                                   { "CLOSE", async (c, tag, command) => await c.Close(tag) },
+                                   { "CREATE", async (c, tag, command) => await c.Create(tag, command) },
+                                   { "LOGIN", async (c, tag, command) => await c.Login(tag, command) },
+                                   { "LSUB", async (c, tag, command) => await c.LSub(tag, command) },
+                                   { "CAPABILITY", async (c, tag, command) => await c.Capability(tag) },
+                                   { "LIST", async (c, tag, command) => await c.List(tag, command) },
+                                   { "LOGOUT", async (c, tag, command) => await c.Logout(tag) },
+                                   { "NOOP", async (c, tag, command) => await c.Noop("NOOP", tag) },
+                                   { "SELECT", async (c, tag, command) => await c.Select(tag, command) },
+                                   { "SUBSCRIBE", async (c, tag, command) => await c.Subscribe(tag, command) },
+                                   { "STATUS", async (c, tag, command) => await c.Status(tag, command) },
+                                   { "UID", async (c, tag, command) => await c.Uid(tag, command) },
+                                   { "UNSUBSCRIBE", async (c, tag, command) => await c.Unsubscribe(tag, command) }
+                               };
         }
 
         /// <summary>
@@ -280,7 +282,7 @@ namespace McNNTP.Core.Server
 
                     if (!this.stream.CanRead)
                     {
-                        await Shutdown();
+                        Shutdown();
                         return;
                     }
 
@@ -495,7 +497,10 @@ namespace McNNTP.Core.Server
             }
         }
 
-        public async Task Shutdown()
+        /// <summary>
+        /// Shuts down the IMAP connection
+        /// </summary>
+        public void Shutdown()
         {
             if (this.client.Connected)
             {
@@ -679,7 +684,7 @@ namespace McNNTP.Core.Server
             await Send("* BYE IMAP4rev1 Server logging out");
             await Send("{0} OK LOGOUT completed", tag);
 
-            await Shutdown();
+            Shutdown();
             return new CommandProcessingResult(true, true);
         }
 
@@ -785,6 +790,71 @@ namespace McNNTP.Core.Server
             }
 
             await Send("{0} OK LSUB completed", tag);
+            return new CommandProcessingResult(true);
+        }
+
+        private async Task<CommandProcessingResult> Subscribe(string tag, string command)
+        {
+            if (Identity == null)
+            {
+                await Send("{0} NO Connection not yet authenticated", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            var match = Regex.Match(command, @"SUBSCRIBE\s(""(?<mbox>[^""]*)""|(?<mbox>.*))", RegexOptions.IgnoreCase);
+            if (!match.Success || string.IsNullOrWhiteSpace(match.Groups["mbox"].Value))
+            {
+                await Send("{0} BAD Unable to parse SUBSCRIBE parameters", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            var mbox = match.Groups["mbox"].Value;
+
+            var subs = _store.GetSubscriptions(Identity).ToArray();
+
+            if (subs.Any(s => string.Compare(s, mbox, StringComparison.OrdinalIgnoreCase) == 0))
+            {
+                // Already subscribed
+                await Send("{0} OK SUBSCRIBE completed", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            if (_store.CreateSubscription(Identity, mbox))
+            {
+                await Send("{0} OK SUBSCRIBE completed", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            await Send("{0} NO SUBSCRIBE failed", tag);
+            return new CommandProcessingResult(true);
+        }
+
+        private async Task<CommandProcessingResult> Unsubscribe(string tag, string command)
+        {
+            if (Identity == null)
+            {
+                await Send("{0} NO Connection not yet authenticated", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            var match = Regex.Match(command, @"UNSUBSCRIBE\s(""(?<mbox>[^""]*)""|(?<mbox>.*))", RegexOptions.IgnoreCase);
+            if (!match.Success || string.IsNullOrWhiteSpace(match.Groups["mbox"].Value))
+            {
+                await Send("{0} BAD Unable to parse UNSUBSCRIBE parameters", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            var mbox = match.Groups["mbox"].Value;
+
+            var subs = _store.GetSubscriptions(Identity).ToArray();
+
+            if (subs.Any(s => string.Compare(s, mbox, StringComparison.OrdinalIgnoreCase) == 0) && _store.DeleteSubscription(Identity, mbox))
+            {
+                await Send("{0} OK UNSUBSCRIBE completed", tag);
+                return new CommandProcessingResult(true);
+            }
+
+            await Send("{0} NO UNSUBSCRIBE failed", tag);
             return new CommandProcessingResult(true);
         }
 

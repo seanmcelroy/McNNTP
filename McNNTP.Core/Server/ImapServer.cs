@@ -250,7 +250,7 @@ namespace McNNTP.Core.Server
                 }
             }
 
-            Task.WaitAll(this.connections.Select(connection => connection.Shutdown()).ToArray());
+            Parallel.ForEach(connections, c => c.Shutdown());
 
             foreach (var thread in this.listeners)
             {

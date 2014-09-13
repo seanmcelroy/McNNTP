@@ -75,11 +75,30 @@ namespace McNNTP.Common
         /// <summary>
         /// Retrieves an enumeration of messages available in the specified catalog
         /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
         /// <param name="catalogName">The name of the catalog in which to retrieve messages</param>
+        /// <param name="fromId">The lower bound of the message identifier range to retrieve</param>
+        /// <param name="toId">If specified, the upper bound of the message identifier range to retrieve</param>
         /// <returns>An enumeration of messages available in the specified catalog</returns>
         [CanBeNull]
         [Pure]
         IEnumerable<IMessage> GetMessages([NotNull] IIdentity identity, [NotNull] string catalogName, int fromId, int? toId);
+
+        /// <summary>
+        /// Creates a subscription for a user to a catalog, indicating it is 'active' or 'subscribed' for that user
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <param name="catalogName">The name of the catalog in which to subscribe the user</param>
+        /// <returns>A value indicating whether the operation was successful</returns>
+        bool CreateSubscription([NotNull] IIdentity identity, [NotNull] string catalogName);
+
+        /// <summary>
+        /// Deletes a subscription for a user from a catalog, indicating it is 'active' or 'subscribed' for that user
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <param name="catalogName">The name of the catalog in which to subscribe the user</param>
+        /// <returns>A value indicating whether the operation was successful</returns>
+        bool DeleteSubscription([NotNull] IIdentity identity, [NotNull] string catalogName);
 
         /// <summary>
         /// Retrieves the list of catalogs a user has identified as 'active' or 'subscribed' for themselves

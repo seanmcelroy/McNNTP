@@ -5,7 +5,7 @@
       <generator class="native" />
     </id>
     
-    <many-to-one name="Owner" column="OwnerUserId" not-null="true" lazy="false" />
+    <many-to-one name="Owner" column="OwnerUserId" not-null="false" lazy="false" />
 
     <property name="Name" not-null="true" type="String" length="8192" unique="true" update="false" />
     <property name="Description" />
