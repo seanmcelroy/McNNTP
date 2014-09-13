@@ -34,6 +34,33 @@ namespace McNNTP.Core.Database
         private static readonly ILog _Logger = LogManager.GetLogger(typeof(SqliteStoreProvider));
 
         /// <summary>
+        /// The delimiter used to separate levels of a catalog hierarchy
+        /// </summary>
+        private readonly string hierarchyDelimiter;
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SqliteStoreProvider"/> class.
+        /// </summary>
+        /// <param name="hierarchyDelimiter">
+        /// The delimiter used to separate levels of a catalog hierarchy
+        /// </param>
+        public SqliteStoreProvider(string hierarchyDelimiter = "/")
+        {
+            this.hierarchyDelimiter = hierarchyDelimiter;
+        }
+
+        /// <summary>
+        /// Gets the delimiter used to separate levels of a catalog hierarchy
+        /// </summary>
+        public string HierarchyDelimiter
+        {
+            get
+            {
+                return hierarchyDelimiter;
+            }
+        }
+
+        /// <summary>
         /// Ensures a user has any requisite initialization in the store performed prior to their execution of other store methods
         /// </summary>
         /// <param name="identity">The identity of the user to ensure is initialized properly in the store</param>
@@ -87,12 +114,20 @@ namespace McNNTP.Core.Database
         public IEnumerable<ICatalog> GetGlobalCatalogs(IIdentity identity, string parentCatalogName)
         {
             IEnumerable<Newsgroup> newsGroups = null;
+            if (this.HierarchyDelimiter == "NIL")
+                return null;
 
             try
             {
                 using (var session = SessionUtility.OpenSession())
                 {
-                    newsGroups = session.Query<Newsgroup>().Where(n => n.Owner == null).AddMetagroups(session, identity).OrderBy(n => n.Name).ToList();
+                    newsGroups = session.Query<Newsgroup>()
+                        .Where(n => n.Owner == null)
+                        .ToList()
+                        .Where(n =>
+                            (parentCatalogName == null && (HierarchyDelimiter == "NIL" || n.Name.IndexOf(HierarchyDelimiter, StringComparison.OrdinalIgnoreCase) == -1)) ||
+                            (parentCatalogName != null && (HierarchyDelimiter != "NIL" && n.Name.StartsWith(parentCatalogName + HierarchyDelimiter))))
+                        .AddMetagroups(session, identity).OrderBy(n => n.Name).ToList();
                     session.Close();
                 }
             }
@@ -126,7 +161,13 @@ namespace McNNTP.Core.Database
             {
                 using (var session = SessionUtility.OpenSession())
                 {
-                    newsGroups = session.Query<Newsgroup>().Where(n => n.Owner.Id == identityId).OrderBy(n => n.Name).ToList();
+                    newsGroups = session.Query<Newsgroup>()
+                        .Where(n => n.Owner.Id == identityId)
+                        .ToList()
+                        .Where(n =>
+                            (parentCatalogName == null && (HierarchyDelimiter == "NIL" || n.Name.IndexOf(HierarchyDelimiter, StringComparison.OrdinalIgnoreCase) == -1)) ||
+                            (parentCatalogName != null && (HierarchyDelimiter != "NIL" && n.Name.StartsWith(parentCatalogName + HierarchyDelimiter))))
+                        .OrderBy(n => n.Name).ToList();
                     session.Close();
                 }
             }

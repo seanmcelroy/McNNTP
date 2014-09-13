@@ -250,7 +250,11 @@ namespace McNNTP.Core.Server
                 }
             }
 
-            Parallel.ForEach(connections, c => c.Shutdown());
+            Parallel.ForEach(connections, async c =>
+            {
+                await c.Send("* BYE Server shutting down");
+                c.Shutdown();
+            });
 
             foreach (var thread in this.listeners)
             {

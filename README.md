@@ -21,6 +21,8 @@ under development is a full RFC-compliant NNTP (USENET) news server that adheres
 * [RFC 6048](http://tools.ietf.org/html/rfc6048) - NNTP Additions to LIST Command
 
 * [RFC 3501](http://tools.ietf.org/html/rfc3501) - INTERNET MESSAGE ACCESS PROTOCOL - VERSION 4rev1
+* [RFC 3348](http://tools.ietf.org/html/rfc3348) - IMAP4 Child Mailbox Extension
+* [RFC 6154](http://tools.ietf.org/html/rfc6154) - IMAP LIST Extension for Special-Use Mailboxes
 
 
 (See http://www.tin.org/docs.html)

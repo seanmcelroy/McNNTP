@@ -1,5 +1,5 @@
 ﻿// --------------------------------------------------------------------------------------------------------------------
-// <copyright file="Connection.cs" company="Sean McElroy">
+// <copyright file="ImapConnection.cs" company="Sean McElroy">
 //   Copyright Sean McElroy, 2014.  All rights reserved.
 // </copyright>
 // <summary>
@@ -29,8 +29,6 @@ namespace McNNTP.Core.Server
     /// </summary>
     internal class ImapConnection
     {
-        private const string HierarchyDelimiter = "/";
-
         /// <summary>
         /// The size of the stream receive buffer
         /// </summary>
@@ -39,7 +37,7 @@ namespace McNNTP.Core.Server
         /// <summary>
         /// A command-indexed dictionary with function pointers to support client command
         /// </summary>
-        private static readonly new Dictionary<string, Func<ImapConnection, string, string, Task<CommandProcessingResult>>> CommandDirectory;
+        private static readonly Dictionary<string, Func<ImapConnection, string, string, Task<CommandProcessingResult>>> CommandDirectory;
 
         /// <summary>
         /// The logging utility instance to use to log events from this class
@@ -137,6 +135,7 @@ namespace McNNTP.Core.Server
         /// <summary>
         /// Initializes a new instance of the <see cref="ImapConnection"/> class.
         /// </summary>
+        /// <param name="store">The catalog and message store to use to back operations for this connection</param>
         /// <param name="server">The server instance that owns this connection</param>
         /// <param name="client">The <see cref="TcpClient"/> that accepted this connection</param>
         /// <param name="stream">The <see cref="Stream"/> from the <paramref name="client"/></param>
@@ -151,10 +150,8 @@ namespace McNNTP.Core.Server
             this._store = store;
 
             AllowStartTls = server.AllowStartTLS;
-            CanPost = server.AllowPosting;
             this.client = client;
             this.client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-            PathHost = server.PathHost;
             ShowBytes = server.ShowBytes;
             ShowCommands = server.ShowCommands;
             ShowData = server.ShowData;
@@ -177,15 +174,11 @@ namespace McNNTP.Core.Server
         [PublicAPI]
         public bool AllowStartTls { get; set; }
 
-        public bool CanPost { get; private set; }
-
         public bool ShowBytes { get; set; }
 
         public bool ShowCommands { get; set; }
 
         public bool ShowData { get; set; }
-
-        public string PathHost { get; set; }
 
         #region Authentication
         [CanBeNull]
@@ -266,6 +259,9 @@ namespace McNNTP.Core.Server
         #endregion
 
         #region IO and Connection Management
+        /// <summary>
+        /// The primary processing loop for an active connection
+        /// </summary>
         public async void Process()
         {
             await Send("* OK IMAP4rev1 Service Ready");
@@ -282,6 +278,7 @@ namespace McNNTP.Core.Server
 
                     if (!this.stream.CanRead)
                     {
+                        await Send("* BYE Unable to read from stream");
                         Shutdown();
                         return;
                     }
@@ -429,7 +426,7 @@ namespace McNNTP.Core.Server
         /// <param name="args">The argument applied as a format string to <paramref name="format"/> to create the data to send to the client</param>
         /// <returns>A value indicating whether or not the transmission was successful</returns>
         [StringFormatMethod("format"), NotNull]
-        private async Task<bool> Send([NotNull] string format, [NotNull] params object[] args)
+        protected internal async Task<bool> Send([NotNull] string format, [NotNull] params object[] args)
         {
             if (args.Length == 0)
                 return await SendInternal(format + "\r\n", false);
@@ -548,8 +545,8 @@ namespace McNNTP.Core.Server
             // the declaration.  In any case, the name created is without the
             // trailing hierarchy delimiter.
             var mbox = match.Groups["mbox"].Value;
-            if (HierarchyDelimiter != "NIL" && mbox.EndsWith(HierarchyDelimiter, StringComparison.OrdinalIgnoreCase))
-                mbox = mbox.Substring(0, mbox.Length - HierarchyDelimiter.Length);
+            if (_store.HierarchyDelimiter != "NIL" && mbox.EndsWith(_store.HierarchyDelimiter, StringComparison.OrdinalIgnoreCase))
+                mbox = mbox.Substring(0, mbox.Length - _store.HierarchyDelimiter.Length);
 
             var result = _store.CreatePersonalCatalog(Identity, mbox);
             if (result)
@@ -662,7 +659,7 @@ namespace McNNTP.Core.Server
         /// Handles the CAPABILITY command from a client, which allows a client to retrieve a list
         /// of the functionality available in this server. 
         /// </summary>
-        /// <param name="tag">The tag</param>
+        /// <param name="tag">The tag for the command sequence as sent by the client</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.1.1">RFC 3501</a> for more information.</remarks>
         private async Task<CommandProcessingResult> Capability(string tag)
@@ -675,7 +672,7 @@ namespace McNNTP.Core.Server
         /// <summary>
         /// Handles the LOGOUT command from a client, which shuts down the socket and destroys this object.
         /// </summary>
-        /// <param name="tag">The tag</param>
+        /// <param name="tag">The tag for the command sequence as sent by the client</param>
         /// <returns>A command processing result specifying the connection is quitting.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.1.3">RFC 3501</a> for more information.</remarks>
         [NotNull]
@@ -688,8 +685,15 @@ namespace McNNTP.Core.Server
             return new CommandProcessingResult(true, true);
         }
 
+        /// <summary>
+        /// Handles the NOOP command from a client, which does nothing
+        /// </summary>
+        /// <param name="match">The specific command supplied.  This one method can handle other commands that are NOOP operations, such as CHECK.</param>
+        /// <param name="tag">The tag for the command sequence as sent by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.1.2">RFC 3501</a> for more information.</remarks>
         [NotNull]
-        private async Task<CommandProcessingResult> Noop(string match, string tag)
+        private async Task<CommandProcessingResult> Noop([NotNull] string match, [NotNull] string tag)
         {
             // TODO: See note in RFC 3501 6.1.2 - This could be improved to return unread message count for periodic polling
             if (Identity != null && CurrentCatalog != null)
@@ -704,18 +708,14 @@ namespace McNNTP.Core.Server
         }
 
         /// <summary>
-        /// Handles the DATE command from a client, which allows a client to retrieve the current
-        /// time from the server's perspective
+        /// Handles the SELECT command from a client, which focuses on a particular catalog for other operations
         /// </summary>
+        /// <param name="tag">The tag for the command sequence as sent by the client</param>
+        /// <param name="command">The full command received by the client</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
-        /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-7.1">RFC 3977</a> for more information.</remarks>
-        private async Task<CommandProcessingResult> Date()
-        {
-            await Send("111 {0:yyyyMMddHHmmss}", DateTime.UtcNow);
-            return new CommandProcessingResult(true);
-        }
-
-        private async Task<CommandProcessingResult> Select(string tag, string command)
+        /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.3.1">RFC 3501</a> for more information.</remarks>
+        [NotNull]
+        private async Task<CommandProcessingResult> Select([NotNull] string tag, [NotNull] string command)
         {
             if (Identity == null)
             {
@@ -760,7 +760,7 @@ namespace McNNTP.Core.Server
             return new CommandProcessingResult(true);
         }
 
-        private async Task<CommandProcessingResult> LSub(string tag, string command)
+        private async Task<CommandProcessingResult> LSub([NotNull] string tag, [NotNull] string command)
         {
             if (Identity == null)
             {
@@ -781,19 +781,20 @@ namespace McNNTP.Core.Server
 
             if (string.IsNullOrEmpty(mbox))
                 foreach (var sub in subs.AsParallel())
-                    await Send(@"* LSUB () {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", sub);
+                    await Send(@"* LSUB () {0} {1}", _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", sub);
             else
             {
-                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
+                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", _store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(_store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
                 foreach (var sub in subs.AsParallel().Where(c => regex.IsMatch(c)))
-                    await Send(@"* LSUB () {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", sub);
+                    await Send(@"* LSUB () {0} {1}", _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", sub);
             }
 
             await Send("{0} OK LSUB completed", tag);
             return new CommandProcessingResult(true);
         }
 
-        private async Task<CommandProcessingResult> Subscribe(string tag, string command)
+        [NotNull] 
+        private async Task<CommandProcessingResult> Subscribe([NotNull] string tag, [NotNull] string command)
         {
             if (Identity == null)
             {
@@ -865,7 +866,8 @@ namespace McNNTP.Core.Server
         /// <param name="content">The full command request provided by the client</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-7.6.1">RFC 3977</a> for more information.</remarks>
-        private async Task<CommandProcessingResult> List(string tag, string command)
+        [NotNull]
+        private async Task<CommandProcessingResult> List([NotNull] string tag, [NotNull] string command)
         {
             if (Identity == null)
             {
@@ -891,12 +893,18 @@ namespace McNNTP.Core.Server
 
             if (string.IsNullOrEmpty(mbox))
                 foreach (var ng in globalCatalogs.AsParallel())
-                    await Send(@"* LIST (\HasNoChildren) {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", ng.Name);
+                {
+                    var flags = GetFlags(Identity, ng.Name, _store);
+                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", ng.Name);
+                }
             else
             {
-                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
+                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", _store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(_store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
                 foreach (var ng in globalCatalogs.AsParallel().Where(c => regex.IsMatch(c.Name)))
-                    await Send(@"* LIST (\HasNoChildren) {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", ng.Name);
+                {
+                    var flags = GetFlags(Identity, ng.Name, _store);
+                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", ng.Name);
+                }
             }
 
             var personalCatalogs = _store.GetPersonalCatalogs(Identity);
@@ -908,12 +916,18 @@ namespace McNNTP.Core.Server
 
             if (string.IsNullOrEmpty(mbox))
                 foreach (var ng in personalCatalogs.AsParallel())
-                    await Send(@"* LIST (\HasNoChildren) {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", ng.Name);
+                {
+                    var flags = GetFlags(Identity, ng.Name, _store);
+                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", ng.Name);
+                }
             else
             {
-                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
+                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", _store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(_store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
                 foreach (var ng in personalCatalogs.AsParallel().Where(c => regex.IsMatch(c.Name)))
-                    await Send(@"* LIST (\HasNoChildren) {0} {1}", HierarchyDelimiter == "NIL" ? "NIL" : "\"" + HierarchyDelimiter + "\"", ng.Name);
+                {
+                    var flags = GetFlags(Identity, ng.Name, _store);
+                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", ng.Name);
+                }
             }
             
             await Send("{0} OK LIST completed.", tag);
@@ -1069,8 +1083,8 @@ namespace McNNTP.Core.Server
                                     sb2.AppendLine(headerLine);
                             }
                         }
-                        sb2.AppendLine();
 
+                        sb2.AppendLine();
                         sb.AppendFormat(" BODY[HEADER.FIELDS ({0})] {{{1}}}\r\n{2}", fieldMatch.Groups["header"].Value.ToUpperInvariant(), sb2.Length, sb2);
                     }
                 }
@@ -1084,5 +1098,47 @@ namespace McNNTP.Core.Server
             return new CommandProcessingResult(true);
         }
         #endregion
+
+        private string GetFlags([NotNull] IIdentity identity, [NotNull] string catalogName, [NotNull] IStoreProvider store)
+        {
+            var flags = new StringBuilder();
+
+            if (string.Compare(catalogName, "All Mail", StringComparison.OrdinalIgnoreCase) == 0)
+                flags.Append(@"\All ");
+
+            if (string.Compare(catalogName, "Drafts", StringComparison.OrdinalIgnoreCase) == 0)
+                flags.Append(@"\Drafts ");
+
+            if (string.Compare(catalogName, "Important", StringComparison.OrdinalIgnoreCase) == 0 || string.Compare(catalogName, "Starred", StringComparison.OrdinalIgnoreCase) == 0)
+                flags.Append(@"\Flagged ");
+
+            if (string.Compare(catalogName, "Junk", StringComparison.OrdinalIgnoreCase) == 0 ||
+                string.Compare(catalogName, "Junk Mail", StringComparison.OrdinalIgnoreCase) == 0 || 
+                string.Compare(catalogName, "Spam", StringComparison.OrdinalIgnoreCase) == 0)
+                flags.Append(@"\Junk ");
+
+            if (string.Compare(catalogName, "Sent", StringComparison.OrdinalIgnoreCase) == 0 ||
+                string.Compare(catalogName, "Sent Items", StringComparison.OrdinalIgnoreCase) == 0 ||
+                string.Compare(catalogName, "Sent Mail", StringComparison.OrdinalIgnoreCase) == 0 ||
+                string.Compare(catalogName, "Outbox", StringComparison.OrdinalIgnoreCase) == 0)
+                flags.Append(@"\Sent ");
+
+            if (string.Compare(catalogName, "Trash", StringComparison.OrdinalIgnoreCase) == 0)
+                flags.Append(@"\Trash ");
+
+            var subs = store.GetGlobalCatalogs(identity, catalogName);
+            if (subs != null && subs.Any())
+                flags.Append(@"\HasChildren ");
+            else
+            {
+                subs = store.GetPersonalCatalogs(identity, catalogName);
+                if (subs != null && subs.Any())
+                    flags.Append(@"\HasChildren ");
+                else
+                    flags.Append(@"\HasNoChildren ");
+            }
+
+            return flags.ToString().TrimEnd();
+        }
     }
 }

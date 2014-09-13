@@ -23,6 +23,12 @@ namespace McNNTP.Common
     public interface IStoreProvider
     {
         /// <summary>
+        /// Gets the delimiter used to separate levels of a catalog hierarchy
+        /// </summary>
+        [NotNull]
+        string HierarchyDelimiter { get; }
+
+        /// <summary>
         /// Ensures a user has any requisite initialization in the store performed prior to their execution of other store methods
         /// </summary>
         /// <param name="identity">The identity of the user to ensure is initialized properly in the store</param>
