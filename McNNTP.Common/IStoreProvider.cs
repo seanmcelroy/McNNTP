@@ -91,6 +91,18 @@ namespace McNNTP.Common
         IEnumerable<IMessage> GetMessages([NotNull] IIdentity identity, [NotNull] string catalogName, int fromId, int? toId);
 
         /// <summary>
+        /// Retrieves an enumeration of message details available in the specified catalog
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <param name="catalogName">The name of the catalog in which to retrieve message details</param>
+        /// <param name="fromId">The lower bound of the message identifier range to retrieve</param>
+        /// <param name="toId">If specified, the upper bound of the message identifier range to retrieve</param>
+        /// <returns>An enumeration of message details available in the specified catalog</returns>
+        [CanBeNull]
+        [Pure]
+        IEnumerable<IMessageDetail> GetMessageDetails([NotNull] IIdentity identity, [NotNull] string catalogName, int fromId, int? toId);
+
+        /// <summary>
         /// Creates a subscription for a user to a catalog, indicating it is 'active' or 'subscribed' for that user
         /// </summary>
         /// <param name="identity">The identity of the user making the request</param>

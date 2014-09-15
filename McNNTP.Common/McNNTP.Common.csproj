@@ -53,6 +53,7 @@
   <ItemGroup>
     <Compile Include="Annotations.cs" />
     <Compile Include="IIdentity.cs" />
+    <Compile Include="IMessageDetail.cs" />
     <Compile Include="InternetMessageFormatUtility.cs" />
     <Compile Include="LdapUtility.cs" />
     <Compile Include="LogUtility.cs" />

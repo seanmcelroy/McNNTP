@@ -47,7 +47,7 @@ namespace McNNTP.Core.Server
         /// <summary>
         /// The store to use to satisfy requests of this connection
         /// </summary>
-        private readonly IStoreProvider _store;
+        private readonly IStoreProvider store;
 
         /// <summary>
         /// The server instance to which this connection belongs
@@ -118,13 +118,14 @@ namespace McNNTP.Core.Server
                                    { "CHECK", async (c, tag, command) => await c.Noop("CHECK", tag) },
                                    { "CLOSE", async (c, tag, command) => await c.Close(tag) },
                                    { "CREATE", async (c, tag, command) => await c.Create(tag, command) },
+                                   { "EXAMINE", async (c, tag, command) => await c.Select("EXAMINE", tag, command) },
                                    { "LOGIN", async (c, tag, command) => await c.Login(tag, command) },
                                    { "LSUB", async (c, tag, command) => await c.LSub(tag, command) },
                                    { "CAPABILITY", async (c, tag, command) => await c.Capability(tag) },
                                    { "LIST", async (c, tag, command) => await c.List(tag, command) },
                                    { "LOGOUT", async (c, tag, command) => await c.Logout(tag) },
                                    { "NOOP", async (c, tag, command) => await c.Noop("NOOP", tag) },
-                                   { "SELECT", async (c, tag, command) => await c.Select(tag, command) },
+                                   { "SELECT", async (c, tag, command) => await c.Select("SELECT", tag, command) },
                                    { "SUBSCRIBE", async (c, tag, command) => await c.Subscribe(tag, command) },
                                    { "STATUS", async (c, tag, command) => await c.Status(tag, command) },
                                    { "UID", async (c, tag, command) => await c.Uid(tag, command) },
@@ -147,7 +148,7 @@ namespace McNNTP.Core.Server
             [NotNull] Stream stream,
             bool tls = false)
         {
-            this._store = store;
+            this.store = store;
 
             AllowStartTls = server.AllowStartTLS;
             this.client = client;
@@ -215,6 +216,12 @@ namespace McNNTP.Core.Server
         /// </summary>
         [PublicAPI, CanBeNull]
         public string CurrentCatalog { get; private set; }
+
+        /// <summary>
+        /// Gets a value indicating the catalog currently selected by this connection
+        /// </summary>
+        [PublicAPI, CanBeNull]
+        public bool CurrentCatalogReadOnly { get; private set; }
 
         /// <summary>
         /// Gets the message number currently selected by this connection for the selected catalog
@@ -516,13 +523,22 @@ namespace McNNTP.Core.Server
             // TODO: Remove all deleted messages per RFC 3.5.0 6.4.2
 
             CurrentCatalog = null;
+            CurrentCatalogReadOnly = false;
             CurrentMessageNumber = null;
             
             await Send("{0} OK CLOSE completed", tag);
             return new CommandProcessingResult(true);
         }
 
-        private async Task<CommandProcessingResult> Create(string tag, string command)
+        /// <summary>
+        /// Creates a mailbox in the store
+        /// </summary>
+        /// <param name="tag">The tag for the command sequence as sent by the client</param>
+        /// <param name="command">The command for the create mailbox request</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.3.3">RFC 3501</a> for more information.</remarks>
+        [NotNull]
+        private async Task<CommandProcessingResult> Create([NotNull] string tag, [NotNull] string command)
         {
             if (Identity == null)
             {
@@ -545,10 +561,10 @@ namespace McNNTP.Core.Server
             // the declaration.  In any case, the name created is without the
             // trailing hierarchy delimiter.
             var mbox = match.Groups["mbox"].Value;
-            if (_store.HierarchyDelimiter != "NIL" && mbox.EndsWith(_store.HierarchyDelimiter, StringComparison.OrdinalIgnoreCase))
-                mbox = mbox.Substring(0, mbox.Length - _store.HierarchyDelimiter.Length);
+            if (this.store.HierarchyDelimiter != "NIL" && mbox.EndsWith(this.store.HierarchyDelimiter, StringComparison.OrdinalIgnoreCase))
+                mbox = mbox.Substring(0, mbox.Length - this.store.HierarchyDelimiter.Length);
 
-            var result = _store.CreatePersonalCatalog(Identity, mbox);
+            var result = this.store.CreatePersonalCatalog(Identity, mbox);
             if (result)
                 await Send("{0} OK CREATE completed", tag);
             else
@@ -560,11 +576,11 @@ namespace McNNTP.Core.Server
         /// <summary>
         /// Allows a user to authenticate
         /// </summary>
-        /// <param name="tag">The tag</param>
+        /// <param name="tag">The tag for the command sequence as sent by the client</param>
         /// <param name="command">The command</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.2.3">RFC 3501</a> for more information.</remarks>
-        private async Task<CommandProcessingResult> Login(string tag, string command)
+        private async Task<CommandProcessingResult> Login([NotNull] string tag, [NotNull] string command)
         {
             if (Identity != null)
             {
@@ -631,7 +647,7 @@ namespace McNNTP.Core.Server
             else
             {
                 // Local authentication
-                Identity = this._store.GetIdentityByClearAuth(Username, password);
+                Identity = this.store.GetIdentityByClearAuth(Username, password);
                 if (Identity == null)
                 {
                     Logger.WarnFormat("User {0} failed authentication against local authentication database.", Username);
@@ -649,7 +665,7 @@ namespace McNNTP.Core.Server
             Logger.InfoFormat("User {0} authenticated from {1}", Identity.Username, RemoteAddress);
 
             // Ensure user has personal INBOX defined.
-            _store.Ensure(Identity);
+            this.store.Ensure(Identity);
 
             await Send("{0} OK LOGIN completed", tag);
             return new CommandProcessingResult(true);
@@ -662,7 +678,7 @@ namespace McNNTP.Core.Server
         /// <param name="tag">The tag for the command sequence as sent by the client</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.1.1">RFC 3501</a> for more information.</remarks>
-        private async Task<CommandProcessingResult> Capability(string tag)
+        private async Task<CommandProcessingResult> Capability([NotNull] string tag)
         {
             await Send("* CAPABILITY IMAP4rev1");
             await Send("{0} OK CAPABILITY completed", tag);
@@ -676,7 +692,7 @@ namespace McNNTP.Core.Server
         /// <returns>A command processing result specifying the connection is quitting.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.1.3">RFC 3501</a> for more information.</remarks>
         [NotNull]
-        private async Task<CommandProcessingResult> Logout(string tag)
+        private async Task<CommandProcessingResult> Logout([NotNull] string tag)
         {
             await Send("* BYE IMAP4rev1 Server logging out");
             await Send("{0} OK LOGOUT completed", tag);
@@ -698,7 +714,7 @@ namespace McNNTP.Core.Server
             // TODO: See note in RFC 3501 6.1.2 - This could be improved to return unread message count for periodic polling
             if (Identity != null && CurrentCatalog != null)
             {
-                var catalog = _store.GetCatalogByName(Identity, CurrentCatalog);
+                var catalog = this.store.GetCatalogByName(Identity, CurrentCatalog);
                 if (catalog != null)
                     await Send("* {0} EXISTS", catalog.MessageCount);
             }
@@ -715,7 +731,7 @@ namespace McNNTP.Core.Server
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.3.1">RFC 3501</a> for more information.</remarks>
         [NotNull]
-        private async Task<CommandProcessingResult> Select([NotNull] string tag, [NotNull] string command)
+        private async Task<CommandProcessingResult> Select([NotNull] string match, [NotNull] string tag, [NotNull] string command)
         {
             if (Identity == null)
             {
@@ -723,20 +739,21 @@ namespace McNNTP.Core.Server
                 return new CommandProcessingResult(true);
             }
 
-            var match = Regex.Match(command, @"SELECT\s(""(?<mbox>[^""]+)""|(?<mbox>[^\s]+))", RegexOptions.IgnoreCase);
-            if (!match.Success)
+            var regex = Regex.Match(command, @"SELECT\s(""(?<mbox>[^""]+)""|(?<mbox>[^\s]+))", RegexOptions.IgnoreCase);
+            if (!regex.Success)
             {
-                await Send("{0} BAD Unable to parse SELECT parameters", tag);
+                await Send("{0} BAD Unable to parse {1} parameters", tag, match);
                 
                 // RFC 3501 3.1 - A failed SELECT command will move from Selected to Authenticated state
                 CurrentCatalog = null;
+                CurrentCatalogReadOnly = false;
 
                 return new CommandProcessingResult(true);
             }
 
-            var mbox = match.Groups["mbox"].Value;
+            var mbox = regex.Groups["mbox"].Value;
 
-            var ng = this._store.GetCatalogByName(Identity, mbox);
+            var ng = this.store.GetCatalogByName(Identity, mbox);
             if (ng == null)
             {
                 await Send("{0} BAD Unable to locate mailbox", tag);
@@ -744,6 +761,7 @@ namespace McNNTP.Core.Server
             }
 
             this.CurrentCatalog = ng.Name;
+            this.CurrentCatalogReadOnly = match == "EXAMINE";
 
             await Send("* FLAGS ()"); // TODO: Implement message flags
             await Send("* {0} EXISTS", ng.MessageCount);
@@ -752,10 +770,12 @@ namespace McNNTP.Core.Server
             await Send("* OK [UIDNEXT {0}]", ng.HighWatermark == null ? 1 : ng.HighWatermark + 1);
             await Send("* OK [UIDVALIDITY {0:yyyyMMddhhmm}]", ng.CreateDateUtc);
 
-            if (ng.Owner != null && ng.Owner.Equals(Identity))
-                await Send("{0} OK [READ-WRITE] SELECT completed", tag);
+            if (CurrentCatalogReadOnly)
+                await Send("{0} OK [READ-ONLY] {1} completed", tag, match);
+            else if (ng.Owner != null && ng.Owner.Equals(Identity))
+                await Send("{0} OK [READ-WRITE] {1} completed", tag, match);
             else
-                await Send("{0} OK [READ-ONLY] SELECT completed", tag);
+                await Send("{0} OK [READ-ONLY] {1} completed", tag, match);
 
             return new CommandProcessingResult(true);
         }
@@ -777,16 +797,16 @@ namespace McNNTP.Core.Server
 
             var mbox = match.Groups["mbox"].Value;
 
-            var subs = _store.GetSubscriptions(Identity);
+            var subs = this.store.GetSubscriptions(Identity);
 
             if (string.IsNullOrEmpty(mbox))
                 foreach (var sub in subs.AsParallel())
-                    await Send(@"* LSUB () {0} {1}", _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", sub);
+                    await Send(@"* LSUB () {0} {1}", this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", sub);
             else
             {
-                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", _store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(_store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
+                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", this.store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(this.store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
                 foreach (var sub in subs.AsParallel().Where(c => regex.IsMatch(c)))
-                    await Send(@"* LSUB () {0} {1}", _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", sub);
+                    await Send(@"* LSUB () {0} {1}", this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", sub);
             }
 
             await Send("{0} OK LSUB completed", tag);
@@ -811,7 +831,7 @@ namespace McNNTP.Core.Server
 
             var mbox = match.Groups["mbox"].Value;
 
-            var subs = _store.GetSubscriptions(Identity).ToArray();
+            var subs = this.store.GetSubscriptions(Identity).ToArray();
 
             if (subs.Any(s => string.Compare(s, mbox, StringComparison.OrdinalIgnoreCase) == 0))
             {
@@ -820,7 +840,7 @@ namespace McNNTP.Core.Server
                 return new CommandProcessingResult(true);
             }
 
-            if (_store.CreateSubscription(Identity, mbox))
+            if (this.store.CreateSubscription(Identity, mbox))
             {
                 await Send("{0} OK SUBSCRIBE completed", tag);
                 return new CommandProcessingResult(true);
@@ -847,9 +867,9 @@ namespace McNNTP.Core.Server
 
             var mbox = match.Groups["mbox"].Value;
 
-            var subs = _store.GetSubscriptions(Identity).ToArray();
+            var subs = this.store.GetSubscriptions(Identity).ToArray();
 
-            if (subs.Any(s => string.Compare(s, mbox, StringComparison.OrdinalIgnoreCase) == 0) && _store.DeleteSubscription(Identity, mbox))
+            if (subs.Any(s => string.Compare(s, mbox, StringComparison.OrdinalIgnoreCase) == 0) && this.store.DeleteSubscription(Identity, mbox))
             {
                 await Send("{0} OK UNSUBSCRIBE completed", tag);
                 return new CommandProcessingResult(true);
@@ -882,7 +902,7 @@ namespace McNNTP.Core.Server
                 return new CommandProcessingResult(true);
             }
 
-            var globalCatalogs = _store.GetGlobalCatalogs(Identity);
+            var globalCatalogs = this.store.GetGlobalCatalogs(Identity);
             if (globalCatalogs == null)
             {
                 await Send("{0} BAD Global catalogs temporarily offline", tag);
@@ -894,20 +914,20 @@ namespace McNNTP.Core.Server
             if (string.IsNullOrEmpty(mbox))
                 foreach (var ng in globalCatalogs.AsParallel())
                 {
-                    var flags = GetFlags(Identity, ng.Name, _store);
-                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", ng.Name);
+                    var flags = GetFlags(Identity, ng.Name, this.store);
+                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
                 }
             else
             {
-                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", _store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(_store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
+                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", this.store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(this.store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
                 foreach (var ng in globalCatalogs.AsParallel().Where(c => regex.IsMatch(c.Name)))
                 {
-                    var flags = GetFlags(Identity, ng.Name, _store);
-                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", ng.Name);
+                    var flags = GetFlags(Identity, ng.Name, this.store);
+                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
                 }
             }
 
-            var personalCatalogs = _store.GetPersonalCatalogs(Identity);
+            var personalCatalogs = this.store.GetPersonalCatalogs(Identity);
             if (personalCatalogs == null)
             {
                 await Send("{0} BAD Personal catalogs temporarily offline", tag);
@@ -917,16 +937,16 @@ namespace McNNTP.Core.Server
             if (string.IsNullOrEmpty(mbox))
                 foreach (var ng in personalCatalogs.AsParallel())
                 {
-                    var flags = GetFlags(Identity, ng.Name, _store);
-                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", ng.Name);
+                    var flags = GetFlags(Identity, ng.Name, this.store);
+                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
                 }
             else
             {
-                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", _store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(_store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
+                var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", this.store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(this.store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
                 foreach (var ng in personalCatalogs.AsParallel().Where(c => regex.IsMatch(c.Name)))
                 {
-                    var flags = GetFlags(Identity, ng.Name, _store);
-                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, _store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + _store.HierarchyDelimiter + "\"", ng.Name);
+                    var flags = GetFlags(Identity, ng.Name, this.store);
+                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
                 }
             }
             
@@ -952,7 +972,7 @@ namespace McNNTP.Core.Server
             var mbox = match.Groups["mbox"].Value;
             var items = match.Groups["items"].Value;
 
-            var ng = this._store.GetCatalogByName(Identity, mbox);
+            var ng = this.store.GetCatalogByName(Identity, mbox);
             if (ng == null)
             {
                 await Send("{0} NO No such mailbox.", tag);
@@ -1008,7 +1028,7 @@ namespace McNNTP.Core.Server
             lboundNumber = int.TryParse(lbound, out lboundNumber) ? lboundNumber : 1;
             var uboundNumber = ubound == null ? default(int?) : int.TryParse(ubound, out uboundNumberTemp) ? uboundNumberTemp : default(int?);
             
-            var messages = _store.GetMessages(Identity, this.CurrentCatalog, lboundNumber, uboundNumber);
+            var messages = this.store.GetMessages(Identity, this.CurrentCatalog, lboundNumber, uboundNumber);
 
             if (messages == null)
             {
@@ -1017,14 +1037,37 @@ namespace McNNTP.Core.Server
             }
 
             var i = 0;
+            var showFlags = elems.IndexOf("FLAGS", StringComparison.OrdinalIgnoreCase) > -1;
+            var flags = showFlags ? this.store.GetMessageDetails(Identity, this.CurrentCatalog, lboundNumber, uboundNumber).ToArray() : new IMessageDetail[0];
 
-            foreach (var message in messages)
-            {
+            Parallel.ForEach(
+                messages, 
+                async message =>
+                {
                 i++;
                 var sb = new StringBuilder();
                 sb.AppendFormat("* {0} FETCH (", i);
-                if (elems.IndexOf("FLAGS", StringComparison.OrdinalIgnoreCase) > -1)
-                    sb.Append("FLAGS () "); // TODO: Implement message flags
+                if (showFlags)
+                {
+                    var flag = flags.SingleOrDefault(f => f.MessageId == message.Id);
+                    if (flag == null)
+                        sb.Append("FLAGS () "); // TODO: Implement message flags
+                    else
+                    {
+                        var flagBuilder = new StringBuilder();
+                        if (flag.Answered.HasValue)
+                            flagBuilder.Append(@"\Answered ");
+                        if (flag.Deleted.HasValue)
+                            flagBuilder.Append(@"\Deleted ");
+                        if (flag.Important.HasValue)
+                            flagBuilder.Append(@"\Flagged ");
+                        if (flag.Seen.HasValue)
+                            flagBuilder.Append(@"\Seen ");
+
+                        sb.AppendFormat("FLAGS ({0}) ", flagBuilder.ToString().TrimEnd());
+                    }
+                }
+
                 if (elems.IndexOf("RFC822.SIZE", StringComparison.OrdinalIgnoreCase) > -1)
                     sb.AppendFormat("RFC822.SIZE {0} ", message.HeaderRaw.Length + 1 + message.Body.Length);
 
@@ -1092,7 +1135,7 @@ namespace McNNTP.Core.Server
                 sb.Append(")");
 
                 await Send(sb.ToString());
-            }
+            });
 
             await Send("{0} OK UID FETCH completed", tag);
             return new CommandProcessingResult(true);

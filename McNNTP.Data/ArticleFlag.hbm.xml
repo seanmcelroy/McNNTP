@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<hibernate-mapping xmlns="urn:nhibernate-mapping-2.2" auto-import="true" assembly="McNNTP.Data" namespace="McNNTP.Data">
+  <class name="ArticleFlag" table="ArticleFlag" lazy="true">
+    <id name="Id" type="Int32">
+      <generator class="native" />
+    </id>
+    
+    <property name="NewsgroupId" not-null="true" update="false" unique-key="UniqueNewsgroupArticleUser" />
+    <property name="ArticleId" not-null="true" update="false" unique-key="UniqueNewsgroupArticleUser" />
+    <property name="UserId" not-null="true" update="false" unique-key="UniqueNewsgroupArticleUser" />
+
+    <property name="Answered" not-null="false" update="true" />
+    <property name="Deleted" not-null="false" update="true" />
+    <property name="Important" not-null="false" update="true" />
+    <property name="Seen" not-null="false" update="true" />
+  </class>
+</hibernate-mapping>

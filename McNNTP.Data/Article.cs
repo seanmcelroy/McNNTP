@@ -1,4 +1,13 @@
-﻿namespace McNNTP.Data
+﻿// --------------------------------------------------------------------------------------------------------------------
+// <copyright file="Article.cs" company="Copyright Sean McElroy">
+//   Copyright Sean McElroy
+// </copyright>
+// <summary>
+//   Defines the Article type.
+// </summary>
+// --------------------------------------------------------------------------------------------------------------------
+
+namespace McNNTP.Data
 {
     using System;
     using System.Collections.Generic;

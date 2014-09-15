@@ -282,7 +282,7 @@ namespace McNNTP.Core.Database
 
             using (var session = SessionUtility.OpenSession())
             {
-                ICatalog ng = session.Query<Newsgroup>().AddMetagroups(session, identity).SingleOrDefault(n => n.Name == catalogName);
+                var ng = session.Query<Newsgroup>().AddMetagroups(session, identity).SingleOrDefault(n => n.Name == catalogName);
 
                 if (toId == null)
                 {
@@ -451,6 +451,48 @@ namespace McNNTP.Core.Database
             }
 
             return subscriptions;
+        }
+
+        /// <summary>
+        /// Retrieves an enumeration of message details available in the specified catalog
+        /// </summary>
+        /// <param name="identity">The identity of the user making the request</param>
+        /// <param name="catalogName">The name of the catalog in which to retrieve message details</param>
+        /// <param name="fromId">The lower bound of the message identifier range to retrieve</param>
+        /// <param name="toId">If specified, the upper bound of the message identifier range to retrieve</param>
+        /// <returns>An enumeration of message details available in the specified catalog</returns>
+        public IEnumerable<IMessageDetail> GetMessageDetails(IIdentity identity, string catalogName, int fromId, int? toId)
+        {
+            // TODO: Add flags for virtual metagroups.
+            IList<IMessageDetail> articleFlags;
+
+            using (var session = SessionUtility.OpenSession())
+            {
+                var ng = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == catalogName);
+
+                if (toId == null)
+                {
+                    articleFlags = session.Query<ArticleFlag>()
+                        .Where(af => af.Id == ng.Id)
+                        .Where(af => af.Id >= fromId)
+                        .OrderBy(af => af.Id)
+                        .Cast<IMessageDetail>()
+                        .ToList();
+                }
+                else
+                {
+                    articleFlags = session.Query<ArticleFlag>()
+                        .Where(af => af.Id == ng.Id)
+                        .Where(af => af.Id >= fromId && af.Id <= toId.Value)
+                        .OrderBy(af => af.Id)
+                        .Cast<IMessageDetail>()
+                        .ToList();
+                }
+
+                session.Close();
+            }
+
+            return articleFlags;
         }
     }
 }
