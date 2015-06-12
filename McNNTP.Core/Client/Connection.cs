@@ -22,7 +22,7 @@ namespace McNNTP.Core.Client
 
     using log4net;
     
-    using McNNTP.Common;
+    using Common;
 
     /// <summary>
     /// A connection from a server to a client
@@ -128,7 +128,7 @@ namespace McNNTP.Core.Client
         {
             get
             {
-                return stream is SslStream;
+                return this.stream is SslStream;
             }
         }
 
@@ -203,10 +203,10 @@ namespace McNNTP.Core.Client
         [NotNull]
         internal async Task<NntpResponse> Receive(bool multiLine = false)
         {
-            if (!client.Connected)
+            if (!this.client.Connected)
                 throw new InvalidOperationException("The connection is not currently connected to a server");
 
-            var line = await reader.ReadLineAsync();
+            var line = await this.reader.ReadLineAsync();
 
             if (line == null)
                 throw new NntpException("Did not receive response from server.");
@@ -218,7 +218,7 @@ namespace McNNTP.Core.Client
             var message = line.Substring(4);
 
             return multiLine
-                ? new NntpMultilineResponse(code, message, reader.ReadAllLines())
+                ? new NntpMultilineResponse(code, message, this.reader.ReadAllLines())
                 : new NntpResponse(code, message);
         }
 
@@ -232,7 +232,7 @@ namespace McNNTP.Core.Client
         /// <exception cref="ObjectDisposedException">Thrown when an attempt to read data from the connection is made when the underlying stream is already disposed or closed</exception>
         internal async Task<NntpMultilineResponse> ReceiveMultiline()
         {
-            return (NntpMultilineResponse)(await Receive(true));
+            return (NntpMultilineResponse)(await this.Receive(true));
         }
 
         /// <summary>
@@ -244,7 +244,7 @@ namespace McNNTP.Core.Client
         [StringFormatMethod("format"), NotNull]
         internal Task<bool> Send([NotNull] string format, [NotNull] params object[] args)
         {
-            return SendInternal(string.Format(CultureInfo.InvariantCulture, format, args), false);
+            return this.SendInternal(string.Format(CultureInfo.InvariantCulture, format, args), false);
         }
 
         /// <summary>
@@ -256,14 +256,14 @@ namespace McNNTP.Core.Client
         [StringFormatMethod("format"), NotNull]
         private Task<bool> SendCompressed([NotNull] string format, [NotNull] params object[] args)
         {
-            return SendInternal(string.Format(CultureInfo.InvariantCulture, format, args), true);
+            return this.SendInternal(string.Format(CultureInfo.InvariantCulture, format, args), true);
         }
 
         private async Task<bool> SendInternal([NotNull] string data, bool compressedIfPossible)
         {
             // Convert the string data to byte data using ASCII encoding.
             byte[] byteData;
-            if (compressedIfPossible && Compression && CompressionGZip && CompressionTerminator)
+            if (compressedIfPossible && this.Compression && this.CompressionGZip && this.CompressionTerminator)
                 byteData = await data.GZipCompress();
             else
                 byteData = Encoding.UTF8.GetBytes(data);
@@ -272,30 +272,21 @@ namespace McNNTP.Core.Client
             {
                 // Begin sending the data to the remote device.
                 await this.stream.WriteAsync(byteData, 0, byteData.Length);
-                if (ShowBytes && ShowData)
+                if (this.ShowBytes && this.ShowData)
                     Logger.TraceFormat(
-                        "{0}:{1} <{2}{3} {4} bytes: {5}",
-                        RemoteAddress,
-                        RemotePort,
-                        TLS ? "!" : "<",
-                        compressedIfPossible && CompressionGZip ? "G" : "<",
+                        "{0}:{1} <{2}{3} {4} bytes: {5}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
+                        compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         byteData.Length,
                         data.TrimEnd('\r', '\n'));
-                else if (ShowBytes)
+                else if (this.ShowBytes)
                     Logger.TraceFormat(
-                        "{0}:{1} <{2}{3} {4} bytes",
-                        RemoteAddress,
-                        RemotePort,
-                        TLS ? "!" : "<",
-                        compressedIfPossible && CompressionGZip ? "G" : "<",
+                        "{0}:{1} <{2}{3} {4} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
+                        compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         byteData.Length);
-                else if (ShowData)
+                else if (this.ShowData)
                     Logger.TraceFormat(
-                        "{0}:{1} <{2}{3} {4}",
-                        RemoteAddress,
-                        RemotePort,
-                        TLS ? "!" : "<",
-                        compressedIfPossible && CompressionGZip ? "G" : "<",
+                        "{0}:{1} <{2}{3} {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
+                        compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         data.TrimEnd('\r', '\n'));
 
                 return true;
@@ -303,18 +294,18 @@ namespace McNNTP.Core.Client
             catch (IOException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", RemoteAddress, RemotePort);
+                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (SocketException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", RemoteAddress, RemotePort);
+                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (ObjectDisposedException)
             {
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", RemoteAddress, RemotePort);
+                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
         }
@@ -323,7 +314,7 @@ namespace McNNTP.Core.Client
         {
             if (this.client.Connected)
             {
-                await Send("205 closing connection\r\n");
+                await this.Send("205 closing connection\r\n");
                 this.client.Client.Shutdown(SocketShutdown.Both);
                 this.client.Close();
             }

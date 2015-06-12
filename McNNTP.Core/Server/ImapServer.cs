@@ -25,8 +25,8 @@ namespace McNNTP.Core.Server
 
     using log4net;
 
-    using McNNTP.Common;
-    using McNNTP.Core.Server.Configuration;
+    using Common;
+    using Configuration;
 
     /// <summary>
     /// Defines the an IMAP server utility that provides connection management and command handling to expose
@@ -54,8 +54,8 @@ namespace McNNTP.Core.Server
         /// </summary>
         public ImapServer()
         {
-            AllowStartTLS = true;
-            ShowData = true;
+            this.AllowStartTLS = true;
+            this.ShowData = true;
         }
 
         /// <summary>
@@ -143,36 +143,31 @@ namespace McNNTP.Core.Server
             this.listeners.Clear();
 
             // Test LDAP connection, if configured
-            if (LdapDirectoryConfiguration != null)
+            if (this.LdapDirectoryConfiguration != null)
             {
-                Logger.InfoFormat("Testing LDAP connection to {0} with lookup account {1}", LdapDirectoryConfiguration.LdapServer, LdapDirectoryConfiguration.LookupAccountUsername);
+                Logger.InfoFormat("Testing LDAP connection to {0} with lookup account {1}", this.LdapDirectoryConfiguration.LdapServer, this.LdapDirectoryConfiguration.LookupAccountUsername);
 
-                if (LdapUtility.UserExists(
-                    LdapDirectoryConfiguration.LdapServer,
-                    LdapDirectoryConfiguration.SearchPath,
-                    LdapDirectoryConfiguration.LookupAccountUsername,
-                    LdapDirectoryConfiguration.LookupAccountPassword,
-                    LdapDirectoryConfiguration.LookupAccountUsername))
+                if (LdapUtility.UserExists(this.LdapDirectoryConfiguration.LdapServer, this.LdapDirectoryConfiguration.SearchPath, this.LdapDirectoryConfiguration.LookupAccountUsername, this.LdapDirectoryConfiguration.LookupAccountPassword, this.LdapDirectoryConfiguration.LookupAccountUsername))
                     Logger.Info("LDAP lookup account successfully found.");
                 else
                 {
                     Logger.Warn("Unable to find LDAP lookup account.  LDAP authentication is being disabled.");
-                    LdapDirectoryConfiguration = null;
+                    this.LdapDirectoryConfiguration = null;
                 }
             }
 
             // Setup SSL
-            if (!string.IsNullOrWhiteSpace(SslServerCertificateThumbprint) && SslServerCertificateThumbprint != null)
+            if (!string.IsNullOrWhiteSpace(this.SslServerCertificateThumbprint) && this.SslServerCertificateThumbprint != null)
             {
                 var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
                 store.Open(OpenFlags.OpenExistingOnly);
                 try
                 {
-                    var collection = store.Certificates.Find(X509FindType.FindByThumbprint, SslServerCertificateThumbprint, true);
+                    var collection = store.Certificates.Find(X509FindType.FindByThumbprint, this.SslServerCertificateThumbprint, true);
                     if (collection.Cast<X509Certificate2>().Count(c => c.HasPrivateKey) == 0)
                     {
-                        Logger.WarnFormat(@"No valid certificate with a public and private key could be found in the LocalMachine\Personal store with thumbprint: {0}.  Disabling SSL.", SslServerCertificateThumbprint);
-                        AllowStartTLS = false;
+                        Logger.WarnFormat(@"No valid certificate with a public and private key could be found in the LocalMachine\Personal store with thumbprint: {0}.  Disabling SSL.", this.SslServerCertificateThumbprint);
+                        this.AllowStartTLS = false;
                         this.ImapExplicitTLSPorts = new int[0];
                         this.ImapImplicitTLSPorts = new int[0];
                     }
@@ -187,7 +182,7 @@ namespace McNNTP.Core.Server
                     store.Close();
                 }
             }
-            else if (SslGenerateSelfSignedServerCertificate || this.ImapExplicitTLSPorts.Any() || this.ImapImplicitTLSPorts.Any())
+            else if (this.SslGenerateSelfSignedServerCertificate || this.ImapExplicitTLSPorts.Any() || this.ImapImplicitTLSPorts.Any())
             {
                 var pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
                 this.ServerAuthenticationCertificate = new X509Certificate2(pfx, "password");
@@ -250,7 +245,7 @@ namespace McNNTP.Core.Server
                 }
             }
 
-            Parallel.ForEach(connections, async c =>
+            Parallel.ForEach(this.connections, async c =>
             {
                 await c.Send("* BYE Server shutting down");
                 c.Shutdown();

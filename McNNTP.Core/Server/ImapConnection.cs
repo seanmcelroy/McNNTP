@@ -22,7 +22,7 @@ namespace McNNTP.Core.Server
     using System.Threading.Tasks;
     using JetBrains.Annotations;
     using log4net;
-    using McNNTP.Common;
+    using Common;
 
     /// <summary>
     /// A connection from a client to the server
@@ -150,15 +150,15 @@ namespace McNNTP.Core.Server
         {
             this.store = store;
 
-            AllowStartTls = server.AllowStartTLS;
+            this.AllowStartTls = server.AllowStartTLS;
             this.client = client;
             this.client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
-            ShowBytes = server.ShowBytes;
-            ShowCommands = server.ShowCommands;
-            ShowData = server.ShowData;
+            this.ShowBytes = server.ShowBytes;
+            this.ShowCommands = server.ShowCommands;
+            this.ShowData = server.ShowData;
             this.server = server;
             this.stream = stream;
-            TLS = tls;
+            this.TLS = tls;
 
             var remoteIpEndpoint = (IPEndPoint)this.client.Client.RemoteEndPoint;
             this.remoteAddress = remoteIpEndpoint.Address;
@@ -271,7 +271,7 @@ namespace McNNTP.Core.Server
         /// </summary>
         public async void Process()
         {
-            await Send("* OK IMAP4rev1 Service Ready");
+            await this.Send("* OK IMAP4rev1 Service Ready");
 
             Debug.Assert(this.stream != null, "The stream was 'null', but it should not have been because the connection was accepted and processing is beginning.");
 
@@ -285,18 +285,18 @@ namespace McNNTP.Core.Server
 
                     if (!this.stream.CanRead)
                     {
-                        await Send("* BYE Unable to read from stream");
-                        Shutdown();
+                        await this.Send("* BYE Unable to read from stream");
+                        this.Shutdown();
                         return;
                     }
 
-                    var bytesRead = await stream.ReadAsync(this.buffer, 0, BufferSize);
+                    var bytesRead = await this.stream.ReadAsync(this.buffer, 0, BufferSize);
 
                     // There  might be more data, so store the data received so far.
-                    builder.Append(Encoding.ASCII.GetString(this.buffer, 0, bytesRead));
+                    this.builder.Append(Encoding.ASCII.GetString(this.buffer, 0, bytesRead));
 
                     // Not all data received OR no more but not yet ending with the delimiter. Get more.
-                    var builderString = builder.ToString();
+                    var builderString = this.builder.ToString();
                     if (bytesRead == BufferSize || !builderString.EndsWith("\r\n", StringComparison.Ordinal))
                     {
                         // Read some more.
@@ -310,39 +310,30 @@ namespace McNNTP.Core.Server
                     {
                         var split = builderString.Split(new[] { "\r\n" }, StringSplitOptions.None);
                         inputs = split.Take(split.Length - 1).ToArray();
-                        builder.Clear();
+                        this.builder.Clear();
                         if (!string.IsNullOrEmpty(split.Last()))
-                            builder.Append(split.Last());
+                            this.builder.Append(split.Last());
                     }
                     else
                     {
                         inputs = new[] { builderString };
-                        builder.Clear();
+                        this.builder.Clear();
                     }
 
                     // All the data has been read from the 
                     // client. Display it on the console.
-                    if (ShowBytes && ShowData)
+                    if (this.ShowBytes && this.ShowData)
                         Logger.TraceFormat(
-                            "{0}:{1} >{2}> {3} bytes: {4}",
-                            RemoteAddress,
-                            RemotePort,
-                            TLS ? "!" : ">",
+                            "{0}:{1} >{2}> {3} bytes: {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             builderString.Length,
                             builderString.TrimEnd('\r', '\n'));
-                    else if (ShowBytes)
+                    else if (this.ShowBytes)
                         Logger.TraceFormat(
-                            "{0}:{1} >{2}> {3} bytes",
-                            RemoteAddress,
-                            RemotePort,
-                            TLS ? "!" : ">",
+                            "{0}:{1} >{2}> {3} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             builderString.Length);
-                    else if (ShowData)
+                    else if (this.ShowData)
                         Logger.TraceFormat(
-                            "{0}:{1} >{2}> {3}",
-                            RemoteAddress,
-                            RemotePort,
-                            TLS ? "!" : ">",
+                            "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             builderString.TrimEnd('\r', '\n'));
                     
                     foreach (var input in inputs)
@@ -350,16 +341,16 @@ namespace McNNTP.Core.Server
                         if (this.inProcessCommand != null && this.inProcessCommand.MessageHandler != null)
                         {
                             // Ongoing read - don't parse it for commands
-                            this.inProcessCommand = await inProcessCommand.MessageHandler(input, inProcessCommand);
-                            if (inProcessCommand != null && inProcessCommand.IsQuitting)
-                                inProcessCommand = null;
+                            this.inProcessCommand = await this.inProcessCommand.MessageHandler(input, this.inProcessCommand);
+                            if (this.inProcessCommand != null && this.inProcessCommand.IsQuitting)
+                                this.inProcessCommand = null;
                         }
                         else
                         {
                             var parts = input.Split(' ');
                             var tag = parts.First();
                             if (parts.Length < 2) 
-                                await Send("{0} BAD unexpected end of data", "*");
+                                await this.Send("{0} BAD unexpected end of data", "*");
                             else
                             {
                                 var command = parts.ElementAt(1).TrimEnd('\r', '\n').ToUpperInvariant();
@@ -368,18 +359,15 @@ namespace McNNTP.Core.Server
                                 {
                                     try
                                     {
-                                        if (ShowCommands)
+                                        if (this.ShowCommands)
                                             Logger.TraceFormat(
-                                                "{0}:{1} >{2}> {3}",
-                                                RemoteAddress,
-                                                RemotePort,
-                                                TLS ? "!" : ">",
+                                                "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                                                 phrase);
 
                                         var result = await CommandDirectory[command].Invoke(this, tag, phrase);
 
                                         if (!result.IsHandled) 
-                                            await Send("{0} BAD unexpected end of data", "*");
+                                            await this.Send("{0} BAD unexpected end of data", "*");
                                         else if (result.MessageHandler != null) this.inProcessCommand = result;
                                         else if (result.IsQuitting) return;
                                     }
@@ -390,7 +378,7 @@ namespace McNNTP.Core.Server
                                     }
                                 }
                                 else
-                                    await Send("{0} BAD unexpected end of data", tag);
+                                    await this.Send("{0} BAD unexpected end of data", tag);
                             }
                         }
                     }
@@ -399,17 +387,17 @@ namespace McNNTP.Core.Server
             catch (DecoderFallbackException dfe)
             {
                 send403 = true;
-                Logger.Error("Decoder Fallback Exception socket " + RemoteAddress, dfe);
+                Logger.Error("Decoder Fallback Exception socket " + this.RemoteAddress, dfe);
             }
             catch (IOException se)
             {
                 send403 = true;
-                Logger.Error("I/O Exception on socket " + RemoteAddress, se);
+                Logger.Error("I/O Exception on socket " + this.RemoteAddress, se);
             }
             catch (SocketException se)
             {
                 send403 = true;
-                Logger.Error("Socket Exception on socket " + RemoteAddress, se);
+                Logger.Error("Socket Exception on socket " + this.RemoteAddress, se);
             }
             catch (NotSupportedException nse)
             {
@@ -423,7 +411,7 @@ namespace McNNTP.Core.Server
             }
 
             if (send403)
-                await Send("403 Archive server temporarily offline");
+                await this.Send("403 Archive server temporarily offline");
         }
 
         /// <summary>
@@ -436,16 +424,16 @@ namespace McNNTP.Core.Server
         protected internal async Task<bool> Send([NotNull] string format, [NotNull] params object[] args)
         {
             if (args.Length == 0)
-                return await SendInternal(format + "\r\n", false);
+                return await this.SendInternal(format + "\r\n", false);
 
-            return await SendInternal(string.Format(CultureInfo.InvariantCulture, format, args) + "\r\n", false);
+            return await this.SendInternal(string.Format(CultureInfo.InvariantCulture, format, args) + "\r\n", false);
         }
 
         private async Task<bool> SendInternal([NotNull] string data, bool compressedIfPossible)
         {
             // Convert the string data to byte data using ASCII encoding.
             byte[] byteData;
-            if (compressedIfPossible && Compression && CompressionGZip && CompressionTerminator)
+            if (compressedIfPossible && this.Compression && this.CompressionGZip && this.CompressionTerminator)
                 byteData = await data.GZipCompress();
             else
                 byteData = Encoding.UTF8.GetBytes(data);
@@ -454,30 +442,21 @@ namespace McNNTP.Core.Server
             {
                 // Begin sending the data to the remote device.
                 await this.stream.WriteAsync(byteData, 0, byteData.Length);
-                if (ShowBytes && ShowData)
+                if (this.ShowBytes && this.ShowData)
                     Logger.TraceFormat(
-                        "{0}:{1} <{2}{3} {4} bytes: {5}",
-                        RemoteAddress,
-                        RemotePort,
-                        TLS ? "!" : "<",
-                        compressedIfPossible && CompressionGZip ? "G" : "<",
+                        "{0}:{1} <{2}{3} {4} bytes: {5}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
+                        compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         byteData.Length,
                         data.TrimEnd('\r', '\n'));
-                else if (ShowBytes)
+                else if (this.ShowBytes)
                     Logger.TraceFormat(
-                        "{0}:{1} <{2}{3} {4} bytes",
-                        RemoteAddress,
-                        RemotePort,
-                        TLS ? "!" : "<",
-                        compressedIfPossible && CompressionGZip ? "G" : "<",
+                        "{0}:{1} <{2}{3} {4} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
+                        compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         byteData.Length);
-                else if (ShowData)
+                else if (this.ShowData)
                     Logger.TraceFormat(
-                        "{0}:{1} <{2}{3} {4}",
-                        RemoteAddress,
-                        RemotePort,
-                        TLS ? "!" : "<",
-                        compressedIfPossible && CompressionGZip ? "G" : "<",
+                        "{0}:{1} <{2}{3} {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
+                        compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         data.TrimEnd('\r', '\n'));
 
                 return true;
@@ -485,18 +464,18 @@ namespace McNNTP.Core.Server
             catch (IOException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", RemoteAddress, RemotePort);
+                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (SocketException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", RemoteAddress, RemotePort);
+                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (ObjectDisposedException)
             {
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", RemoteAddress, RemotePort);
+                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
         }
@@ -522,11 +501,11 @@ namespace McNNTP.Core.Server
         {
             // TODO: Remove all deleted messages per RFC 3.5.0 6.4.2
 
-            CurrentCatalog = null;
-            CurrentCatalogReadOnly = false;
-            CurrentMessageNumber = null;
+            this.CurrentCatalog = null;
+            this.CurrentCatalogReadOnly = false;
+            this.CurrentMessageNumber = null;
             
-            await Send("{0} OK CLOSE completed", tag);
+            await this.Send("{0} OK CLOSE completed", tag);
             return new CommandProcessingResult(true);
         }
 
@@ -540,16 +519,16 @@ namespace McNNTP.Core.Server
         [NotNull]
         private async Task<CommandProcessingResult> Create([NotNull] string tag, [NotNull] string command)
         {
-            if (Identity == null)
+            if (this.Identity == null)
             {
-                await Send("{0} NO Connection not yet authenticated", tag);
+                await this.Send("{0} NO Connection not yet authenticated", tag);
                 return new CommandProcessingResult(true);
             }
 
             var match = Regex.Match(command, @"CREATE\s(""(?<mbox>[^""]+)""|(?<mbox>[^\s]+))", RegexOptions.IgnoreCase);
             if (!match.Success)
             {
-                await Send("{0} BAD Unable to parse CREATE parameters", tag);
+                await this.Send("{0} BAD Unable to parse CREATE parameters", tag);
                 return new CommandProcessingResult(true);
             }
 
@@ -564,11 +543,11 @@ namespace McNNTP.Core.Server
             if (this.store.HierarchyDelimiter != "NIL" && mbox.EndsWith(this.store.HierarchyDelimiter, StringComparison.OrdinalIgnoreCase))
                 mbox = mbox.Substring(0, mbox.Length - this.store.HierarchyDelimiter.Length);
 
-            var result = this.store.CreatePersonalCatalog(Identity, mbox);
+            var result = this.store.CreatePersonalCatalog(this.Identity, mbox);
             if (result)
-                await Send("{0} OK CREATE completed", tag);
+                await this.Send("{0} OK CREATE completed", tag);
             else
-                await Send("{0} NO CREATE failed", tag);
+                await this.Send("{0} NO CREATE failed", tag);
 
             return new CommandProcessingResult(true);
         }
@@ -582,20 +561,20 @@ namespace McNNTP.Core.Server
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.2.3">RFC 3501</a> for more information.</remarks>
         private async Task<CommandProcessingResult> Login([NotNull] string tag, [NotNull] string command)
         {
-            if (Identity != null)
+            if (this.Identity != null)
             {
-                await Send("{0} BAD User already authenticated as {1}", tag, Identity.Username);
+                await this.Send("{0} BAD User already authenticated as {1}", tag, this.Identity.Username);
                 return new CommandProcessingResult(true);
             }
 
             var match = Regex.Match(command, @"LOGIN\s(""(?<username>[^""]+)""|(?<username>[^\s]+))\s(""(?<password>[^""]*)""|(?<password>.*))", RegexOptions.IgnoreCase);
             if (!match.Success)
             {
-                await Send("{0} BAD Unable to parse username and password", tag);
+                await this.Send("{0} BAD Unable to parse username and password", tag);
                 return new CommandProcessingResult(true);
             }
 
-            Username = match.Groups["username"].Value;
+            this.Username = match.Groups["username"].Value;
             var password = match.Groups["password"].Value;
 
             //if (admin == null)
@@ -635,39 +614,38 @@ namespace McNNTP.Core.Server
                 // LDAP authentication
                 if (!LdapUtility.AuthenticateUser(
                         this.server.LdapDirectoryConfiguration.LdapServer,
-                        this.server.LdapDirectoryConfiguration.SearchPath,
-                        Username,
+                        this.server.LdapDirectoryConfiguration.SearchPath, this.Username,
                         password))
                 {
-                    Logger.WarnFormat("User {0} failed authentication against LDAP server.", Username);
-                    await Send("{0} NO login failure: username or password rejected", tag);
+                    Logger.WarnFormat("User {0} failed authentication against LDAP server.", this.Username);
+                    await this.Send("{0} NO login failure: username or password rejected", tag);
                     return new CommandProcessingResult(true);
                 }
             }
             else
             {
                 // Local authentication
-                Identity = this.store.GetIdentityByClearAuth(Username, password);
-                if (Identity == null)
+                this.Identity = this.store.GetIdentityByClearAuth(this.Username, password);
+                if (this.Identity == null)
                 {
-                    Logger.WarnFormat("User {0} failed authentication against local authentication database.", Username);
-                    await Send("{0} NO login failure: username or password rejected", tag);
+                    Logger.WarnFormat("User {0} failed authentication against local authentication database.", this.Username);
+                    await this.Send("{0} NO login failure: username or password rejected", tag);
                     return new CommandProcessingResult(true);
                 }
             }
 
-            if (Identity.LocalAuthenticationOnly && !IPAddress.IsLoopback(RemoteAddress))
+            if (this.Identity.LocalAuthenticationOnly && !IPAddress.IsLoopback(this.RemoteAddress))
             {
-                await Send("{0} NO Authentication not allowed except locally", tag);
+                await this.Send("{0} NO Authentication not allowed except locally", tag);
                 return new CommandProcessingResult(true);
             }
 
-            Logger.InfoFormat("User {0} authenticated from {1}", Identity.Username, RemoteAddress);
+            Logger.InfoFormat("User {0} authenticated from {1}", this.Identity.Username, this.RemoteAddress);
 
             // Ensure user has personal INBOX defined.
-            this.store.Ensure(Identity);
+            this.store.Ensure(this.Identity);
 
-            await Send("{0} OK LOGIN completed", tag);
+            await this.Send("{0} OK LOGIN completed", tag);
             return new CommandProcessingResult(true);
         }
         
@@ -680,8 +658,8 @@ namespace McNNTP.Core.Server
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3501#section-6.1.1">RFC 3501</a> for more information.</remarks>
         private async Task<CommandProcessingResult> Capability([NotNull] string tag)
         {
-            await Send("* CAPABILITY IMAP4rev1");
-            await Send("{0} OK CAPABILITY completed", tag);
+            await this.Send("* CAPABILITY IMAP4rev1");
+            await this.Send("{0} OK CAPABILITY completed", tag);
             return new CommandProcessingResult(true);
         }
         
@@ -694,10 +672,10 @@ namespace McNNTP.Core.Server
         [NotNull]
         private async Task<CommandProcessingResult> Logout([NotNull] string tag)
         {
-            await Send("* BYE IMAP4rev1 Server logging out");
-            await Send("{0} OK LOGOUT completed", tag);
+            await this.Send("* BYE IMAP4rev1 Server logging out");
+            await this.Send("{0} OK LOGOUT completed", tag);
 
-            Shutdown();
+            this.Shutdown();
             return new CommandProcessingResult(true, true);
         }
 
@@ -712,20 +690,21 @@ namespace McNNTP.Core.Server
         private async Task<CommandProcessingResult> Noop([NotNull] string match, [NotNull] string tag)
         {
             // TODO: See note in RFC 3501 6.1.2 - This could be improved to return unread message count for periodic polling
-            if (Identity != null && CurrentCatalog != null)
+            if (this.Identity != null && this.CurrentCatalog != null)
             {
-                var catalog = this.store.GetCatalogByName(Identity, CurrentCatalog);
+                var catalog = this.store.GetCatalogByName(this.Identity, this.CurrentCatalog);
                 if (catalog != null)
-                    await Send("* {0} EXISTS", catalog.MessageCount);
+                    await this.Send("* {0} EXISTS", catalog.MessageCount);
             }
 
-            await Send("{0} OK {1} completed", tag, match);
+            await this.Send("{0} OK {1} completed", tag, match);
             return new CommandProcessingResult(true);
         }
 
         /// <summary>
         /// Handles the SELECT command from a client, which focuses on a particular catalog for other operations
         /// </summary>
+        /// <param name="match">Match parameters for the select</param>
         /// <param name="tag">The tag for the command sequence as sent by the client</param>
         /// <param name="command">The full command received by the client</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
@@ -733,149 +712,149 @@ namespace McNNTP.Core.Server
         [NotNull]
         private async Task<CommandProcessingResult> Select([NotNull] string match, [NotNull] string tag, [NotNull] string command)
         {
-            if (Identity == null)
+            if (this.Identity == null)
             {
-                await Send("{0} NO Connection not yet authenticated", tag);
+                await this.Send("{0} NO Connection not yet authenticated", tag);
                 return new CommandProcessingResult(true);
             }
 
             var regex = Regex.Match(command, @"SELECT\s(""(?<mbox>[^""]+)""|(?<mbox>[^\s]+))", RegexOptions.IgnoreCase);
             if (!regex.Success)
             {
-                await Send("{0} BAD Unable to parse {1} parameters", tag, match);
+                await this.Send("{0} BAD Unable to parse {1} parameters", tag, match);
                 
                 // RFC 3501 3.1 - A failed SELECT command will move from Selected to Authenticated state
-                CurrentCatalog = null;
-                CurrentCatalogReadOnly = false;
+                this.CurrentCatalog = null;
+                this.CurrentCatalogReadOnly = false;
 
                 return new CommandProcessingResult(true);
             }
 
             var mbox = regex.Groups["mbox"].Value;
 
-            var ng = this.store.GetCatalogByName(Identity, mbox);
+            var ng = this.store.GetCatalogByName(this.Identity, mbox);
             if (ng == null)
             {
-                await Send("{0} BAD Unable to locate mailbox", tag);
+                await this.Send("{0} BAD Unable to locate mailbox", tag);
                 return new CommandProcessingResult(true);
             }
 
             this.CurrentCatalog = ng.Name;
             this.CurrentCatalogReadOnly = match == "EXAMINE";
 
-            await Send("* FLAGS ()"); // TODO: Implement message flags
-            await Send("* {0} EXISTS", ng.MessageCount);
-            await Send("* {0} RECENT", ng.MessageCount); // TODO: Implement \Recent flag
+            await this.Send("* FLAGS ()"); // TODO: Implement message flags
+            await this.Send("* {0} EXISTS", ng.MessageCount);
+            await this.Send("* {0} RECENT", ng.MessageCount); // TODO: Implement \Recent flag
             // TODO: Note section 6.3.1 of RFC 3501 - I'm not implementing some optional elements I probably should like UNSEEN, PERMANENTFLAGS
-            await Send("* OK [UIDNEXT {0}]", ng.HighWatermark == null ? 1 : ng.HighWatermark + 1);
-            await Send("* OK [UIDVALIDITY {0:yyyyMMddhhmm}]", ng.CreateDateUtc);
+            await this.Send("* OK [UIDNEXT {0}]", ng.HighWatermark == null ? 1 : ng.HighWatermark + 1);
+            await this.Send("* OK [UIDVALIDITY {0:yyyyMMddhhmm}]", ng.CreateDateUtc);
 
-            if (CurrentCatalogReadOnly)
-                await Send("{0} OK [READ-ONLY] {1} completed", tag, match);
-            else if (ng.Owner != null && ng.Owner.Equals(Identity))
-                await Send("{0} OK [READ-WRITE] {1} completed", tag, match);
+            if (this.CurrentCatalogReadOnly)
+                await this.Send("{0} OK [READ-ONLY] {1} completed", tag, match);
+            else if (ng.Owner != null && ng.Owner.Equals(this.Identity))
+                await this.Send("{0} OK [READ-WRITE] {1} completed", tag, match);
             else
-                await Send("{0} OK [READ-ONLY] {1} completed", tag, match);
+                await this.Send("{0} OK [READ-ONLY] {1} completed", tag, match);
 
             return new CommandProcessingResult(true);
         }
 
         private async Task<CommandProcessingResult> LSub([NotNull] string tag, [NotNull] string command)
         {
-            if (Identity == null)
+            if (this.Identity == null)
             {
-                await Send("{0} NO Connection not yet authenticated", tag);
+                await this.Send("{0} NO Connection not yet authenticated", tag);
                 return new CommandProcessingResult(true);
             }
 
             var match = Regex.Match(command, @"LSUB\s(""(?<ref>[^""]+)""|(?<ref>[^\s]+))\s(""(?<mbox>[^""]*)""|(?<mbox>.*))", RegexOptions.IgnoreCase);
             if (!match.Success)
             {
-                await Send("{0} BAD Unable to parse LSUB parameters", tag);
+                await this.Send("{0} BAD Unable to parse LSUB parameters", tag);
                 return new CommandProcessingResult(true);
             }
 
             var mbox = match.Groups["mbox"].Value;
 
-            var subs = this.store.GetSubscriptions(Identity);
+            var subs = this.store.GetSubscriptions(this.Identity);
 
             if (string.IsNullOrEmpty(mbox))
                 foreach (var sub in subs.AsParallel())
-                    await Send(@"* LSUB () {0} {1}", this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", sub);
+                    await this.Send(@"* LSUB () {0} {1}", this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", sub);
             else
             {
                 var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", this.store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(this.store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
                 foreach (var sub in subs.AsParallel().Where(c => regex.IsMatch(c)))
-                    await Send(@"* LSUB () {0} {1}", this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", sub);
+                    await this.Send(@"* LSUB () {0} {1}", this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", sub);
             }
 
-            await Send("{0} OK LSUB completed", tag);
+            await this.Send("{0} OK LSUB completed", tag);
             return new CommandProcessingResult(true);
         }
 
         [NotNull] 
         private async Task<CommandProcessingResult> Subscribe([NotNull] string tag, [NotNull] string command)
         {
-            if (Identity == null)
+            if (this.Identity == null)
             {
-                await Send("{0} NO Connection not yet authenticated", tag);
+                await this.Send("{0} NO Connection not yet authenticated", tag);
                 return new CommandProcessingResult(true);
             }
 
             var match = Regex.Match(command, @"SUBSCRIBE\s(""(?<mbox>[^""]*)""|(?<mbox>.*))", RegexOptions.IgnoreCase);
             if (!match.Success || string.IsNullOrWhiteSpace(match.Groups["mbox"].Value))
             {
-                await Send("{0} BAD Unable to parse SUBSCRIBE parameters", tag);
+                await this.Send("{0} BAD Unable to parse SUBSCRIBE parameters", tag);
                 return new CommandProcessingResult(true);
             }
 
             var mbox = match.Groups["mbox"].Value;
 
-            var subs = this.store.GetSubscriptions(Identity).ToArray();
+            var subs = this.store.GetSubscriptions(this.Identity).ToArray();
 
             if (subs.Any(s => string.Compare(s, mbox, StringComparison.OrdinalIgnoreCase) == 0))
             {
                 // Already subscribed
-                await Send("{0} OK SUBSCRIBE completed", tag);
+                await this.Send("{0} OK SUBSCRIBE completed", tag);
                 return new CommandProcessingResult(true);
             }
 
-            if (this.store.CreateSubscription(Identity, mbox))
+            if (this.store.CreateSubscription(this.Identity, mbox))
             {
-                await Send("{0} OK SUBSCRIBE completed", tag);
+                await this.Send("{0} OK SUBSCRIBE completed", tag);
                 return new CommandProcessingResult(true);
             }
 
-            await Send("{0} NO SUBSCRIBE failed", tag);
+            await this.Send("{0} NO SUBSCRIBE failed", tag);
             return new CommandProcessingResult(true);
         }
 
         private async Task<CommandProcessingResult> Unsubscribe(string tag, string command)
         {
-            if (Identity == null)
+            if (this.Identity == null)
             {
-                await Send("{0} NO Connection not yet authenticated", tag);
+                await this.Send("{0} NO Connection not yet authenticated", tag);
                 return new CommandProcessingResult(true);
             }
 
             var match = Regex.Match(command, @"UNSUBSCRIBE\s(""(?<mbox>[^""]*)""|(?<mbox>.*))", RegexOptions.IgnoreCase);
             if (!match.Success || string.IsNullOrWhiteSpace(match.Groups["mbox"].Value))
             {
-                await Send("{0} BAD Unable to parse UNSUBSCRIBE parameters", tag);
+                await this.Send("{0} BAD Unable to parse UNSUBSCRIBE parameters", tag);
                 return new CommandProcessingResult(true);
             }
 
             var mbox = match.Groups["mbox"].Value;
 
-            var subs = this.store.GetSubscriptions(Identity).ToArray();
+            var subs = this.store.GetSubscriptions(this.Identity).ToArray();
 
-            if (subs.Any(s => string.Compare(s, mbox, StringComparison.OrdinalIgnoreCase) == 0) && this.store.DeleteSubscription(Identity, mbox))
+            if (subs.Any(s => string.Compare(s, mbox, StringComparison.OrdinalIgnoreCase) == 0) && this.store.DeleteSubscription(this.Identity, mbox))
             {
-                await Send("{0} OK UNSUBSCRIBE completed", tag);
+                await this.Send("{0} OK UNSUBSCRIBE completed", tag);
                 return new CommandProcessingResult(true);
             }
 
-            await Send("{0} NO UNSUBSCRIBE failed", tag);
+            await this.Send("{0} NO UNSUBSCRIBE failed", tag);
             return new CommandProcessingResult(true);
         }
 
@@ -883,29 +862,32 @@ namespace McNNTP.Core.Server
         /// Handles the LIST command from a client, which allows a client to retrieve blocks
         /// of information depending on the parameters and arguments supplied with the command.
         /// </summary>
-        /// <param name="content">The full command request provided by the client</param>
+        /// <param name="tag">The tag for the command sequence as sent by the client</param>
+        /// <param name="command">The full command request provided by the client</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-7.6.1">RFC 3977</a> for more information.</remarks>
         [NotNull]
         private async Task<CommandProcessingResult> List([NotNull] string tag, [NotNull] string command)
         {
-            if (Identity == null)
+            var identity = this.Identity;
+
+            if (identity == null)
             {
-                await Send("{0} NO Connection not yet authenticated", tag);
+                await this.Send("{0} NO Connection not yet authenticated", tag);
                 return new CommandProcessingResult(true);
             }
 
             var match = Regex.Match(command, @"LIST\s(""(?<ref>[^""]+)""|(?<ref>[^\s]+))\s(""(?<mbox>[^""]*)""|(?<mbox>.*))", RegexOptions.IgnoreCase);
             if (!match.Success)
             {
-                await Send("{0} BAD Unable to parse LIST parameters", tag);
+                await this.Send("{0} BAD Unable to parse LIST parameters", tag);
                 return new CommandProcessingResult(true);
             }
 
-            var globalCatalogs = this.store.GetGlobalCatalogs(Identity);
+            var globalCatalogs = this.store.GetGlobalCatalogs(this.Identity);
             if (globalCatalogs == null)
             {
-                await Send("{0} BAD Global catalogs temporarily offline", tag);
+                await this.Send("{0} BAD Global catalogs temporarily offline", tag);
                 return new CommandProcessingResult(true);
             }
 
@@ -914,68 +896,68 @@ namespace McNNTP.Core.Server
             if (string.IsNullOrEmpty(mbox))
                 foreach (var ng in globalCatalogs.AsParallel())
                 {
-                    var flags = GetFlags(Identity, ng.Name, this.store);
-                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
+                    var flags = this.GetFlags(identity, ng.Name, this.store);
+                    await this.Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
                 }
             else
             {
                 var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", this.store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(this.store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
                 foreach (var ng in globalCatalogs.AsParallel().Where(c => regex.IsMatch(c.Name)))
                 {
-                    var flags = GetFlags(Identity, ng.Name, this.store);
-                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
+                    var flags = this.GetFlags(identity, ng.Name, this.store);
+                    await this.Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
                 }
             }
 
-            var personalCatalogs = this.store.GetPersonalCatalogs(Identity);
+            var personalCatalogs = this.store.GetPersonalCatalogs(this.Identity);
             if (personalCatalogs == null)
             {
-                await Send("{0} BAD Personal catalogs temporarily offline", tag);
+                await this.Send("{0} BAD Personal catalogs temporarily offline", tag);
                 return new CommandProcessingResult(true);
             }
 
             if (string.IsNullOrEmpty(mbox))
                 foreach (var ng in personalCatalogs.AsParallel())
                 {
-                    var flags = GetFlags(Identity, ng.Name, this.store);
-                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
+                    var flags = this.GetFlags(identity, ng.Name, this.store);
+                    await this.Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
                 }
             else
             {
                 var regex = new Regex(Regex.Escape(mbox).Replace(@"\*", ".*").Replace(@"%", this.store.HierarchyDelimiter == "NIL" ? ".*" : "[^" + Regex.Escape(this.store.HierarchyDelimiter) + "]*").Replace(@"\?", "."), RegexOptions.IgnoreCase);
                 foreach (var ng in personalCatalogs.AsParallel().Where(c => regex.IsMatch(c.Name)))
                 {
-                    var flags = GetFlags(Identity, ng.Name, this.store);
-                    await Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
+                    var flags = this.GetFlags(identity, ng.Name, this.store);
+                    await this.Send(@"* LIST ({0}) {1} ""{2}""", flags, this.store.HierarchyDelimiter == "NIL" ? "NIL" : "\"" + this.store.HierarchyDelimiter + "\"", ng.Name);
                 }
             }
             
-            await Send("{0} OK LIST completed.", tag);
+            await this.Send("{0} OK LIST completed.", tag);
             return new CommandProcessingResult(true);
         }
 
         private async Task<CommandProcessingResult> Status(string tag, string command)
         {
-            if (Identity == null)
+            if (this.Identity == null)
             {
-                await Send("{0} NO Connection not yet authenticated", tag);
+                await this.Send("{0} NO Connection not yet authenticated", tag);
                 return new CommandProcessingResult(true);
             }
 
             var match = Regex.Match(command, @"STATUS\s(""(?<mbox>[^""]+)""|(?<mbox>[^\s]+))\s(""(?<items>[^""]*)""|(?<items>.*))", RegexOptions.IgnoreCase);
             if (!match.Success)
             {
-                await Send("{0} BAD Unable to parse STATUS parameters", tag);
+                await this.Send("{0} BAD Unable to parse STATUS parameters", tag);
                 return new CommandProcessingResult(true);
             }
 
             var mbox = match.Groups["mbox"].Value;
             var items = match.Groups["items"].Value;
 
-            var ng = this.store.GetCatalogByName(Identity, mbox);
+            var ng = this.store.GetCatalogByName(this.Identity, mbox);
             if (ng == null)
             {
-                await Send("{0} NO No such mailbox.", tag);
+                await this.Send("{0} NO No such mailbox.", tag);
                 return new CommandProcessingResult(true);
             }
 
@@ -993,30 +975,30 @@ namespace McNNTP.Core.Server
             if (items.IndexOf("UNSEEN", StringComparison.OrdinalIgnoreCase) > -1)
                 sb.AppendFormat("{0}UNSEEN {1}", ++open == 1 ? string.Empty : " ", ng.MessageCount); // TODO: Implement the \Seen flag
             sb.Append(")");
-            await Send(sb.ToString());
-            await Send("{0} OK STATUS completed", tag);
+            await this.Send(sb.ToString());
+            await this.Send("{0} OK STATUS completed", tag);
             return new CommandProcessingResult(true);
         }
 
         [NotNull, Pure]
         private async Task<CommandProcessingResult> Uid([NotNull] string tag, string command)
         {
-            if (Identity == null)
+            if (this.Identity == null)
             {
-                await Send("{0} NO Connection not yet authenticated", tag);
+                await this.Send("{0} NO Connection not yet authenticated", tag);
                 return new CommandProcessingResult(true);
             }
 
             var matchFetch = Regex.Match(command, @"UID\sFETCH\s(""(?<lbound>[^""]+)""|(?<lbound>[^\s]+))(:(""(?<ubound>[^""]*)""|(?<ubound>[^\s]+)))?\s(\((?<elems>[^\)]+)\)|(?<elems>.*))", RegexOptions.IgnoreCase);
             if (!matchFetch.Success)
             {
-                await Send("{0} BAD Unable to parse UID parameters", tag);
+                await this.Send("{0} BAD Unable to parse UID parameters", tag);
                 return new CommandProcessingResult(true);
             }
 
             if (this.CurrentCatalog == null)
             {
-                await Send("{0} NO No mailbox selected", tag);
+                await this.Send("{0} NO No mailbox selected", tag);
                 return new CommandProcessingResult(true);
             }
 
@@ -1028,17 +1010,17 @@ namespace McNNTP.Core.Server
             lboundNumber = int.TryParse(lbound, out lboundNumber) ? lboundNumber : 1;
             var uboundNumber = ubound == null ? default(int?) : int.TryParse(ubound, out uboundNumberTemp) ? uboundNumberTemp : default(int?);
             
-            var messages = this.store.GetMessages(Identity, this.CurrentCatalog, lboundNumber, uboundNumber);
+            var messages = this.store.GetMessages(this.Identity, this.CurrentCatalog, lboundNumber, uboundNumber);
 
             if (messages == null)
             {
-                await Send("{0} BAD Archive server temporarily offline", tag);
+                await this.Send("{0} BAD Archive server temporarily offline", tag);
                 return new CommandProcessingResult(true);
             }
 
             var i = 0;
             var showFlags = elems.IndexOf("FLAGS", StringComparison.OrdinalIgnoreCase) > -1;
-            var flags = showFlags ? this.store.GetMessageDetails(Identity, this.CurrentCatalog, lboundNumber, uboundNumber).ToArray() : new IMessageDetail[0];
+            var flags = showFlags ? this.store.GetMessageDetails(this.Identity, this.CurrentCatalog, lboundNumber, uboundNumber).ToArray() : new IMessageDetail[0];
 
             Parallel.ForEach(
                 messages, 
@@ -1134,10 +1116,10 @@ namespace McNNTP.Core.Server
 
                 sb.Append(")");
 
-                await Send(sb.ToString());
+                await this.Send(sb.ToString());
             });
 
-            await Send("{0} OK UID FETCH completed", tag);
+            await this.Send("{0} OK UID FETCH completed", tag);
             return new CommandProcessingResult(true);
         }
         #endregion

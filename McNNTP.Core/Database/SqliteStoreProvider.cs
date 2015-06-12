@@ -17,8 +17,8 @@ namespace McNNTP.Core.Database
 
     using log4net;
 
-    using McNNTP.Common;
-    using McNNTP.Data;
+    using Common;
+    using Data;
 
     using NHibernate;
     using NHibernate.Linq;
@@ -56,7 +56,7 @@ namespace McNNTP.Core.Database
         {
             get
             {
-                return hierarchyDelimiter;
+                return this.hierarchyDelimiter;
             }
         }
 
@@ -66,7 +66,7 @@ namespace McNNTP.Core.Database
         /// <param name="identity">The identity of the user to ensure is initialized properly in the store</param>
         public void Ensure(IIdentity identity)
         {
-            var personalCatalogs = GetPersonalCatalogs(identity, null);
+            var personalCatalogs = this.GetPersonalCatalogs(identity, null);
 
             if (personalCatalogs != null && personalCatalogs.All(c => c.Name != "INBOX"))
             {
@@ -125,8 +125,8 @@ namespace McNNTP.Core.Database
                         .Where(n => n.Owner == null)
                         .ToList()
                         .Where(n =>
-                            (parentCatalogName == null && (HierarchyDelimiter == "NIL" || n.Name.IndexOf(HierarchyDelimiter, StringComparison.OrdinalIgnoreCase) == -1)) ||
-                            (parentCatalogName != null && (HierarchyDelimiter != "NIL" && n.Name.StartsWith(parentCatalogName + HierarchyDelimiter))))
+                            (parentCatalogName == null && (this.HierarchyDelimiter == "NIL" || n.Name.IndexOf(this.HierarchyDelimiter, StringComparison.OrdinalIgnoreCase) == -1)) ||
+                            (parentCatalogName != null && (this.HierarchyDelimiter != "NIL" && n.Name.StartsWith(parentCatalogName + this.HierarchyDelimiter))))
                         .AddMetagroups(session, identity).OrderBy(n => n.Name).ToList();
                     session.Close();
                 }
@@ -165,8 +165,8 @@ namespace McNNTP.Core.Database
                         .Where(n => n.Owner.Id == identityId)
                         .ToList()
                         .Where(n =>
-                            (parentCatalogName == null && (HierarchyDelimiter == "NIL" || n.Name.IndexOf(HierarchyDelimiter, StringComparison.OrdinalIgnoreCase) == -1)) ||
-                            (parentCatalogName != null && (HierarchyDelimiter != "NIL" && n.Name.StartsWith(parentCatalogName + HierarchyDelimiter))))
+                            (parentCatalogName == null && (this.HierarchyDelimiter == "NIL" || n.Name.IndexOf(this.HierarchyDelimiter, StringComparison.OrdinalIgnoreCase) == -1)) ||
+                            (parentCatalogName != null && (this.HierarchyDelimiter != "NIL" && n.Name.StartsWith(parentCatalogName + this.HierarchyDelimiter))))
                         .OrderBy(n => n.Name).ToList();
                     session.Close();
                 }

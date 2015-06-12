@@ -13,7 +13,7 @@ namespace McNNTP.Core.Database
 
     using JetBrains.Annotations;
 
-    using McNNTP.Data;
+    using Data;
 
     using NHibernate;
     using NHibernate.Cfg;
@@ -27,7 +27,7 @@ namespace McNNTP.Core.Database
         /// A singleton instance of an NHibernate <see cref="ISessionFactory"/> built from the
         /// configuration of the application.
         /// </summary>
-        private static readonly Lazy<ISessionFactory> SessionFactory = new Lazy<ISessionFactory>(() =>
+        private static readonly Lazy<ISessionFactory> _SessionFactory = new Lazy<ISessionFactory>(() =>
         {
             var configuration = new Configuration();
             configuration.AddAssembly(typeof(Newsgroup).Assembly);
@@ -45,7 +45,7 @@ namespace McNNTP.Core.Database
         [NotNull, Pure]
         public static ISession OpenSession()
         {
-            return SessionFactory.Value.OpenSession();
+            return _SessionFactory.Value.OpenSession();
         }
     }
 }

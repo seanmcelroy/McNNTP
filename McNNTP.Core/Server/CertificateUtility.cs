@@ -121,7 +121,6 @@ namespace McNNTP.Core.Server
 
                 IntPtr errorStringPtr;
                 var nameDataLength = 0;
-                byte[] nameData;
 
                 // errorStringPtr gets a pointer into the middle of the x500 string,
                 // so x500 needs to be pinned until after we've copied the value
@@ -141,7 +140,7 @@ namespace McNNTP.Core.Server
                     throw new ArgumentException(error);
                 }
 
-                nameData = new byte[nameDataLength];
+                var nameData = new byte[nameDataLength];
 
                 if (!NativeMethods.CertStrToNameW(
                     0x00010001, // X509_ASN_ENCODING | PKCS_7_ASN_ENCODING
@@ -311,8 +310,8 @@ namespace McNNTP.Core.Server
 
             public CryptoApiBlob(int dataLength, IntPtr data)
             {
-                DataLength = dataLength;
-                Data = data;
+                this.DataLength = dataLength;
+                this.Data = data;
             }
         }
 

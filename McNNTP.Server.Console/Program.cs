@@ -139,6 +139,14 @@ namespace McNNTP.Server.Console
                 nntpServer = new NntpServer
                              {
                                  AllowPosting = true,
+                                 IrcClearPorts =
+                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText" && p.Protocol == "irc")
+                                     .Select(p => p.Port)
+                                     .ToArray(),
+                                 IrcImplicitTLSPorts =
+                                     mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS" && p.Protocol == "irc")
+                                     .Select(p => p.Port)
+                                     .ToArray(),
                                  NntpClearPorts =
                                      mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText" && p.Protocol == "nntp")
                                      .Select(p => p.Port)

@@ -39,18 +39,18 @@
         public NntpClient()
         {
             // Establish default values
-            CanPost = true;
-            Port = 119;
+            this.CanPost = true;
+            this.Port = 119;
         }
 
         #region Connections
         public async Task Connect(string hostName, bool? tls = null)
         {
             var tcpClient = new TcpClient();
-            await tcpClient.ConnectAsync(hostName, Port);
+            await tcpClient.ConnectAsync(hostName, this.Port);
             Stream stream;
 
-            if (tls ?? Port == 563)
+            if (tls ?? this.Port == 563)
             {
                 var sslStream = new SslStream(tcpClient.GetStream());
                 await sslStream.AuthenticateAsClientAsync(hostName);
@@ -59,17 +59,17 @@
             else
                 stream = tcpClient.GetStream();
 
-            Connection = new Connection(tcpClient, stream);
+            this.Connection = new Connection(tcpClient, stream);
 
-            var response = await Connection.Receive();
+            var response = await this.Connection.Receive();
 
             switch (response.Code)
             {
                 case 200:
-                    CanPost = true;
+                    this.CanPost = true;
                     break;
                 case 201:
-                    CanPost = false;
+                    this.CanPost = false;
                     break;
                 default:
                     throw new NntpException(string.Format("Unexpected response code {0}.  Message: {1}", response.Code, response.Message));
@@ -78,8 +78,8 @@
 
         public async Task Disconnect()
         {
-            await Connection.Send("QUIT\r\n");
-            var response = await Connection.Receive();
+            await this.Connection.Send("QUIT\r\n");
+            var response = await this.Connection.Receive();
             if (response.Code != 205)
                 throw new NntpException(response.Message);
         }
@@ -87,8 +87,8 @@
         
         public async Task<ReadOnlyCollection<string>> GetCapabilities()
         {
-            await Connection.Send("CAPABILITIES\r\n");
-            var response = await Connection.ReceiveMultiline();
+            await this.Connection.Send("CAPABILITIES\r\n");
+            var response = await this.Connection.ReceiveMultiline();
             if (response.Code != 101)
                 throw new NntpException(response.Message);
 
@@ -97,8 +97,8 @@
 
         public async Task<ReadOnlyCollection<string>> GetNewsgroups()
         {
-            await Connection.Send("LIST\r\n");
-            var response = await Connection.ReceiveMultiline();
+            await this.Connection.Send("LIST\r\n");
+            var response = await this.Connection.ReceiveMultiline();
             if (response.Code != 215)
                 throw new NntpException(response.Message);
 
@@ -109,8 +109,8 @@
         public async Task<ReadOnlyCollection<string>> GetNews(string newsgroup)
         {
             var topics = new List<string>();
-            await Connection.Send("GROUP {0}\r\n", newsgroup);
-            var response = await Connection.Receive();
+            await this.Connection.Send("GROUP {0}\r\n", newsgroup);
+            var response = await this.Connection.Receive();
             if (response.Code != 211)
                 throw new NntpException(response.Message);
 
@@ -125,8 +125,8 @@
 
             for (var i = start; i < end; i++)
             {
-                await Connection.Send("ARTICLE {0}\r\n", i);
-                var response2 = await Connection.ReceiveMultiline();
+                await this.Connection.Send("ARTICLE {0}\r\n", i);
+                var response2 = await this.Connection.ReceiveMultiline();
                 if (response2.Code == 423)
                     continue;
 
@@ -141,21 +141,21 @@
 
         public async Task Post(string newsgroup, string subject, string from, string content)
         {
-            await Connection.Send("POST\r\n");
-            var response = await Connection.Receive();
+            await this.Connection.Send("POST\r\n");
+            var response = await this.Connection.Receive();
             if (response.Code != 340)
                 throw new NntpException(response.Message);
 
-            await Connection.Send("From: {0}\r\nNewsgroups: {1}\r\nSubject: {2}\r\n\r\n{3}\r\n.\r\n", from, newsgroup, subject, content);
-            response = await Connection.Receive();
+            await this.Connection.Send("From: {0}\r\nNewsgroups: {1}\r\nSubject: {2}\r\n\r\n{3}\r\n.\r\n", from, newsgroup, subject, content);
+            response = await this.Connection.Receive();
             if (response.Code != 240)
                 throw new NntpException(response.Message);
         }
 
         public async Task SetCurrentGroup(string newsgroup)
         {
-            await Connection.Send("GROUP {0}\r\n", newsgroup);
-            var response = await Connection.Receive();
+            await this.Connection.Send("GROUP {0}\r\n", newsgroup);
+            var response = await this.Connection.Receive();
             if (response.Code == 411)
                 throw new NntpException("No such group: {0}", new [] { newsgroup });
         }

@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace McNNTP.Core.Client
+﻿namespace McNNTP.Core.Client
 {
     internal class NntpResponse
     {
@@ -14,8 +8,8 @@ namespace McNNTP.Core.Client
 
         internal NntpResponse(int code, string message)
         {
-            Code = code;
-            Message = message;
+            this.Code = code;
+            this.Message = message;
         }
     }
 }

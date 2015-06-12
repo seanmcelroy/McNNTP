@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
 
 namespace McNNTP.Core.Client
 {
@@ -13,7 +9,7 @@ namespace McNNTP.Core.Client
         internal NntpMultilineResponse(int code, string message, IEnumerable<string> lines)
             : base(code, message)
         {
-            Lines = lines;
+            this.Lines = lines;
         }
     }
 }
