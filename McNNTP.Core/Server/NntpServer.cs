@@ -8,8 +8,6 @@
 // </summary>
 // --------------------------------------------------------------------------------------------------------------------
 
-using McNNTP.Core.Server.IRC;
-
 namespace McNNTP.Core.Server
 {
     using System;
@@ -27,8 +25,8 @@ namespace McNNTP.Core.Server
 
     using log4net;
 
-    using Common;
-    using Configuration;
+    using McNNTP.Common;
+    using McNNTP.Core.Server.Configuration;
 
     /// <summary>
     /// Defines the an NNTP server utility that provides connection management and command handling to expose

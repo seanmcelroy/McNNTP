@@ -23,6 +23,7 @@ namespace McNNTP.Server.Console
     using McNNTP.Core.Database;
     using McNNTP.Core.Server;
     using McNNTP.Core.Server.Configuration;
+    using McNNTP.Core.Server.IRC;
     using McNNTP.Data;
 
     using NHibernate.Linq;
@@ -59,6 +60,11 @@ namespace McNNTP.Server.Console
         /// The strings that evaluate to 'false' for a Boolean value
         /// </summary>
         private static readonly string[] NoStrings = { "DISABLE", "F", "FALSE", "OFF", "N", "NO", "0" };
+
+        /// <summary>
+        /// The IRC server object instance
+        /// </summary>
+        private static IrcServer ircServer;
 
         /// <summary>
         /// The IMAP server object instance
@@ -108,6 +114,27 @@ namespace McNNTP.Server.Console
                         DatabaseUtility.RebuildSchema();
                     }
                 }
+
+                ircServer = new IrcServer
+                {
+                    IrcClearPorts =
+                        mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText" && p.Protocol == "irc")
+                        .Select(p => p.Port)
+                        .ToArray(),
+                    IrcImplicitTLSPorts =
+                        mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS" && p.Protocol == "irc")
+                        .Select(p => p.Port)
+                        .ToArray(),
+                    SslGenerateSelfSignedServerCertificate =
+                        mcnntpConfigurationSection.Ssl == null
+                        || mcnntpConfigurationSection.Ssl.GenerateSelfSignedServerCertificate,
+                    SslServerCertificateThumbprint =
+                        mcnntpConfigurationSection.Ssl == null
+                            ? null
+                            : mcnntpConfigurationSection.Ssl.ServerCertificateThumbprint
+                };
+
+                ircServer.Start();
 
                 imapServer = new ImapServer
                                  {

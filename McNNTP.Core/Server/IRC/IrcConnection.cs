@@ -12,16 +12,19 @@ namespace McNNTP.Core.Server.IRC
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
-    using System.Globalization;
     using System.IO;
     using System.Linq;
     using System.Net;
     using System.Net.Sockets;
     using System.Text;
+    using System.Text.RegularExpressions;
     using System.Threading.Tasks;
+
     using JetBrains.Annotations;
+
     using log4net;
-    using Common;
+
+    using McNNTP.Common;
 
     /// <summary>
     /// A connection from a client to the server
@@ -36,12 +39,12 @@ namespace McNNTP.Core.Server.IRC
         /// <summary>
         /// A command-indexed dictionary with function pointers to support client command
         /// </summary>
-        private static readonly Dictionary<string, Func<IrcConnection, string, string, Task<CommandProcessingResult>>> CommandDirectory;
+        private static readonly Dictionary<string, Func<IrcConnection, Message, Task<CommandProcessingResult>>> _CommandDirectory;
 
         /// <summary>
         /// The logging utility instance to use to log events from this class
         /// </summary>
-        private static readonly ILog Logger = LogManager.GetLogger(typeof(IrcConnection));
+        private static readonly ILog _Logger = LogManager.GetLogger(typeof(IrcConnection));
 
         /// <summary>
         /// The store to use to satisfy requests of this connection
@@ -108,14 +111,23 @@ namespace McNNTP.Core.Server.IRC
         private CommandProcessingResult inProcessCommand;
 
         /// <summary>
+        /// The principal identified on this connection
+        /// </summary>
+        [CanBeNull]
+        private IPrincipal principal;
+
+        /// <summary>
         /// Initializes static members of the <see cref="IrcConnection"/> class.
         /// </summary>
         static IrcConnection()
         {
-            //CommandDirectory = new Dictionary<string, Func<IrcConnection, string, string, Task<CommandProcessingResult>>>
-            //                   {
-            //                       { "NICK", async (c, tag, command) => await c.Nick(command) },
-            //                   };
+            _CommandDirectory = new Dictionary<string, Func<IrcConnection, Message, Task<CommandProcessingResult>>>
+                               {
+                                   { "CAP", async (c, m) => await c.Capability(m) },
+                                   { "NICK", async (c, m) => await c.Nick(m) },
+                                   { "QUIT", async (c, m) => await c.Quit(m) },
+                                   { "USER", async (c, m) => await c.User(m) }
+                               };
         }
 
         /// <summary>
@@ -177,7 +189,7 @@ namespace McNNTP.Core.Server.IRC
         /// <summary>
         /// Gets a value indicating the catalog currently selected by this connection
         /// </summary>
-        [PublicAPI, CanBeNull]
+        [PublicAPI]
         public bool CurrentCatalogReadOnly { get; private set; }
 
         /// <summary>
@@ -228,11 +240,7 @@ namespace McNNTP.Core.Server.IRC
         /// </summary>
         public async void Process()
         {
-            await this.Send("* OK IMAP4rev1 Service Ready");
-
             Debug.Assert(this.stream != null, "The stream was 'null', but it should not have been because the connection was accepted and processing is beginning.");
-
-            bool send403;
 
             try
             {
@@ -242,7 +250,7 @@ namespace McNNTP.Core.Server.IRC
 
                     if (!this.stream.CanRead)
                     {
-                        await this.Send("* BYE Unable to read from stream");
+                        await this.SendError("Unable to read from stream");
                         this.Shutdown();
                         return;
                     }
@@ -254,18 +262,29 @@ namespace McNNTP.Core.Server.IRC
 
                     // Not all data received OR no more but not yet ending with the delimiter. Get more.
                     var builderString = this.builder.ToString();
-                    if (bytesRead == BufferSize || !builderString.EndsWith("\r\n", StringComparison.Ordinal))
+                    if (bytesRead == BufferSize 
+                        || (
+                            !builderString.EndsWith("\r\n", StringComparison.Ordinal)
+                            && !builderString.EndsWith("\n", StringComparison.Ordinal))
+                        )
                     {
                         // Read some more.
                         continue;
                     }
 
                     // There could be MORE THAN ONE command in one read.
-                    var builderMoreThanOne = builderString.Length > 2 && builderString.Substring(0, builderString.Length - 2).IndexOf("\r\n", StringComparison.Ordinal) > -1;
+                    var builderMoreThanOne = 
+                        builderString.Length > 2 && (
+                            builderString.Substring(0, builderString.Length - 2).IndexOf("\r\n", StringComparison.Ordinal) > -1
+                            || builderString.Substring(0, builderString.Length - 2).IndexOf("\n", StringComparison.Ordinal) > -1
+                        );
                     string[] inputs;
                     if (builderMoreThanOne)
                     {
                         var split = builderString.Split(new[] { "\r\n" }, StringSplitOptions.None);
+                        if (split.Length == 1)
+                            split = builderString.Split(new[] { "\n" }, StringSplitOptions.None);
+
                         inputs = split.Take(split.Length - 1).ToArray();
                         this.builder.Clear();
                         if (!string.IsNullOrEmpty(split.Last()))
@@ -280,16 +299,16 @@ namespace McNNTP.Core.Server.IRC
                     // All the data has been read from the 
                     // client. Display it on the console.
                     if (this.ShowBytes && this.ShowData)
-                        Logger.TraceFormat(
+                        _Logger.TraceFormat(
                             "{0}:{1} >{2}> {3} bytes: {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             builderString.Length,
                             builderString.TrimEnd('\r', '\n'));
                     else if (this.ShowBytes)
-                        Logger.TraceFormat(
+                        _Logger.TraceFormat(
                             "{0}:{1} >{2}> {3} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             builderString.Length);
                     else if (this.ShowData)
-                        Logger.TraceFormat(
+                        _Logger.TraceFormat(
                             "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             builderString.TrimEnd('\r', '\n'));
                     
@@ -304,86 +323,66 @@ namespace McNNTP.Core.Server.IRC
                         }
                         else
                         {
-                            var parts = input.Split(' ');
-                            var tag = parts.First();
-                            if (parts.Length < 2) 
-                                await this.Send("{0} BAD unexpected end of data", "*");
-                            else
+                            var mesasge = new Message(input);
+
+                            if (_CommandDirectory.ContainsKey(mesasge.Command.ToUpperInvariant()))
                             {
-                                var command = parts.ElementAt(1).TrimEnd('\r', '\n').ToUpperInvariant();
-                                var phrase = parts.Skip(1).Aggregate((c, n) => c + " " + n).TrimEnd('\r', '\n');
-                                if (CommandDirectory.ContainsKey(command))
+                                try
                                 {
-                                    try
-                                    {
-                                        if (this.ShowCommands)
-                                            Logger.TraceFormat(
-                                                "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
-                                                phrase);
+                                    if (this.ShowCommands)
+                                        _Logger.TraceFormat(
+                                            "{0}:{1} >{2}> {3} {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
+                                            mesasge.Command,
+                                            mesasge.Parameters.Aggregate((c,n) => c + " " + n));
 
-                                        var result = await CommandDirectory[command].Invoke(this, tag, phrase);
+                                    var result = await _CommandDirectory[mesasge.Command.ToUpperInvariant()].Invoke(this, mesasge);
 
-                                        if (!result.IsHandled) 
-                                            await this.Send("{0} BAD unexpected end of data", "*");
-                                        else if (result.MessageHandler != null) this.inProcessCommand = result;
-                                        else if (result.IsQuitting) return;
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        Logger.Error("Exception processing a command", ex);
-                                        break;
-                                    }
+                                    if (result.MessageHandler != null) this.inProcessCommand = result;
+                                    else if (result.IsQuitting) return;
                                 }
-                                else
-                                    await this.Send("{0} BAD unexpected end of data", tag);
+                                catch (Exception ex)
+                                {
+                                    _Logger.Error("Exception processing a command", ex);
+                                    break;
+                                }
                             }
+                            else
+                                await this.SendNumeric(CommandCode.ERR_UNKNOWNCOMMAND, string.Format("{0}: Unknown command", mesasge.Command.ToUpperInvariant()));
                         }
                     }
                 }
             }
             catch (DecoderFallbackException dfe)
             {
-                send403 = true;
-                Logger.Error("Decoder Fallback Exception socket " + this.RemoteAddress, dfe);
+                _Logger.Error("Decoder Fallback Exception socket " + this.RemoteAddress, dfe);
             }
             catch (IOException se)
             {
-                send403 = true;
-                Logger.Error("I/O Exception on socket " + this.RemoteAddress, se);
+                _Logger.Error("I/O Exception on socket " + this.RemoteAddress, se);
             }
             catch (SocketException se)
             {
-                send403 = true;
-                Logger.Error("Socket Exception on socket " + this.RemoteAddress, se);
+                _Logger.Error("Socket Exception on socket " + this.RemoteAddress, se);
             }
             catch (NotSupportedException nse)
             {
-                Logger.Error("Not Supported Exception", nse);
-                return;
+                _Logger.Error("Not Supported Exception", nse);
             }
             catch (ObjectDisposedException ode)
             {
-                Logger.Error("Object Disposed Exception", ode);
-                return;
+                _Logger.Error("Object Disposed Exception", ode);
             }
-
-            if (send403)
-                await this.Send("403 Archive server temporarily offline");
         }
 
         /// <summary>
         /// Sends the formatted data to the client
         /// </summary>
-        /// <param name="format">The data, or format string for data, to send to the client</param>
-        /// <param name="args">The argument applied as a format string to <paramref name="format"/> to create the data to send to the client</param>
+        /// <param name="message">The message to send</param>
         /// <returns>A value indicating whether or not the transmission was successful</returns>
         [StringFormatMethod("format"), NotNull]
-        protected internal async Task<bool> Send([NotNull] string format, [NotNull] params object[] args)
+        protected internal async Task<bool> Send(Message message)
         {
-            if (args.Length == 0)
-                return await this.SendInternal(format + "\r\n");
-
-            return await this.SendInternal(string.Format(CultureInfo.InvariantCulture, format, args) + "\r\n");
+            return await this.SendInternal(message.OutgoingString());
         }
 
         private async Task<bool> SendInternal([NotNull] string data)
@@ -396,18 +395,18 @@ namespace McNNTP.Core.Server.IRC
                 // Begin sending the data to the remote device.
                 await this.stream.WriteAsync(byteData, 0, byteData.Length);
                 if (this.ShowBytes && this.ShowData)
-                    Logger.TraceFormat(
+                    _Logger.TraceFormat(
                         "{0}:{1} <{2}{3} {4} bytes: {5}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
                         "<",
                         byteData.Length,
                         data.TrimEnd('\r', '\n'));
                 else if (this.ShowBytes)
-                    Logger.TraceFormat(
+                    _Logger.TraceFormat(
                         "{0}:{1} <{2}{3} {4} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
                         "<",
                         byteData.Length);
                 else if (this.ShowData)
-                    Logger.TraceFormat(
+                    _Logger.TraceFormat(
                         "{0}:{1} <{2}{3} {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
                         "<",
                         data.TrimEnd('\r', '\n'));
@@ -417,21 +416,48 @@ namespace McNNTP.Core.Server.IRC
             catch (IOException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (SocketException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (ObjectDisposedException)
             {
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
         }
+
+        protected internal async Task<bool> SendError([NotNull] string text)
+        {
+            return await this.SendInternal(string.Format("ERROR :{0} {1}\r\n", this.server.Self.Name, text));
+        }
+
+        protected internal async Task<bool> SendReply([NotNull] string numeric, string text)
+        {
+            Debug.Assert(this.principal != null);
+            Debug.Assert(this.principal.Name != null);
+            Debug.Assert(!this.principal.Name.StartsWith("!"));
+            return await this.Send(new Message(this.server.Self.Name, numeric, string.Format("{0} :{1}", this.principal.Name, text)));
+        }
+
+        protected internal async Task<bool> SendNumeric([NotNull] string numeric, string errorText)
+        {
+            return await this.Send(new Message(this.server.Self.Name, numeric, errorText));
+        }
+
+        //private async Task<bool> SendNumeric(string numeric, string numericText)
+        //{
+        //    var message = new Message(Name, numeric, numericText);
+        //    if (IsLocal)
+        //        await this.Send(message.OutgoingString(string.Empty));
+        //    else
+        //        await this.Send()
+        //}
 
         /// <summary>
         /// Shuts down the IRC connection
@@ -445,8 +471,269 @@ namespace McNNTP.Core.Server.IRC
             }
 
             this.server.RemoveConnection(this);
+
+            var p = this.principal;
+            if (p != null)
+                this.server.RemovePrincipal(p);
         }
         #endregion
 
+        #region Commands
+
+        /// <summary>
+        /// CAP command is used to negotiate capabilities of the IRC server between the client and server
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/draft-mitchell-irc-capabilities-01#section-3.2">DRAFT FOR IRC CAPABILITIES</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> Capability(Message m)
+        {
+            //var subcommand = m[0];
+            // Do nothing.
+            return await Task.FromResult(new CommandProcessingResult(true));
+        }
+
+        /// <summary>
+        /// NICK command is used to give user a nickname or change the existing one.
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.1.2">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> Nick(Message m)
+        {
+            var newNick = m[0];
+
+            if (this.principal != null && newNick == this.principal.Name)
+                // Silently Ignore.
+                return new CommandProcessingResult(true);
+
+            var principalAsUser = this.principal as User;
+            var principalAsServer = this.principal as Server;
+
+            if (principalAsUser != null && principalAsUser.Restricted)
+                await this.SendNumeric(CommandCode.ERR_RESTRICTED, ":Your connection is restricted!");
+            else if (string.IsNullOrWhiteSpace(newNick))
+                await this.SendNumeric(CommandCode.ERR_NONICKNAMEGIVEN, ":No nickname given");
+            else if (!this.server.VerifyNickname(newNick))
+                await this.SendNumeric(CommandCode.ERR_ERRONEUSNICKNAME, newNick + " :Erroneous nickname");
+            else if (this.server.NickReserved(newNick))
+                await this.SendNumeric(CommandCode.ERR_UNAVAILRESOURCE, newNick + " :Nick/channel is temporarily unavailable");
+            else if (this.server.NickInUse(newNick, false))
+                await this.SendNumeric(CommandCode.ERR_NICKNAMEINUSE, newNick + " :Nickname is already in use");
+            else
+            {
+                var oldNick = this.principal != null ? this.principal.Name: null;
+
+                // Is this a BRAND NEW LOCAL USER?
+                if (this.principal == null)
+                {
+                    var user = new User(this.localAddress, this.server.Self)
+                                     {
+                                         Nickname = newNick
+                                     };
+                    this.principal = user;
+                    principalAsUser = user;
+                    this.server.Users.Add(user);
+
+                    await this.Send(new Message(principalAsUser.RawUserhost, "NICK", newNick));
+                }
+                else if (principalAsUser != null && principalAsUser.RegistrationNickRecevied && principalAsUser.RegistrationUserRecevied)
+                {
+                    // An existing user sent this and is just changing their nickname.
+                    await this.Send(new Message(principalAsUser.RawUserhost, "NICK", newNick));
+                    principalAsUser.Nickname = newNick;
+                    await this.server.SendPeers(new Message(principalAsUser.Nickname, "NICK", newNick));
+                }
+                else if (principalAsUser != null && principalAsUser.RegistrationUserRecevied)
+                {
+                    // An existing user sent this, and they sent USER before NICK.  Deal with it.
+                    principalAsUser.Nickname = newNick;
+                    await this.Send(new Message(principalAsUser.RawUserhost, "NICK", newNick));
+                    await this.server.SendPeers(new Message(principalAsUser.Nickname, "NICK", newNick));
+                }
+                else if (principalAsServer != null)
+                {
+                    var hopcount = m[1];
+                    var username = m[2];
+                    var hostname = m[3];
+                    var mode = m[5];
+                    var realname = m[6];
+
+                    int hc;
+
+                    if (string.IsNullOrWhiteSpace(hopcount) || !int.TryParse(hopcount, out hc))
+                        return new CommandProcessingResult(true);
+                    if (string.IsNullOrWhiteSpace(username) || !Regex.IsMatch(username, Message.RegexUsername))
+                        return new CommandProcessingResult(true);
+                    if (string.IsNullOrWhiteSpace(hostname) || !Regex.IsMatch(hostname, Message.RegexChanString))
+                        return new CommandProcessingResult(true);
+                    if (string.IsNullOrWhiteSpace(realname))
+                        return new CommandProcessingResult(true);
+
+                    // This is a user announced from a server connection
+                    var user = new User(principalAsServer, newNick, username, hostname, mode, realname);
+                    this.server.Users.Add(user);
+
+                    var parameters = m.Parameters.ToArray();
+
+                    /* The <hopcount> parameter is used by servers to indicate how far away
+                     * a user is from its home server.  A local connection has a hopcount of
+                     * 0.  The hopcount value is incremented by each passed server.
+                     * https://tools.ietf.org/html/rfc2813#section-4.1.3
+                     */
+                    hc++;
+                    parameters[1] = hc.ToString();
+
+                    await this.server.SendPeers(new Message(this.server.Self.Name, "NICK", parameters), principalAsServer);
+                }
+                else
+                    throw new InvalidOperationException("Unhandled condition");
+
+                // Send to local users in the same channel as this user.
+                foreach (var chan in this.server.Channels.Where(c => c.Users.Any(u => u.Nickname == newNick)))
+                    await this.server.SendChannelMembers(chan, new Message(this.server.Self.Name, "NICK", newNick));
+                
+                // TODO: Copy history (CopyHistory) for WHOWAS
+                if (principalAsUser != null && principalAsUser.RegistrationNickRecevied && principalAsUser.RegistrationUserRecevied)
+                {
+                    // TODO: COPYHISTORY
+                }
+
+                if (principalAsUser != null)
+                    principalAsUser.RegistrationNickRecevied = true;
+
+                await this.SendLoginBanner(principalAsUser);
+            }
+
+            return new CommandProcessingResult(true);
+        }
+
+        /// <summary>
+        /// Handles the QUIT command from a client, which shuts down the socket and destroys this object.
+        /// </summary>
+        /// <returns>A command processing result specifying the connection is quitting.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.1.7">RFC 2812</a> for more information.</remarks>
+        [NotNull]
+        private async Task<CommandProcessingResult> Quit(Message m)
+        {
+            if (this.client.Connected)
+            {
+                Debug.Assert(m != null);
+                Debug.Assert(m[0] != null);
+                await this.SendError(m[0]);
+                this.client.Client.Shutdown(SocketShutdown.Both);
+                this.client.Close();
+            }
+
+            this.Shutdown();
+
+            return new CommandProcessingResult(true, true);
+        }
+
+        /// <summary>
+        /// The USER command is used at the beginning of connection to specify
+        /// the username, hostname and realname of a new user.
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.1.3">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> User(Message m)
+        {
+            if (m.Parameters.Count() < 4)
+                await this.SendNumeric(CommandCode.ERR_NEEDMOREPARAMS, "USER :Not enough parameters");
+
+            var username = m[0];
+            var mode = m[1];
+            var realname = m[3];
+
+            byte iMode;
+
+            if (!byte.TryParse(mode, out iMode))
+                iMode = 0;
+                 
+            var principalAsUser = this.principal as User;
+
+            if (principalAsUser != null && !string.IsNullOrWhiteSpace(principalAsUser.Username))
+                await this.SendNumeric(CommandCode.ERR_ALREADYREGISTERED, ":Unauthorized command (already registered)");
+            else if (principalAsUser != null)
+            {
+                principalAsUser.Username = username;
+                principalAsUser.RealName = realname;
+                principalAsUser.RegistrationUserRecevied = true;
+
+                principalAsUser.Invisible = (iMode & (1 << 3)) != 0;
+                principalAsUser.ReceiveWallops = (iMode & (1 << 2)) != 0;
+            }
+            else
+            {
+                // Is this a BRAND NEW LOCAL USER?
+                if (this.principal == null)
+                {
+                    var user = new User(this.localAddress, this.server.Self)
+                    {
+                        Username = username,
+                        RealName = realname,
+                        Invisible = (iMode & (1 << 3)) != 0,
+                        ReceiveWallops = (iMode & (1 << 2)) != 0
+                    };
+                    this.principal = user;
+                    principalAsUser = user;
+                    this.server.Users.Add(user);
+                }
+                else
+                    throw new InvalidOperationException("Unhandled condition");
+                
+                principalAsUser.RegistrationUserRecevied = true;
+            }
+
+            await this.SendLoginBanner(principalAsUser);
+
+            return new CommandProcessingResult(true);
+        }
+        #endregion
+
+        private async Task SendLoginBanner([CanBeNull] User user)
+        {
+            if (user != null && user.RegistrationNickRecevied && user.RegistrationUserRecevied)
+            {
+                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
+                var version = fvi.FileVersion;
+
+                await this.SendReply(CommandCode.RPL_WELCOME, string.Format("Welcome to the Internet Relay Network {0}", user.RawUserhost));
+                await this.SendReply(CommandCode.RPL_YOURHOST, string.Format("Your host is {0}, running version {1}", this.server.Self.Name, version));
+                await this.SendReply(CommandCode.RPL_CREATED, string.Format("This server was created {0}", this.RetrieveLinkerTimestamp()));
+                await this.SendReply(CommandCode.RPL_MYINFO, string.Format("{0} {1} {2} {3}", this.server.Self.Name, version, "iowghraAsORTVSxNCWqBzvdHtGpI", "lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGjZ"));
+            }
+        }
+
+        private DateTime RetrieveLinkerTimestamp()
+        {
+            var filePath = System.Reflection.Assembly.GetCallingAssembly().Location;
+            const int c_PeHeaderOffset = 60;
+            const int c_LinkerTimestampOffset = 8;
+            var b = new byte[2048];
+            Stream s = null;
+
+            try
+            {
+                s = new FileStream(filePath, FileMode.Open, FileAccess.Read);
+                s.Read(b, 0, 2048);
+            }
+            finally
+            {
+                if (s != null)
+                {
+                    s.Close();
+                }
+            }
+
+            var i = BitConverter.ToInt32(b, c_PeHeaderOffset);
+            var secondsSince1970 = BitConverter.ToInt32(b, i + c_LinkerTimestampOffset);
+            var dt = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            dt = dt.AddSeconds(secondsSince1970);
+            dt = dt.ToLocalTime();
+            return dt;
+        }
     }
 }

@@ -11,13 +11,16 @@
 namespace McNNTP.Core.Server.IRC
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Linq;
     using System.Net;
     using System.Net.Sockets;
     using System.Security;
     using System.Security.Cryptography.X509Certificates;
     using System.Security.Permissions;
+    using System.Text.RegularExpressions;
     using System.Threading;
     using System.Threading.Tasks;
 
@@ -34,6 +37,8 @@ namespace McNNTP.Core.Server.IRC
     /// </summary>
     public class IrcServer
     {
+        private static readonly Regex _ValidateNickname = new Regex(Message.RegexNickname, RegexOptions.Compiled);
+
         /// <summary>
         /// The logging utility instance to use to log events from this class
         /// </summary>
@@ -65,10 +70,7 @@ namespace McNNTP.Core.Server.IRC
 
         [CanBeNull]
         public LdapDirectoryConfigurationElement LdapDirectoryConfiguration { get; set; }
-
-        [NotNull]
-        public string PathHost { get; set; }
-
+        
         public bool SslGenerateSelfSignedServerCertificate { get; set; }
 
         /// <summary>
@@ -119,6 +121,29 @@ namespace McNNTP.Core.Server.IRC
         [CanBeNull]
         internal X509Certificate2 ServerAuthenticationCertificate { get; private set; }
 
+        /// <summary>
+        /// All channels known
+        /// </summary>
+        internal readonly ConcurrentBag<Channel> Channels = new ConcurrentBag<Channel>();
+
+        /// <summary>
+        /// All users known across all local and remote servers
+        /// </summary>
+        internal readonly List<User> Users = new List<User>();
+
+        /// <summary>
+        /// Nicknames that are reserved for use, with their reservation expiration date.
+        /// </summary>
+        internal readonly ConcurrentDictionary<string, DateTime> ReservedNicknames = new ConcurrentDictionary<string, DateTime>(new ScandanavianStringComparison());
+
+        // TODO: Move to configuration
+        internal readonly Server Self = new Server("freenews")
+        {
+            HopCount = 0,
+            Version = "0210",
+            Flags = "UNSET"
+        };
+
         #region Connection and IO
         /// <summary>
         /// Starts listener threads to begin processing requests
@@ -145,7 +170,7 @@ namespace McNNTP.Core.Server.IRC
             }
 
             // Setup SSL
-            if (!string.IsNullOrWhiteSpace(this.SslServerCertificateThumbprint) && this.SslServerCertificateThumbprint != null)
+            if (!String.IsNullOrWhiteSpace(this.SslServerCertificateThumbprint) && this.SslServerCertificateThumbprint != null)
             {
                 var store = new X509Store(StoreName.My, StoreLocation.LocalMachine);
                 store.Open(OpenFlags.OpenExistingOnly);
@@ -233,7 +258,7 @@ namespace McNNTP.Core.Server.IRC
 
             Parallel.ForEach(this.connections, async c =>
             {
-                await c.Send("* BYE Server shutting down");
+                await c.SendError("Server is shutting down");
                 c.Shutdown();
             });
 
@@ -275,5 +300,60 @@ namespace McNNTP.Core.Server.IRC
                 Logger.VerboseFormat("Disconnection from {0}:{1} ({2})", ircConnection.RemoteAddress, ircConnection.RemotePort, ircConnection.LocalAddress, ircConnection.LocalPort, ircConnection.Identity.Username);
         }
         #endregion
+
+        internal void RemovePrincipal([NotNull] IPrincipal principal)
+        {
+            var user = principal as User;
+            if (user != null && this.Users.Contains(user))
+                this.Users.Remove(user);
+        }
+
+        public bool NickInUse(string nickname, bool searchLocalOnly)
+        {
+            if (searchLocalOnly)
+                return this.Users.Any(u => u.Server.Name == this.Self.Name && (new ScandanavianStringComparison()).Compare(u.Nickname, nickname) == 0);
+
+            return this.Users.Any(u => (new ScandanavianStringComparison()).Compare(u.Nickname, nickname) == 0);
+        }
+
+        public bool NickReserved(string nickname)
+        {
+            DateTime expiration;
+            if (!this.ReservedNicknames.TryGetValue(nickname, out expiration))
+                return false;
+
+            if (expiration >= DateTime.UtcNow)
+                return true;
+
+            this.ReservedNicknames.TryRemove(nickname, out expiration);
+            return false;
+        }
+
+        public bool VerifyNickname(string nickname)
+        {
+            if (!_ValidateNickname.IsMatch(nickname))
+                return false;
+
+            // Because of this, servers MUST forbid users from using the nickname "anonymous".
+            // https://tools.ietf.org/html/rfc2811#section-4.2.1
+            if (string.Compare(nickname, "anonymous", StringComparison.OrdinalIgnoreCase) == 0)
+                return false;
+
+            return true;
+        }
+
+        internal async Task<bool> SendChannelMembers(Channel channel, Message message)
+        {
+            // TODO: Complete.
+            return await Task.FromResult(true);
+        }
+
+        internal async Task<bool> SendPeers(Message message, Server except = null)
+        {
+            Debug.Assert(message.Prefix == null || message.Prefix.IndexOf('@') == -1);
+
+            // TODO: Complete.
+            return await Task.FromResult(true);
+        }
     }
 }

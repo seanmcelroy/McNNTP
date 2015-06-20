@@ -257,8 +257,18 @@
 
         public const string ERR_NOTREGISTERED = "451"; // RFC 1459 6.2
 
+        /// <summary>
+        /// Returned by the server by numerous commands to
+        /// indicate to the client that it didn't supply enough
+        /// parameters.
+        /// </summary>
         public const string ERR_NEEDMOREPARAMS = "461"; // RFC 1459 4.1.1
 
+        /// <summary>
+        /// Returned by the server to any link which tries to
+        /// change part of the registered details (such as
+        /// password or user details from second USER message).
+        /// </summary>
         public const string ERR_ALREADYREGISTERED = "462"; // RFC 1459 4.1.1
 
         public const string ERR_NOPERMFORHOST = "463"; // RFC 2811
