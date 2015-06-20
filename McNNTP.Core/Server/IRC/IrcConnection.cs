@@ -11,11 +11,13 @@ namespace McNNTP.Core.Server.IRC
 {
     using System;
     using System.Collections.Generic;
+    using System.Configuration;
     using System.Diagnostics;
     using System.IO;
     using System.Linq;
     using System.Net;
     using System.Net.Sockets;
+    using System.Reflection;
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
@@ -25,6 +27,7 @@ namespace McNNTP.Core.Server.IRC
     using log4net;
 
     using McNNTP.Common;
+    using McNNTP.Core.Server.Configuration;
 
     /// <summary>
     /// A connection from a client to the server
@@ -124,6 +127,7 @@ namespace McNNTP.Core.Server.IRC
             _CommandDirectory = new Dictionary<string, Func<IrcConnection, Message, Task<CommandProcessingResult>>>
                                {
                                    { "CAP", async (c, m) => await c.Capability(m) },
+                                   { "MOTD", async (c, m) => await c.Motd(m) },
                                    { "NICK", async (c, m) => await c.Nick(m) },
                                    { "QUIT", async (c, m) => await c.Quit(m) },
                                    { "USER", async (c, m) => await c.User(m) }
@@ -490,6 +494,56 @@ namespace McNNTP.Core.Server.IRC
         {
             //var subcommand = m[0];
             // Do nothing.
+            return await Task.FromResult(new CommandProcessingResult(true));
+        }
+
+        /// <summary>
+        /// The MOTD command is used to get the "Message Of The Day" of the given
+        /// server, or current server if <target> is omitted.
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.4.1">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> Motd(Message m)
+        {
+            var target = m[0];
+
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                var mcnntpConfigurationSection = (McNNTPConfigurationSection)config.GetSection("mcnntp");
+                var proto = mcnntpConfigurationSection.Protocols.OfType<Core.Server.Configuration.IRC.IrcProtocolConfigurationElement>().SingleOrDefault();
+
+                if (proto != null && !string.IsNullOrWhiteSpace(proto.MotdPath))
+                {
+                    var loc = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                    if (loc != null)
+                    {
+                        var path = Path.Combine(loc, proto.MotdPath);
+                        if (File.Exists(path))
+                        {
+                            await this.SendReply(CommandCode.RPL_MOTDSTART, string.Format("- {0} Message of the day - ", this.server.Self.Name));
+                            using (var sr = new StreamReader(path))
+                            {
+                                var all = await sr.ReadToEndAsync();
+                                foreach (var line in all.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None))
+                                    await this.SendReply(CommandCode.RPL_MOTD, string.Format("- {0}", line.Length <= 80 ? line : line.Substring(0, 80)));
+                            }
+
+                            await this.SendReply(CommandCode.RPL_ENDOFMOTD, "End of MOTD command");
+                            return await Task.FromResult(new CommandProcessingResult(true));
+                        }
+
+                    }
+
+                    await this.SendNumeric(CommandCode.ERR_NOMOTD, ":MOTD File is missing");
+                }
+                else
+                    await this.SendNumeric(CommandCode.ERR_NOMOTD, ":MOTD File is missing");
+            }
+
+            // TODO: Resolve target
+            await this.SendNumeric(CommandCode.ERR_NOMOTD, ":MOTD File is missing"); 
             return await Task.FromResult(new CommandProcessingResult(true));
         }
 

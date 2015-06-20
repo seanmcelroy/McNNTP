@@ -1,6 +1,5 @@
 ﻿namespace McNNTP.Core.Server.IRC
 {
-    using System;
     using System.Collections.Generic;
     using System.Linq;
     using System.Text.RegularExpressions;
@@ -16,7 +15,7 @@
 
         public const string RegexUsername = @"^[\x01-\x09\x0B-\x0C\x0E-\x1F\x21-\x3F\x41-\xFF]+$";
 
-        public const string RegexHostName = @"^([A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]*)(\.[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]*)?$";
+        public const string RegexHostName = @"^([A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]*)(\.[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]*)*$";
 
         public const string RegexNickname = @"^[A-Za-z\x5B-\x60\x7B-\x7D][A-Za-z\x5B-\x60\x7B-\x7D0-9\-]{0,8}$";
 

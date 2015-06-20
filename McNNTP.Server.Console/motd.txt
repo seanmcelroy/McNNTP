@@ -1,0 +1,4 @@
+﻿This is the default message of the day (MOTD).
+Edit the motd.txt file, or configure the path to point to a different file to change this default message.
+
+Thanks!

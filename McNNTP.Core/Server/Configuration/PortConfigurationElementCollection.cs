@@ -20,43 +20,43 @@ namespace McNNTP.Core.Server.Configuration
 
         public PortConfigurationElement this[int index]
         {
-            get { return (PortConfigurationElement) BaseGet(index); }
+            get { return (PortConfigurationElement)this.BaseGet(index); }
             set
             {
-                if (BaseGet(index) != null)
-                    BaseRemove(index);
-                BaseAdd(index, value);
+                if (this.BaseGet(index) != null)
+                    this.BaseRemove(index);
+                this.BaseAdd(index, value);
             }
         }
 
         public void Add(PortConfigurationElement serviceConfig)
         {
-            BaseAdd(serviceConfig);
+            this.BaseAdd(serviceConfig);
         }
 
         public void Clear()
         {
-            BaseClear();
+            this.BaseClear();
         }
 
         public void Remove(PortConfigurationElement serviceConfig)
         {
-            BaseRemove(serviceConfig.Port.ToString(CultureInfo.InvariantCulture) + serviceConfig.Ssl);
+            this.BaseRemove(serviceConfig.Port.ToString(CultureInfo.InvariantCulture) + serviceConfig.Ssl);
         }
 
         public void RemoveAt(int index)
         {
-            BaseRemoveAt(index);
+            this.BaseRemoveAt(index);
         }
 
         public void Remove(string name)
         {
-            BaseRemove(name);
+            this.BaseRemove(name);
         }
 
         public new IEnumerator<PortConfigurationElement> GetEnumerator()
         {
-            return BaseGetAllKeys().Select(key => (PortConfigurationElement)BaseGet(key)).GetEnumerator();
+            return this.BaseGetAllKeys().Select(key => (PortConfigurationElement)this.BaseGet(key)).GetEnumerator();
         }
     }
 }
