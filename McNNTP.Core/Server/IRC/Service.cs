@@ -10,9 +10,9 @@
     using JetBrains.Annotations;
 
     /// <summary>
-    /// A user that is communicating across a <see cref="IrcConnection"/>
+    /// A service that is communicating across a <see cref="IrcConnection"/>
     /// </summary>
-    internal class User : IPrincipal
+    internal class Service : IPrincipal
     {
         /// <summary>
         /// The class used to securely hash hostnames
@@ -31,7 +31,7 @@
 
         private readonly bool local;
 
-        public User([NotNull] IPAddress address, [NotNull] Server self)
+        public Service([NotNull] IPAddress address, [NotNull] Server self)
         {
             this.hostname = address.ToString();
 
@@ -48,7 +48,7 @@
             this.local = true;
         }
 
-        public User([NotNull] Server remoteServer, [NotNull] string nickname, [NotNull] string username, [NotNull] string hostname, [NotNull] string mode, [NotNull] string realName)
+        public Service([NotNull] Server remoteServer, [NotNull] string nickname, [NotNull] string username, [NotNull] string hostname, [NotNull] string mode, [NotNull] string realName)
         {
             this.server = remoteServer;
             this.local = false;
@@ -130,8 +130,6 @@
         public bool RegistrationUserRecevied { get; set; }
 
         public bool Invisible { get; set; }
-
-        public bool Operator { get; set; }
 
         public bool ReceiveWallops { get; set; }
 

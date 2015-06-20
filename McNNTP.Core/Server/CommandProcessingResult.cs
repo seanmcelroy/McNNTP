@@ -27,8 +27,8 @@ namespace McNNTP.Core.Server
         }
         public CommandProcessingResult(bool isHandled, bool isQuitting)
         {
-            IsHandled = isHandled;
-            IsQuitting = isQuitting;
+            this.IsHandled = isHandled;
+            this.IsQuitting = isQuitting;
         }
     }
 }

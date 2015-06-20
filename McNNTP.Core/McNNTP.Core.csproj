@@ -132,7 +132,11 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Server\CertificateUtility.cs" />
     <Compile Include="Server\CommandProcessingResult.cs" />
+    <Compile Include="Server\Configuration\ProtocolsConfigurationElement.cs" />
     <Compile Include="Server\Configuration\AuthenticationConfigurationElement.cs" />
+    <Compile Include="Server\Configuration\IRC\IrcProtocolConfigurationElement.cs" />
+    <Compile Include="Server\Configuration\ProtocolsConfigurationElementCollection.cs" />
+    <Compile Include="Server\Configuration\ProtocolConfigurationElementBase.cs" />
     <Compile Include="Server\Configuration\LdapDirectoryConfigurationElement.cs" />
     <Compile Include="Server\Configuration\LocalDirectoryConfigurationElement.cs" />
     <Compile Include="Server\Configuration\UserDirectoryConfigurationElement.cs" />
@@ -156,6 +160,7 @@
     <Compile Include="Server\IRC\ScandanavianStringComparer.cs" />
     <Compile Include="Server\IRC\Server.cs" />
     <Compile Include="Server\IRC\Channel.cs" />
+    <Compile Include="Server\IRC\Service.cs" />
     <Compile Include="Server\IRC\User.cs" />
     <Compile Include="Server\NntpListener.cs" />
     <Compile Include="Server\ImapServer.cs" />

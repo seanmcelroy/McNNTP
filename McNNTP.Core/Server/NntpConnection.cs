@@ -984,7 +984,7 @@ namespace McNNTP.Core.Server
                         break;
                     case 2:
                         var range = ParseRange(parts[2]);
-                        if (range == null || range.Equals(default(System.Tuple<int, int?>)))
+                        if (range == null || range.Equals(default(Tuple<int, int?>)))
                         {
                             await this.Send("501 Syntax Error\r\n");
                             return new CommandProcessingResult(true);
@@ -1708,7 +1708,7 @@ namespace McNNTP.Core.Server
                 else
                 {
                     var range = ParseRange(parts[2]);
-                    if (range == null || range.Equals(default(System.Tuple<int, int?>)))
+                    if (range == null || range.Equals(default(Tuple<int, int?>)))
                     {
                         await this.Send("501 Syntax Error\r\n");
                         return new CommandProcessingResult(true);
@@ -1929,7 +1929,7 @@ namespace McNNTP.Core.Server
                         }
 
                         var range = ParseRange(param);
-                        if (range == null || range.Equals(default(System.Tuple<int, int?>)))
+                        if (range == null || range.Equals(default(Tuple<int, int?>)))
                         {
                             await this.Send("423 No articles in that range\r\n");
                             return new CommandProcessingResult(true);
@@ -2411,7 +2411,7 @@ namespace McNNTP.Core.Server
                     else
                     {
                         var range = ParseRange(rangeExpression);
-                        if (range == null || range.Equals(default(System.Tuple<int, int?>)))
+                        if (range == null || range.Equals(default(Tuple<int, int?>)))
                         {
                             await this.Send("501 Syntax Error\r\n");
                             return new CommandProcessingResult(true);
@@ -2534,7 +2534,7 @@ namespace McNNTP.Core.Server
                         else
                         {
                             var range = ParseRange(rangeExpression);
-                            if (range == null || range.Equals(default(System.Tuple<int, int?>)))
+                            if (range == null || range.Equals(default(Tuple<int, int?>)))
                             {
                                 await this.Send("501 Syntax Error\r\n");
                                 return new CommandProcessingResult(true);
@@ -2724,7 +2724,7 @@ namespace McNNTP.Core.Server
                     else
                     {
                         var range = ParseRange(rangeExpression);
-                        if (range == null || range.Equals(default(System.Tuple<int, int?>)))
+                        if (range == null || range.Equals(default(Tuple<int, int?>)))
                         {
                             await this.Send("501 Syntax Error\r\n");
                             return new CommandProcessingResult(true);
@@ -2861,29 +2861,29 @@ namespace McNNTP.Core.Server
         }
 
         [CanBeNull, Pure]
-        private static System.Tuple<int, int?> ParseRange([NotNull] string input)
+        private static Tuple<int, int?> ParseRange([NotNull] string input)
         {
             int low, high;
             if (input.IndexOf('-') == -1)
             {
                 return !int.TryParse(input, out low) 
-                    ? default(System.Tuple<int, int?>) 
-                    : new System.Tuple<int, int?>(low, low);
+                    ? default(Tuple<int, int?>) 
+                    : new Tuple<int, int?>(low, low);
             }
 
             if (input.EndsWith("-", StringComparison.Ordinal))
             {
                 return !int.TryParse(input, out low) 
-                    ? default(System.Tuple<int, int?>) 
-                    : new System.Tuple<int, int?>(low, null);
+                    ? default(Tuple<int, int?>) 
+                    : new Tuple<int, int?>(low, null);
             }
 
             if (!int.TryParse(input.Substring(0, input.IndexOf('-')), NumberStyles.Integer, CultureInfo.InvariantCulture, out low))
-                return default(System.Tuple<int, int?>);
+                return default(Tuple<int, int?>);
             if (!int.TryParse(input.Substring(input.IndexOf('-') + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out high))
-                return default(System.Tuple<int, int?>);
+                return default(Tuple<int, int?>);
 
-            return new System.Tuple<int, int?>(low, high);
+            return new Tuple<int, int?>(low, high);
         }
     }
 }

@@ -127,6 +127,17 @@ namespace McNNTP.Core.Server.IRC
         internal readonly ConcurrentBag<Channel> Channels = new ConcurrentBag<Channel>();
 
         /// <summary>
+        /// All servers (peers) known across all local and remote servers
+        /// </summary>
+        /// <remarks>This does not include the 'Self', or running instance</remarks>
+        internal readonly List<Server> Servers = new List<Server>();
+
+        /// <summary>
+        /// All services known across all local and remote servers
+        /// </summary>
+        internal readonly List<Service> Services = new List<Service>();
+
+        /// <summary>
         /// All users known across all local and remote servers
         /// </summary>
         internal readonly List<User> Users = new List<User>();

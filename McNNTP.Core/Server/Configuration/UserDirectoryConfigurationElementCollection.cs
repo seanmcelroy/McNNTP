@@ -26,7 +26,7 @@
         {
             get
             {
-                return (UserDirectoryConfigurationElement) BaseGet(index);
+                return (UserDirectoryConfigurationElement)this.BaseGet(index);
             }
 
             set
@@ -39,32 +39,32 @@
 
         public void Add(UserDirectoryConfigurationElement serviceConfig)
         {
-            BaseAdd(serviceConfig);
+            this.BaseAdd(serviceConfig);
         }
 
         public void Clear()
         {
-            BaseClear();
+            this.BaseClear();
         }
 
         public void Remove(UserDirectoryConfigurationElement serviceConfig)
         {
-            BaseRemove(serviceConfig.GetType().Name);
+            this.BaseRemove(serviceConfig.GetType().Name);
         }
 
         public void RemoveAt(int index)
         {
-            BaseRemoveAt(index);
+            this.BaseRemoveAt(index);
         }
 
         public void Remove(string name)
         {
-            BaseRemove(name);
+            this.BaseRemove(name);
         }
 
         public new IEnumerator<UserDirectoryConfigurationElement> GetEnumerator()
         {
-            return BaseGetAllKeys().Select(key => (UserDirectoryConfigurationElement)BaseGet(key)).GetEnumerator();
+            return this.BaseGetAllKeys().Select(key => (UserDirectoryConfigurationElement)this.BaseGet(key)).GetEnumerator();
         }
 
         protected override bool OnDeserializeUnrecognizedElement(string elementName, XmlReader reader)

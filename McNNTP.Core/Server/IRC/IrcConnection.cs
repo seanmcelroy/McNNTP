@@ -114,10 +114,10 @@ namespace McNNTP.Core.Server.IRC
         private CommandProcessingResult inProcessCommand;
 
         /// <summary>
-        /// The principal identified on this connection
+        /// Gets the principal identified on this connection
         /// </summary>
         [CanBeNull]
-        private IPrincipal principal;
+        public IPrincipal Principal { get; private set; }
 
         /// <summary>
         /// Initializes static members of the <see cref="IrcConnection"/> class.
@@ -127,6 +127,7 @@ namespace McNNTP.Core.Server.IRC
             _CommandDirectory = new Dictionary<string, Func<IrcConnection, Message, Task<CommandProcessingResult>>>
                                {
                                    { "CAP", async (c, m) => await c.Capability(m) },
+                                   { "LUSERS", async (c, m) => await c.Lusers(m) },
                                    { "MOTD", async (c, m) => await c.Motd(m) },
                                    { "NICK", async (c, m) => await c.Nick(m) },
                                    { "QUIT", async (c, m) => await c.Quit(m) },
@@ -443,10 +444,9 @@ namespace McNNTP.Core.Server.IRC
 
         protected internal async Task<bool> SendReply([NotNull] string numeric, string text)
         {
-            Debug.Assert(this.principal != null);
-            Debug.Assert(this.principal.Name != null);
-            Debug.Assert(!this.principal.Name.StartsWith("!"));
-            return await this.Send(new Message(this.server.Self.Name, numeric, string.Format("{0} :{1}", this.principal.Name, text)));
+            Debug.Assert(this.Principal != null);
+            Debug.Assert(this.Principal.Name != null);
+            return await this.Send(new Message(this.server.Self.Name, numeric, string.Format("{0} {1}", this.Principal.Name, text)));
         }
 
         protected internal async Task<bool> SendNumeric([NotNull] string numeric, string errorText)
@@ -476,7 +476,7 @@ namespace McNNTP.Core.Server.IRC
 
             this.server.RemoveConnection(this);
 
-            var p = this.principal;
+            var p = this.Principal;
             if (p != null)
                 this.server.RemovePrincipal(p);
         }
@@ -494,6 +494,47 @@ namespace McNNTP.Core.Server.IRC
         {
             //var subcommand = m[0];
             // Do nothing.
+            return await Task.FromResult(new CommandProcessingResult(true));
+        }
+
+        /// <summary>
+        /// The LUSERS command is used to get statistics about the size of the
+        /// IRC network.  If no parameter is given, the reply will be about the
+        /// whole net.  If a &lt;mask&gt; is specified, then the reply will only
+        /// concern the part of the network formed by the servers matching the
+        /// mask.  Finally, if the &lt;target&gt; parameter is specified, the request
+        /// is forwarded to that server which will generate the reply.
+        /// 
+        /// Command: LUSERS
+        /// Parameters: [ &lt;mask&gt; [ &lt;target&gt; ] ]
+        /// 
+        /// Wildcards are allowed in the &lt;target&gt; parameter.
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.4.1">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> Lusers(Message m)
+        {
+            var mask = m[0];
+            var target = m[1];
+
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                var predicate = string.IsNullOrWhiteSpace(mask) 
+                    ? (s => true) 
+                    : new Func<Server, bool>(s => Regex.IsMatch(s.Name, "^" + Regex.Escape(mask).Replace(@"\*", ".*").Replace(@"\?", ".") + "$"));
+
+                await this.SendReply(CommandCode.RPL_LUSERCLIENT, string.Format(":There are {0} users and {1} services on {2} servers", this.server.Users.Count(u => predicate(u.Server)), this.server.Services.Count(s => predicate(s.Server)), this.server.Servers.Count(s => predicate(s)) + (predicate(this.server.Self) ? 1 : 0)));
+                await this.SendReply(CommandCode.RPL_LUSEROP, string.Format("{0} :operator(s) online", this.server.Users.Count(u => u.Operator && predicate(u.Server))));
+                // This is not defined, so for this project, if this is just a user who has not positively authenticated, we call them 'unknown'
+                await this.SendReply(CommandCode.RPL_LUSERUNKNOWN, string.Format("{0} :unknown connection(s)", this.server.Connections.Count(c => string.IsNullOrWhiteSpace(c.AuthenticatedUsername))));
+                await this.SendReply(CommandCode.RPL_LUSERCHANNELS, string.Format("{0} :channels formed", this.server.Channels.Count));
+                await this.SendReply(CommandCode.RPL_LUSERME, string.Format(":I have {0} clients and {1} servers", this.server.Users.Count(u => u.Server == this.server.Self) + this.server.Services.Count(u => u.Server == this.server.Self), this.server.Servers.Count(u => u.Parent == this.server.Self)));
+                return await Task.FromResult(new CommandProcessingResult(true));
+            }
+
+            // TODO: Resolve target
+            await this.SendNumeric(CommandCode.ERR_NOSUCHSERVER, string.Format("{0} :No such server", target));
             return await Task.FromResult(new CommandProcessingResult(true));
         }
 
@@ -522,15 +563,15 @@ namespace McNNTP.Core.Server.IRC
                         var path = Path.Combine(loc, proto.MotdPath);
                         if (File.Exists(path))
                         {
-                            await this.SendReply(CommandCode.RPL_MOTDSTART, string.Format("- {0} Message of the day - ", this.server.Self.Name));
+                            await this.SendReply(CommandCode.RPL_MOTDSTART, string.Format(":- {0} Message of the day - ", this.server.Self.Name));
                             using (var sr = new StreamReader(path))
                             {
                                 var all = await sr.ReadToEndAsync();
                                 foreach (var line in all.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None))
-                                    await this.SendReply(CommandCode.RPL_MOTD, string.Format("- {0}", line.Length <= 80 ? line : line.Substring(0, 80)));
+                                    await this.SendReply(CommandCode.RPL_MOTD, string.Format(":- {0}", line.Length <= 80 ? line : line.Substring(0, 80)));
                             }
 
-                            await this.SendReply(CommandCode.RPL_ENDOFMOTD, "End of MOTD command");
+                            await this.SendReply(CommandCode.RPL_ENDOFMOTD, ":End of MOTD command");
                             return await Task.FromResult(new CommandProcessingResult(true));
                         }
 
@@ -543,7 +584,7 @@ namespace McNNTP.Core.Server.IRC
             }
 
             // TODO: Resolve target
-            await this.SendNumeric(CommandCode.ERR_NOMOTD, ":MOTD File is missing"); 
+            await this.SendNumeric(CommandCode.ERR_NOMOTD, ":MOTD File is missing");
             return await Task.FromResult(new CommandProcessingResult(true));
         }
 
@@ -557,12 +598,12 @@ namespace McNNTP.Core.Server.IRC
         {
             var newNick = m[0];
 
-            if (this.principal != null && newNick == this.principal.Name)
+            if (this.Principal != null && newNick == this.Principal.Name)
                 // Silently Ignore.
                 return new CommandProcessingResult(true);
 
-            var principalAsUser = this.principal as User;
-            var principalAsServer = this.principal as Server;
+            var principalAsUser = this.Principal as User;
+            var principalAsServer = this.Principal as Server;
 
             if (principalAsUser != null && principalAsUser.Restricted)
                 await this.SendNumeric(CommandCode.ERR_RESTRICTED, ":Your connection is restricted!");
@@ -576,16 +617,16 @@ namespace McNNTP.Core.Server.IRC
                 await this.SendNumeric(CommandCode.ERR_NICKNAMEINUSE, newNick + " :Nickname is already in use");
             else
             {
-                var oldNick = this.principal != null ? this.principal.Name: null;
+                var oldNick = this.Principal != null ? this.Principal.Name : null;
 
                 // Is this a BRAND NEW LOCAL USER?
-                if (this.principal == null)
+                if (this.Principal == null)
                 {
                     var user = new User(this.localAddress, this.server.Self)
                                      {
                                          Nickname = newNick
                                      };
-                    this.principal = user;
+                    this.Principal = user;
                     principalAsUser = user;
                     this.server.Users.Add(user);
 
@@ -705,7 +746,7 @@ namespace McNNTP.Core.Server.IRC
             if (!byte.TryParse(mode, out iMode))
                 iMode = 0;
                  
-            var principalAsUser = this.principal as User;
+            var principalAsUser = this.Principal as User;
 
             if (principalAsUser != null && !string.IsNullOrWhiteSpace(principalAsUser.Username))
                 await this.SendNumeric(CommandCode.ERR_ALREADYREGISTERED, ":Unauthorized command (already registered)");
@@ -721,7 +762,7 @@ namespace McNNTP.Core.Server.IRC
             else
             {
                 // Is this a BRAND NEW LOCAL USER?
-                if (this.principal == null)
+                if (this.Principal == null)
                 {
                     var user = new User(this.localAddress, this.server.Self)
                     {
@@ -730,7 +771,7 @@ namespace McNNTP.Core.Server.IRC
                         Invisible = (iMode & (1 << 3)) != 0,
                         ReceiveWallops = (iMode & (1 << 2)) != 0
                     };
-                    this.principal = user;
+                    this.Principal = user;
                     principalAsUser = user;
                     this.server.Users.Add(user);
                 }
@@ -754,9 +795,9 @@ namespace McNNTP.Core.Server.IRC
                 var fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
                 var version = fvi.FileVersion;
 
-                await this.SendReply(CommandCode.RPL_WELCOME, string.Format("Welcome to the Internet Relay Network {0}", user.RawUserhost));
-                await this.SendReply(CommandCode.RPL_YOURHOST, string.Format("Your host is {0}, running version {1}", this.server.Self.Name, version));
-                await this.SendReply(CommandCode.RPL_CREATED, string.Format("This server was created {0}", this.RetrieveLinkerTimestamp()));
+                await this.SendReply(CommandCode.RPL_WELCOME, string.Format(":Welcome to the Internet Relay Network {0}", user.RawUserhost));
+                await this.SendReply(CommandCode.RPL_YOURHOST, string.Format(":Your host is {0}, running version {1}", this.server.Self.Name, version));
+                await this.SendReply(CommandCode.RPL_CREATED, string.Format(":This server was created {0}", this.RetrieveLinkerTimestamp()));
                 await this.SendReply(CommandCode.RPL_MYINFO, string.Format("{0} {1} {2} {3}", this.server.Self.Name, version, "iowghraAsORTVSxNCWqBzvdHtGpI", "lvhopsmntikrRcaqOALQbSeIKVfMCuzNTGjZ"));
             }
         }

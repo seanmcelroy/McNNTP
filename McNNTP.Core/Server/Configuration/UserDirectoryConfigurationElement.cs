@@ -17,7 +17,7 @@ namespace McNNTP.Core.Server.Configuration
 
         protected internal void DeserializeElementForConfig(XmlReader reader, bool serializeCollectionKey)
         {
-            DeserializeElement(reader, serializeCollectionKey);
+            this.DeserializeElement(reader, serializeCollectionKey);
         }
     }
 }

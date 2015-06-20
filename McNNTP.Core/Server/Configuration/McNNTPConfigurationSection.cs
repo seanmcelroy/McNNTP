@@ -42,6 +42,19 @@ namespace McNNTP.Core.Server.Configuration
         }
 
         /// <summary>
+        /// A collection of <see cref="ProtocolsConfigurationElement"/> configuration elements that provide
+        /// data on which user directories should be checked to handle authentication requests.  This can include
+        /// multiple entries in a priority-based order, such as LDAP, local database, et cetera.
+        /// </summary>
+        [ConfigurationProperty("protocols", IsDefaultCollection = true)]
+        [ConfigurationCollection(typeof(ProtocolsConfigurationElementCollection), AddItemName = "add", ClearItemsName = "clear", RemoveItemName = "remove")]
+        [UsedImplicitly]
+        public ProtocolsConfigurationElementCollection Protocols
+        {
+            get { return (ProtocolsConfigurationElementCollection)base["protocols"]; }
+        }
+
+        /// <summary>
         /// Gets the configuration element relating to how networking ports are made available to connect to this server instance
         /// </summary>
         [ConfigurationProperty("ports", IsDefaultCollection = true)]

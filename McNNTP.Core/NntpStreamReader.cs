@@ -80,7 +80,7 @@ namespace McNNTP.Core
         public IEnumerable<string> ReadAllLines()
         {
             string readLine;
-            while ((readLine = ReadLine()) != null)
+            while ((readLine = this.ReadLine()) != null)
             {
                 if (readLine == ".") break;
 
