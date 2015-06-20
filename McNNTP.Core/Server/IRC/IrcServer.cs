@@ -89,7 +89,14 @@ namespace McNNTP.Core.Server.IRC
                 {
                     AuthenticatedUsername = c.Identity == null ? null : c.Identity.Username,
                     RemoteAddress = c.RemoteAddress,
-                    RemotePort = c.RemotePort
+                    RemotePort = c.RemotePort,
+                    Established = c.Established,
+                    ListenAddress = c.ListenAddress,
+                    ListenPort = c.ListenPort,
+                    RecvMessageBytes = c.RecvMessageBytes,
+                    RecvMessageCount = c.RecvMessageCount,
+                    SentMessageBytes = c.SentMessageBytes,
+                    SentMessageCount = c.SentMessageCount
                 })
                 .ToList()
                 .AsReadOnly();

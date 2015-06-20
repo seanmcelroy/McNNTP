@@ -107,6 +107,31 @@ namespace McNNTP.Core.Server.IRC
         private readonly int localPort;
 
         /// <summary>
+        /// The number of messages sent over this connection
+        /// </summary>
+        public ulong SentMessageCount { get; private set; }
+
+        /// <summary>
+        /// The amount of data sent over this connection in bytes
+        /// </summary>
+        public ulong SentMessageBytes { get; private set; }
+
+        /// <summary>
+        /// The number of messages received over this connection
+        /// </summary>
+        public ulong RecvMessageCount { get; private set; }
+
+        /// <summary>
+        /// The amount of data received over this connection in bytes
+        /// </summary>
+        public ulong RecvMessageBytes { get; private set; }
+
+        /// <summary>
+        /// The date the connection was opened, stored as a UTC value
+        /// </summary>
+        public DateTime Established { get; private set; }
+
+        /// <summary>
         /// For commands that handle conversational request-replies, this is a reference to the
         /// command that should handle new input received by the main process loop.
         /// </summary>
@@ -120,6 +145,18 @@ namespace McNNTP.Core.Server.IRC
         public IPrincipal Principal { get; private set; }
 
         /// <summary>
+        /// Gets or sets the address that was listening for this connection when it was received, if this connection was an inbound address
+        /// </summary>
+        [CanBeNull]
+        public IPAddress ListenAddress { get; set; }
+
+        /// <summary>
+        /// Gets or sets the port that was listening for this connection when it was received, if this connection was an inbound address
+        /// </summary>
+        [CanBeNull]
+        public int? ListenPort { get; set; }
+
+        /// <summary>
         /// Initializes static members of the <see cref="IrcConnection"/> class.
         /// </summary>
         static IrcConnection()
@@ -131,6 +168,7 @@ namespace McNNTP.Core.Server.IRC
                                    { "MOTD", async (c, m) => await c.Motd(m) },
                                    { "NICK", async (c, m) => await c.Nick(m) },
                                    { "QUIT", async (c, m) => await c.Quit(m) },
+                                   { "STATS", async (c, m) => await c.Stats(m) },
                                    { "USER", async (c, m) => await c.User(m) },
                                    { "VERSION", async (c, m) => await c.Version(m) },
                                };
@@ -143,12 +181,14 @@ namespace McNNTP.Core.Server.IRC
         /// <param name="server">The server instance that owns this connection</param>
         /// <param name="client">The <see cref="TcpClient"/> that accepted this connection</param>
         /// <param name="stream">The <see cref="Stream"/> from the <paramref name="client"/></param>
+        /// <param name="listener">The <see cref="TcpListener"/> instance that sourced this connection, if it was an inbound request</param>
         /// <param name="tls">Whether or not the connection has implicit Transport Layer Security</param>
         public IrcConnection(
             [NotNull] IStoreProvider store,
             [NotNull] IrcServer server,
             [NotNull] TcpClient client,
             [NotNull] Stream stream,
+            [CanBeNull] TcpListener listener,
             bool tls = false)
         {
             this.store = store;
@@ -160,6 +200,8 @@ namespace McNNTP.Core.Server.IRC
             this.ShowData = server.ShowData;
             this.server = server;
             this.stream = stream;
+            this.ListenAddress = listener != null ? ((IPEndPoint)listener.LocalEndpoint).Address : null;
+            this.ListenPort = listener != null ? ((IPEndPoint)listener.LocalEndpoint).Port : default(int?);
             this.TLS = tls;
 
             var remoteIpEndpoint = (IPEndPoint)this.client.Client.RemoteEndPoint;
@@ -168,6 +210,7 @@ namespace McNNTP.Core.Server.IRC
             var localIpEndpoint = (IPEndPoint)this.client.Client.LocalEndPoint;
             this.localAddress = localIpEndpoint.Address;
             this.localPort = localIpEndpoint.Port;
+            this.Established = DateTime.UtcNow;
         }
 
         public bool ShowBytes { get; set; }
@@ -262,6 +305,7 @@ namespace McNNTP.Core.Server.IRC
                     }
 
                     var bytesRead = await this.stream.ReadAsync(this.buffer, 0, BufferSize);
+                    this.RecvMessageBytes += (ulong)bytesRead;
 
                     // There  might be more data, so store the data received so far.
                     this.builder.Append(Encoding.ASCII.GetString(this.buffer, 0, bytesRead));
@@ -330,6 +374,7 @@ namespace McNNTP.Core.Server.IRC
                         else
                         {
                             var mesasge = new Message(input);
+                            this.RecvMessageCount++;
 
                             if (_CommandDirectory.ContainsKey(mesasge.Command.ToUpperInvariant()))
                             {
@@ -388,7 +433,9 @@ namespace McNNTP.Core.Server.IRC
         [StringFormatMethod("format"), NotNull]
         protected internal async Task<bool> Send(Message message)
         {
-            return await this.SendInternal(message.OutgoingString());
+            var result = await this.SendInternal(message.OutgoingString());
+            this.SentMessageCount++;
+            return result;
         }
 
         private async Task<bool> SendInternal([NotNull] string data)
@@ -400,6 +447,8 @@ namespace McNNTP.Core.Server.IRC
             {
                 // Begin sending the data to the remote device.
                 await this.stream.WriteAsync(byteData, 0, byteData.Length);
+                this.SentMessageBytes += (ulong)byteData.Length;
+
                 if (this.ShowBytes && this.ShowData)
                     _Logger.TraceFormat(
                         "{0}:{1} <{2}{3} {4} bytes: {5}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
@@ -724,6 +773,81 @@ namespace McNNTP.Core.Server.IRC
             this.Shutdown();
 
             return new CommandProcessingResult(true, true);
+        }
+
+        /// <summary>
+        /// The stats command is used to query statistics of certain server.  If
+        /// &lt;query&gt; parameter is omitted, only the end of stats reply is sent
+        /// back.
+        /// 
+        /// A query may be given for any single letter which is only checked by
+        /// the destination server and is otherwise passed on by intermediate
+        /// servers, ignored and unaltered.
+        /// 
+        /// Command: STATS
+        /// Parameters: [ &lt;query&gt; [ &lt;target&gt; ] ]
+        /// 
+        /// Wildcards are allowed in the &lt;target&gt; parameter.
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.4.4">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> Stats(Message m)
+        {
+            var query = m[0];
+            var target = m[1];
+
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                // If <query> parameter is omitted, only the end of stats reply is sent back.
+                if (string.IsNullOrWhiteSpace(query))
+                    await this.SendReply(CommandCode.RPL_ENDOFSTATS, ":End of STATS report");
+                else
+                    switch (query.ToLowerInvariant())
+                    {
+                        case "l":
+                            /* Returns a list of the server's connections, showing how
+                             * long each connection has been established and the
+                             * traffic over that connection in Kbytes and messages for
+                             * each direction;
+                             */
+                            var grouped = this.server.Connections.Where(c => c.ListenAddress != null && c.ListenPort != null).GroupBy(c => new Tuple<IPAddress, int>(c.ListenAddress, c.ListenPort.Value)).ToArray();
+
+                            foreach (var g in grouped)
+                            {
+                                var linkname = string.Format("{0}[{1}.{2}][{3}]", this.server.Self.Name, g.Key.Item1, g.Key.Item2, "*");
+                                var sendq = "*";
+                                var recvKBytes = g.Sum(c => (long)c.RecvMessageBytes) / 1024;
+                                var recvMsgs = g.Sum(c => (long)c.RecvMessageCount);
+                                var sentKBytes = g.Sum(c => (long)c.SentMessageBytes) / 1024;
+                                var sentMsgs = g.Sum(c => (long)c.SentMessageCount);
+                                var timeopen = (int)(DateTime.UtcNow - g.Min(c => c.Established)).TotalSeconds;
+
+                                await this.SendReply(CommandCode.RPL_STATSLINKINFO, string.Format("{0} {1} {2} {3} {4} {5} {6}", linkname, sendq, sentMsgs, sentKBytes, recvMsgs, recvKBytes, timeopen));
+                            }
+
+                            break;
+                        case "m":
+                            /* Returns the usage count for each of commands supported
+                             * by the server; commands for which the usage count is
+                             * zero MAY be omitted;
+                             */
+                            break;
+                        case "o":
+                            // Returns a list of configured privileged users, operators;
+                            break;
+                        case "u":
+                            // Returns a string showing how long the server has been up.
+                            break;
+                    }
+
+                await this.SendReply(CommandCode.RPL_ENDOFSTATS, string.Format("{0} :End of STATS report", query));
+                return await Task.FromResult(new CommandProcessingResult(true));
+            }
+
+            // TODO: Resolve target
+            await this.SendNumeric(CommandCode.ERR_NOSUCHSERVER, string.Format("{0} :No such server", target));
+            return await Task.FromResult(new CommandProcessingResult(true));
         }
 
         /// <summary>
