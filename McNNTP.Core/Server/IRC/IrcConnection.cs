@@ -131,7 +131,8 @@ namespace McNNTP.Core.Server.IRC
                                    { "MOTD", async (c, m) => await c.Motd(m) },
                                    { "NICK", async (c, m) => await c.Nick(m) },
                                    { "QUIT", async (c, m) => await c.Quit(m) },
-                                   { "USER", async (c, m) => await c.User(m) }
+                                   { "USER", async (c, m) => await c.User(m) },
+                                   { "VERSION", async (c, m) => await c.Version(m) },
                                };
         }
 
@@ -785,13 +786,51 @@ namespace McNNTP.Core.Server.IRC
 
             return new CommandProcessingResult(true);
         }
+
+        /// <summary>
+        /// The VERSION command is used to query the version of the server
+        /// program.  An optional parameter &lt;target&gt; is used to query the version
+        /// of the server program which a client is not directly connected to.
+        /// 
+        /// Command: VERSION
+        /// Parameters: [ &lt;target&gt; ]
+        /// 
+        /// Wildcards are allowed in the &lt;target&gt; parameter.
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.4.3">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> Version(Message m)
+        {
+            var target = m[0];
+
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                var assembly = Assembly.GetExecutingAssembly();
+                var fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
+                var version = fvi.FileVersion;
+
+#if DEBUG
+                const string Debug = "DEBUG";
+#else
+                const string Debug = "RELEASE";
+#endif
+
+                await this.SendReply(CommandCode.RPL_VERSION, string.Format("{0}.{1} {2} :{3}", version, Debug, this.server.Self.Name, "Pre-release software"));
+                return await Task.FromResult(new CommandProcessingResult(true));
+            }
+
+            // TODO: Resolve target
+            await this.SendNumeric(CommandCode.ERR_NOSUCHSERVER, string.Format("{0} :No such server", target));
+            return await Task.FromResult(new CommandProcessingResult(true));
+        }
         #endregion
 
         private async Task SendLoginBanner([CanBeNull] User user)
         {
             if (user != null && user.RegistrationNickRecevied && user.RegistrationUserRecevied)
             {
-                var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+                var assembly = Assembly.GetExecutingAssembly();
                 var fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
                 var version = fvi.FileVersion;
 
@@ -804,7 +843,7 @@ namespace McNNTP.Core.Server.IRC
 
         private DateTime RetrieveLinkerTimestamp()
         {
-            var filePath = System.Reflection.Assembly.GetCallingAssembly().Location;
+            var filePath = Assembly.GetCallingAssembly().Location;
             const int c_PeHeaderOffset = 60;
             const int c_LinkerTimestampOffset = 8;
             var b = new byte[2048];
