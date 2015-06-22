@@ -117,14 +117,6 @@ namespace McNNTP.Server.Console
 
                 ircServer = new IrcServer
                 {
-                    IrcClearPorts =
-                        mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText" && p.Protocol == "irc")
-                        .Select(p => p.Port)
-                        .ToArray(),
-                    IrcImplicitTLSPorts =
-                        mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS" && p.Protocol == "irc")
-                        .Select(p => p.Port)
-                        .ToArray(),
                     SslGenerateSelfSignedServerCertificate =
                         mcnntpConfigurationSection.Ssl == null
                         || mcnntpConfigurationSection.Ssl.GenerateSelfSignedServerCertificate,

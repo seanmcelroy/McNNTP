@@ -856,6 +856,9 @@ namespace McNNTP.Core.Server.IRC
                             break;
                         case "u":
                             // Returns a string showing how long the server has been up.
+                            Debug.Assert(this.server.StartDate != null);
+                            var uptime = DateTime.UtcNow - this.server.StartDate.Value;
+                            await this.SendReply(CommandCode.RPL_STATSUPTIME, string.Format(":Server Up {0} days {1}:{2:00}:{3:00}", uptime.Days, uptime.Hours, uptime.Minutes, uptime.Seconds));
                             break;
                     }
 

@@ -13,6 +13,7 @@ namespace McNNTP.Core.Server.IRC
     using System;
     using System.Collections.Concurrent;
     using System.Collections.Generic;
+    using System.Configuration;
     using System.Diagnostics;
     using System.Linq;
     using System.Net;
@@ -59,6 +60,12 @@ namespace McNNTP.Core.Server.IRC
         /// </summary>
         public IrcServer()
         {
+             // Load configuration
+                var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                var mcnntpConfigurationSection = (McNNTPConfigurationSection)config.GetSection("mcnntp");
+
+            this.IrcClearPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ClearText" && p.Protocol == "irc").Select(p => p.Port).ToArray();
+            this.IrcImplicitTLSPorts = mcnntpConfigurationSection.Ports.Where(p => p.Ssl == "ImplicitTLS" && p.Protocol == "irc").Select(p => p.Port).ToArray();
             this.ShowData = true;
         }
 
@@ -72,6 +79,8 @@ namespace McNNTP.Core.Server.IRC
         public LdapDirectoryConfigurationElement LdapDirectoryConfiguration { get; set; }
         
         public bool SslGenerateSelfSignedServerCertificate { get; set; }
+
+        public DateTime? StartDate { get; private set; }
 
         /// <summary>
         /// Gets or sets the thumbprint of the X.509 certificate to lookup for presentation to clients requesting
@@ -257,10 +266,14 @@ namespace McNNTP.Core.Server.IRC
                     Logger.Error("Unable to start listener thread.  Not enough memory.", oom);
                 }
             }
+
+            this.StartDate = DateTime.UtcNow;
         }
 
         public void Stop()
         {
+            this.StartDate = null;
+
             foreach (var listener in this.listeners)
             {
                 try
