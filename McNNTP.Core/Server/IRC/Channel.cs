@@ -35,6 +35,21 @@
         }
 
         /// <summary>
+        /// Gets or sets the channel's 'private' flag
+        /// </summary>
+        public bool Private { get; set; }
+
+        /// <summary>
+        /// Gets or sets the channel's 'secret' flag
+        /// </summary>
+        public bool Secret { get; set; }
+
+        /// <summary>
+        /// Gets or sets the channel's topic
+        /// </summary>
+        public string Topic { get; set; }
+
+        /// <summary>
         /// All users known across all local and remote servers
         /// </summary>
         internal readonly ConcurrentBag<User> Users = new ConcurrentBag<User>();

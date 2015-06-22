@@ -379,6 +379,13 @@ namespace McNNTP.Core.Server.IRC
             return await Task.FromResult(true);
         }
 
+        internal async Task<bool> SendPeersByTarget(Message message, string target = null, bool onlyFirstTargeted = true)
+        {
+            Debug.Assert(message.Prefix == null || message.Prefix.IndexOf('@') == -1);
+            // TODO: Complete.
+            return await Task.FromResult(true);
+        }
+
         internal async Task<bool> SendPeers(Message message, Server except = null)
         {
             Debug.Assert(message.Prefix == null || message.Prefix.IndexOf('@') == -1);

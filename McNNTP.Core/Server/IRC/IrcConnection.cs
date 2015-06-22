@@ -176,6 +176,7 @@ namespace McNNTP.Core.Server.IRC
             _CommandDirectory = new Dictionary<string, Func<IrcConnection, Message, Task<CommandProcessingResult>>>
                                {
                                    { "CAP", async (c, m) => await c.Capability(m) },
+                                   { "LIST", async (c, m) => await c.List(m) },
                                    { "LUSERS", async (c, m) => await c.Lusers(m) },
                                    { "MODE", async (c, m) => await c.Mode(m) },
                                    { "MOTD", async (c, m) => await c.Motd(m) },
@@ -571,6 +572,49 @@ namespace McNNTP.Core.Server.IRC
         }
 
         /// <summary>
+        /// The list command is used to list channels and their topics.  If the
+        /// &lt;channel&gt; parameter is used, only the status of that channel is
+        /// displayed.
+        /// 
+        ///    Command: LIST
+        ///    Parameters: [ &lt;channel&gt; *( "," &lt;channel&gt; ) [ &lt;target&gt; ] ]
+        /// 
+        /// Wildcards are allowed in the &lt;target&gt; parameter.
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.2.6">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> List(Message m)
+        {
+            if (!this.VerifyRegisteredUser())
+                return new CommandProcessingResult(false);
+
+            var chanList = m[0];
+            var target = m[1];
+
+            var user = (User)this.Principal;
+            Debug.Assert(user != null);
+
+            if (string.IsNullOrWhiteSpace(target) || this.server.Self.Name.MatchesWildchar(target))
+            {
+                /* https://tools.ietf.org/html/rfc2811#section-4.2.6
+                 * This means that there is no way of getting this channel's name from
+                 * the server without being a member.  In other words, these channels
+                 * MUST be omitted from replies to queries like the WHOIS command.
+                 */
+                foreach (var c in this.server.Channels
+                    .Where(c => (!c.Private && !c.Secret) || c.Users.Contains(user))
+                    .Where(c => string.IsNullOrWhiteSpace(chanList) || chanList.Split(',').Contains(c.Name, new ScandanavianStringComparison())))
+                    await this.SendReply(CommandCode.RPL_LIST, string.Format("{0} {1} :{2}", c.Name, c.Users.Count(u => !u.Invisible), c.Topic));
+                await this.SendReply(CommandCode.RPL_LISTEND, ":End of LIST");
+            }
+            else if (!await this.server.SendPeersByTarget(m, target))
+                await this.SendNumeric(CommandCode.ERR_NOSUCHSERVER, string.Format("{0} :No such server", target));
+
+            return await Task.FromResult(new CommandProcessingResult(true));
+        }
+
+        /// <summary>
         /// The LUSERS command is used to get statistics about the size of the
         /// IRC network.  If no parameter is given, the reply will be about the
         /// whole net.  If a &lt;mask&gt; is specified, then the reply will only
@@ -601,13 +645,12 @@ namespace McNNTP.Core.Server.IRC
                 await this.SendReply(CommandCode.RPL_LUSEROP, string.Format("{0} :operator(s) online", this.server.Users.Count(u => (u.OperatorGlobal || u.OperatorLocal) && predicate(u.Server))));
                 // This is not defined, so for this project, if this is just a user who has not positively authenticated, we call them 'unknown'
                 await this.SendReply(CommandCode.RPL_LUSERUNKNOWN, string.Format("{0} :unknown connection(s)", this.server.Connections.Count(c => string.IsNullOrWhiteSpace(c.AuthenticatedUsername))));
-                await this.SendReply(CommandCode.RPL_LUSERCHANNELS, string.Format("{0} :channels formed", this.server.Channels.Count));
+                await this.SendReply(CommandCode.RPL_LUSERCHANNELS, string.Format("{0} :channels formed", this.server.Channels.Count(c => !c.Secret)));
                 await this.SendReply(CommandCode.RPL_LUSERME, string.Format(":I have {0} clients and {1} servers", this.server.Users.Count(u => u.Server == this.server.Self) + this.server.Services.Count(u => u.Server == this.server.Self), this.server.Servers.Count(u => u.Parent == this.server.Self)));
-                return await Task.FromResult(new CommandProcessingResult(true));
             }
+            else if (!await this.server.SendPeersByTarget(m, target))
+                await this.SendNumeric(CommandCode.ERR_NOSUCHSERVER, string.Format("{0} :No such server", target));
 
-            // TODO: Resolve target
-            await this.SendNumeric(CommandCode.ERR_NOSUCHSERVER, string.Format("{0} :No such server", target));
             return await Task.FromResult(new CommandProcessingResult(true));
         }
 
@@ -643,91 +686,89 @@ namespace McNNTP.Core.Server.IRC
                 return new CommandProcessingResult(true);
             }
             // ReSharper disable once PossibleNullReferenceException
-            else if (new ScandanavianStringComparison().Compare(target, this.Principal.Name) != 0)
+            if (new ScandanavianStringComparison().Compare(target, this.Principal.Name) != 0)
             {
                 await this.SendNumeric(CommandCode.ERR_USERSDONTMATCH, ":Cannot change mode for other users");
                 return new CommandProcessingResult(true);
             }
-            else
+
+            // User modes
+            var user = (User)this.Principal;
+            Debug.Assert(user != null);
+            var unknownModeFlagSeen = false;
+
+            foreach (Match match in Regex.Matches(modes, @"(?<mode>[\+\-][iwoOr]*)"))
             {
-                // User modes
-                var user = (User)this.Principal;
-                Debug.Assert(user != null);
-                var unknownModeFlagSeen = false;
+                var s = match.Groups["mode"].Value;
+                if (s.Length < 2)
+                    continue;
 
-                foreach (Match match in Regex.Matches(modes, @"(?<mode>[\+\-][iwoOr]*)"))
+                if (s[0] == '+')
                 {
-                    var s = match.Groups["mode"].Value;
-                    if (s.Length < 2)
-                        continue;
-
-                    if (s[0] == '+')
-                    {
-                        // Adding mode
-                        foreach (var c in s.ToCharArray().Skip(1))
-                            switch (c)
-                            {
-                                // The flag 'a' SHALL NOT be toggled by the user using the MODE command, instead use of the AWAY command is REQUIRED.
-                                case 'i':
-                                    user.Invisible = true;
-                                    break;
-                                case 'O':
-                                case 'o':
-                                    /* If a user attempts to make themselves an operator using the "+o" or
+                    // Adding mode
+                    foreach (var c in s.ToCharArray().Skip(1))
+                        switch (c)
+                        {
+                            // The flag 'a' SHALL NOT be toggled by the user using the MODE command, instead use of the AWAY command is REQUIRED.
+                            case 'i':
+                                user.Invisible = true;
+                                break;
+                            case 'O':
+                            case 'o':
+                                /* If a user attempts to make themselves an operator using the "+o" or
                                      * "+O" flag, the attempt SHOULD be ignored as users could bypass the
                                      * authentication mechanisms of the OPER command.  There is no
                                      * restriction, however, on anyone `deopping' themselves (using "-o" or
                                      * "-O").
                                      */
-                                    break;
-                                case 'r':
-                                    user.Restricted = true;
-                                    break;
-                                case 'w':
-                                    user.ReceiveWallops = true;
-                                    break;
-                                default:
-                                    unknownModeFlagSeen = true;
-                                    break;
-                            }
-                    }
-                    else if (s[0] == '-')
-                    {
-                        // Removing mode
-                        foreach (var c in s.ToCharArray().Skip(1))
-                            switch (c)
-                            {
-                                // The flag 'a' SHALL NOT be toggled by the user using the MODE command, instead use of the AWAY command is REQUIRED.
-                                case 'i':
-                                    user.Invisible = false;
-                                    break;
-                                case 'O':
-                                    user.OperatorLocal = false;
-                                    break;
-                                case 'o':
-                                    user.OperatorGlobal = false;
-                                    break;
-                                case 'r':
-                                    /* On the other hand, if a user attempts to make themselves unrestricted
+                                break;
+                            case 'r':
+                                user.Restricted = true;
+                                break;
+                            case 'w':
+                                user.ReceiveWallops = true;
+                                break;
+                            default:
+                                unknownModeFlagSeen = true;
+                                break;
+                        }
+                }
+                else if (s[0] == '-')
+                {
+                    // Removing mode
+                    foreach (var c in s.ToCharArray().Skip(1))
+                        switch (c)
+                        {
+                            // The flag 'a' SHALL NOT be toggled by the user using the MODE command, instead use of the AWAY command is REQUIRED.
+                            case 'i':
+                                user.Invisible = false;
+                                break;
+                            case 'O':
+                                user.OperatorLocal = false;
+                                break;
+                            case 'o':
+                                user.OperatorGlobal = false;
+                                break;
+                            case 'r':
+                                /* On the other hand, if a user attempts to make themselves unrestricted
                                      * using the "-r" flag, the attempt SHOULD be ignored.
                                      */
-                                    break;
-                                case 'w':
-                                    user.ReceiveWallops = false;
-                                    break;
-                                default:
-                                    unknownModeFlagSeen = true;
-                                    break;
-                            }
-                    }
+                                break;
+                            case 'w':
+                                user.ReceiveWallops = false;
+                                break;
+                            default:
+                                unknownModeFlagSeen = true;
+                                break;
+                        }
                 }
-
-                if (unknownModeFlagSeen)
-                    await this.SendNumeric(CommandCode.ERR_UMODEUNKNOWNFLAG, ":Unknown MODE flag");
-
-                await this.SendReply(CommandCode.RPL_UMODEIS, user.ModeString);
-                return new CommandProcessingResult(true);
             }
+
+            if (unknownModeFlagSeen)
+                await this.SendNumeric(CommandCode.ERR_UMODEUNKNOWNFLAG, ":Unknown MODE flag");
+
+            await this.SendReply(CommandCode.RPL_UMODEIS, user.ModeString);
+            return new CommandProcessingResult(true);
         }
 
         /// <summary>
@@ -774,9 +815,9 @@ namespace McNNTP.Core.Server.IRC
                 else
                     await this.SendNumeric(CommandCode.ERR_NOMOTD, ":MOTD File is missing");
             }
+            else if (!await this.server.SendPeersByTarget(m, target))
+                await this.SendNumeric(CommandCode.ERR_NOMOTD, ":MOTD File is missing");
 
-            // TODO: Resolve target
-            await this.SendNumeric(CommandCode.ERR_NOMOTD, ":MOTD File is missing");
             return await Task.FromResult(new CommandProcessingResult(true));
         }
 
@@ -1079,11 +1120,10 @@ namespace McNNTP.Core.Server.IRC
                     }
 
                 await this.SendReply(CommandCode.RPL_ENDOFSTATS, string.Format("{0} :End of STATS report", query));
-                return await Task.FromResult(new CommandProcessingResult(true));
             }
+            else if (!await this.server.SendPeersByTarget(m, target))
+                await this.SendNumeric(CommandCode.ERR_NOSUCHSERVER, string.Format("{0} :No such server", target));
 
-            // TODO: Resolve target
-            await this.SendNumeric(CommandCode.ERR_NOSUCHSERVER, string.Format("{0} :No such server", target));
             return await Task.FromResult(new CommandProcessingResult(true));
         }
 
@@ -1178,11 +1218,10 @@ namespace McNNTP.Core.Server.IRC
 #endif
 
                 await this.SendReply(CommandCode.RPL_VERSION, string.Format("{0}.{1} {2} :{3}", version, Debug, this.server.Self.Name, "Pre-release software"));
-                return await Task.FromResult(new CommandProcessingResult(true));
             }
+            else if (!await this.server.SendPeersByTarget(m, target))
+                await this.SendNumeric(CommandCode.ERR_NOSUCHSERVER, string.Format("{0} :No such server", target));
 
-            // TODO: Resolve target
-            await this.SendNumeric(CommandCode.ERR_NOSUCHSERVER, string.Format("{0} :No such server", target));
             return await Task.FromResult(new CommandProcessingResult(true));
         }
         #endregion
