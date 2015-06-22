@@ -6,9 +6,6 @@
     using System.Linq;
     using System.Xml;
 
-    using JetBrains.Annotations;
-
-    [UsedImplicitly]
     public class UserDirectoryConfigurationElementCollection : ConfigurationElementCollection, IEnumerable<UserDirectoryConfigurationElement>
     {
         protected override ConfigurationElement CreateNewElement()

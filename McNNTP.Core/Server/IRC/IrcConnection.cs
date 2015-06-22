@@ -853,6 +853,11 @@ namespace McNNTP.Core.Server.IRC
                             break;
                         case "o":
                             // Returns a list of configured privileged users, operators;
+                            var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+                            var mcnntpConfigurationSection = (McNNTPConfigurationSection)config.GetSection("mcnntp");
+                            foreach (var o in mcnntpConfigurationSection.Protocols.OfType<Core.Server.Configuration.IRC.IrcProtocolConfigurationElement>().SelectMany(p => p.Operators))
+                                await this.SendReply(CommandCode.RPL_STATSOLINE, string.Format("O {0} * {1}", o.HostMask, o.Nick));
+
                             break;
                         case "u":
                             // Returns a string showing how long the server has been up.
