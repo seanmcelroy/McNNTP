@@ -131,7 +131,9 @@
 
         public bool Invisible { get; set; }
 
-        public bool Operator { get; set; }
+        public bool OperatorGlobal { get; set; }
+
+        public bool OperatorLocal { get; set; }
 
         public bool ReceiveWallops { get; set; }
 
@@ -141,9 +143,10 @@
         {
             get
             {
-                return string.Format("+{0}{1}{2}{3}",
+                return string.Format("+{0}{1}{2}{3}{4}",
                     this.Invisible ? "i" : string.Empty,
-                    this.Operator ? "o" : string.Empty,
+                    this.OperatorGlobal ? "o" : string.Empty,
+                    this.OperatorLocal ? "O" : string.Empty,
                     this.Restricted ? "r" : string.Empty,
                     this.ReceiveWallops ? "w" : string.Empty);
             }

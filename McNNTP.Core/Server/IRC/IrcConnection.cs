@@ -39,7 +39,7 @@ namespace McNNTP.Core.Server.IRC
         /// <summary>
         /// The class used to securely hash hostnames
         /// </summary>
-        private static SHA256 _hasher = SHA256.Create();
+        private static readonly SHA256 _Hasher = SHA256.Create();
 
         /// <summary>
         /// The size of the stream receive buffer
@@ -177,6 +177,7 @@ namespace McNNTP.Core.Server.IRC
                                {
                                    { "CAP", async (c, m) => await c.Capability(m) },
                                    { "LUSERS", async (c, m) => await c.Lusers(m) },
+                                   { "MODE", async (c, m) => await c.Mode(m) },
                                    { "MOTD", async (c, m) => await c.Motd(m) },
                                    { "NICK", async (c, m) => await c.Nick(m) },
                                    { "OPER", async (c, m) => await c.Oper(m) },
@@ -597,7 +598,7 @@ namespace McNNTP.Core.Server.IRC
                     : new Func<Server, bool>(s => Regex.IsMatch(s.Name, "^" + Regex.Escape(mask).Replace(@"\*", ".*").Replace(@"\?", ".") + "$"));
 
                 await this.SendReply(CommandCode.RPL_LUSERCLIENT, string.Format(":There are {0} users and {1} services on {2} servers", this.server.Users.Count(u => predicate(u.Server)), this.server.Services.Count(s => predicate(s.Server)), this.server.Servers.Count(s => predicate(s)) + (predicate(this.server.Self) ? 1 : 0)));
-                await this.SendReply(CommandCode.RPL_LUSEROP, string.Format("{0} :operator(s) online", this.server.Users.Count(u => u.Operator && predicate(u.Server))));
+                await this.SendReply(CommandCode.RPL_LUSEROP, string.Format("{0} :operator(s) online", this.server.Users.Count(u => (u.OperatorGlobal || u.OperatorLocal) && predicate(u.Server))));
                 // This is not defined, so for this project, if this is just a user who has not positively authenticated, we call them 'unknown'
                 await this.SendReply(CommandCode.RPL_LUSERUNKNOWN, string.Format("{0} :unknown connection(s)", this.server.Connections.Count(c => string.IsNullOrWhiteSpace(c.AuthenticatedUsername))));
                 await this.SendReply(CommandCode.RPL_LUSERCHANNELS, string.Format("{0} :channels formed", this.server.Channels.Count));
@@ -611,8 +612,127 @@ namespace McNNTP.Core.Server.IRC
         }
 
         /// <summary>
+        /// The user MODE's are typically changes which affect either how the
+        /// client is seen by others or what 'extra' messages the client is sent.
+        /// 
+        ///    Command: MODE
+        /// Parameters: &lt;nickname&gt; *( ( "+" / "-" ) *( "i" / "w" / "o" / "O" / "r" ) )
+        /// A user MODE command MUST only be accepted if both the sender of the
+        /// message and the nickname given as a parameter are both the same.  If
+        /// no other parameter is given, then the server will return the current
+        /// settings for the nick.
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.1.5">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> Mode(Message m)
+        {
+            var target = m[0];
+            var modes = m[1];
+
+            if (m.Parameters.Count() < 2 || string.IsNullOrWhiteSpace(target) || string.IsNullOrWhiteSpace(modes) || !this.VerifyRegisteredUser())
+            {
+                await this.SendNumeric(CommandCode.ERR_NEEDMOREPARAMS, "MODE :Not enough parameters");
+                return new CommandProcessingResult(true);
+            }
+
+            if (Regex.IsMatch(Message.RegexChannel, target))
+            {
+                // TODO: Channel modes
+                await this.SendNumeric(CommandCode.ERR_NEEDMOREPARAMS, "MODE :Not enough parameters");
+                return new CommandProcessingResult(true);
+            }
+            // ReSharper disable once PossibleNullReferenceException
+            else if (new ScandanavianStringComparison().Compare(target, this.Principal.Name) != 0)
+            {
+                await this.SendNumeric(CommandCode.ERR_USERSDONTMATCH, ":Cannot change mode for other users");
+                return new CommandProcessingResult(true);
+            }
+            else
+            {
+                // User modes
+                var user = (User)this.Principal;
+                Debug.Assert(user != null);
+                var unknownModeFlagSeen = false;
+
+                foreach (Match match in Regex.Matches(modes, @"(?<mode>[\+\-][iwoOr]*)"))
+                {
+                    var s = match.Groups["mode"].Value;
+                    if (s.Length < 2)
+                        continue;
+
+                    if (s[0] == '+')
+                    {
+                        // Adding mode
+                        foreach (var c in s.ToCharArray().Skip(1))
+                            switch (c)
+                            {
+                                // The flag 'a' SHALL NOT be toggled by the user using the MODE command, instead use of the AWAY command is REQUIRED.
+                                case 'i':
+                                    user.Invisible = true;
+                                    break;
+                                case 'O':
+                                case 'o':
+                                    /* If a user attempts to make themselves an operator using the "+o" or
+                                     * "+O" flag, the attempt SHOULD be ignored as users could bypass the
+                                     * authentication mechanisms of the OPER command.  There is no
+                                     * restriction, however, on anyone `deopping' themselves (using "-o" or
+                                     * "-O").
+                                     */
+                                    break;
+                                case 'r':
+                                    user.Restricted = true;
+                                    break;
+                                case 'w':
+                                    user.ReceiveWallops = true;
+                                    break;
+                                default:
+                                    unknownModeFlagSeen = true;
+                                    break;
+                            }
+                    }
+                    else if (s[0] == '-')
+                    {
+                        // Removing mode
+                        foreach (var c in s.ToCharArray().Skip(1))
+                            switch (c)
+                            {
+                                // The flag 'a' SHALL NOT be toggled by the user using the MODE command, instead use of the AWAY command is REQUIRED.
+                                case 'i':
+                                    user.Invisible = false;
+                                    break;
+                                case 'O':
+                                    user.OperatorLocal = false;
+                                    break;
+                                case 'o':
+                                    user.OperatorGlobal = false;
+                                    break;
+                                case 'r':
+                                    /* On the other hand, if a user attempts to make themselves unrestricted
+                                     * using the "-r" flag, the attempt SHOULD be ignored.
+                                     */
+                                    break;
+                                case 'w':
+                                    user.ReceiveWallops = false;
+                                    break;
+                                default:
+                                    unknownModeFlagSeen = true;
+                                    break;
+                            }
+                    }
+                }
+
+                if (unknownModeFlagSeen)
+                    await this.SendNumeric(CommandCode.ERR_UMODEUNKNOWNFLAG, ":Unknown MODE flag");
+
+                await this.SendReply(CommandCode.RPL_UMODEIS, user.ModeString);
+                return new CommandProcessingResult(true);
+            }
+        }
+
+        /// <summary>
         /// The MOTD command is used to get the "Message Of The Day" of the given
-        /// server, or current server if <target> is omitted.
+        /// server, or current server if &lt;target&gt; is omitted.
         /// </summary>
         /// <param name="m">The message provided by the client</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
@@ -837,8 +957,8 @@ namespace McNNTP.Core.Server.IRC
                 return new CommandProcessingResult(true);
             }
 
-            var compare = string.Concat(_hasher.ComputeHash(Encoding.UTF8.GetBytes(pass)).Select(b => b.ToString("X2")));
-            opers = opers.Where(o => string.Compare(compare, o.SHA256HashedPassword, StringComparison.OrdinalIgnoreCase) == 0).ToArray();
+            var compare = string.Concat(_Hasher.ComputeHash(Encoding.UTF8.GetBytes(pass)).Select(b => b.ToString("X2")));
+            opers = opers.Where(o => string.Compare(compare, o.Sha256HashedPassword, StringComparison.OrdinalIgnoreCase) == 0).ToArray();
 
             if (opers.Length == 0)
             {
@@ -848,7 +968,11 @@ namespace McNNTP.Core.Server.IRC
 
             var user = (User)this.Principal;
             Debug.Assert(user != null);
-            user.Operator = true;
+
+            if (opers.Any(o => o.Global))
+                user.OperatorGlobal = true;
+            else
+                user.OperatorLocal = true;
 
             await this.SendReply(CommandCode.RPL_YOUREOPER, ":You are now an IRC operator");
             await this.SendReply(CommandCode.RPL_UMODEIS, user.ModeString);
@@ -1084,8 +1208,8 @@ namespace McNNTP.Core.Server.IRC
         private DateTime RetrieveLinkerTimestamp()
         {
             var filePath = Assembly.GetCallingAssembly().Location;
-            const int c_PeHeaderOffset = 60;
-            const int c_LinkerTimestampOffset = 8;
+            const int PeHeaderOffset = 60;
+            const int LinkerTimestampOffset = 8;
             var b = new byte[2048];
             Stream s = null;
 
@@ -1102,8 +1226,8 @@ namespace McNNTP.Core.Server.IRC
                 }
             }
 
-            var i = BitConverter.ToInt32(b, c_PeHeaderOffset);
-            var secondsSince1970 = BitConverter.ToInt32(b, i + c_LinkerTimestampOffset);
+            var i = BitConverter.ToInt32(b, PeHeaderOffset);
+            var secondsSince1970 = BitConverter.ToInt32(b, i + LinkerTimestampOffset);
             var dt = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
             dt = dt.AddSeconds(secondsSince1970);
             dt = dt.ToLocalTime();

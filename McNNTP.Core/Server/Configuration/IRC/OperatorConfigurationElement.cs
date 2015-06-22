@@ -42,10 +42,20 @@ namespace McNNTP.Core.Server.Configuration.IRC
         /// Gets or sets the password of the user
         /// </summary>
         [ConfigurationProperty("sha256PasswordHash", IsRequired = true), PublicAPI, NotNull]
-        public string SHA256HashedPassword
+        public string Sha256HashedPassword
         {
             get { return (string)this["sha256PasswordHash"]; }
             set { this["sha256PasswordHash"] = value; }
+        }
+
+        /// <summary>
+        /// Gets or sets the nickname for the user permitted to authenticate with this configuration line
+        /// </summary>
+        [ConfigurationProperty("global", IsRequired = false), PublicAPI]
+        public bool Global
+        {
+            get { return (bool)this["global"]; }
+            set { this["global"] = value; }
         }
     }
 }
