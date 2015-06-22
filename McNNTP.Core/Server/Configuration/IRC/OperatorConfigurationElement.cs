@@ -31,11 +31,11 @@ namespace McNNTP.Core.Server.Configuration.IRC
         /// <summary>
         /// Gets or sets the nickname for the user permitted to authenticate with this configuration line
         /// </summary>
-        [ConfigurationProperty("nick", IsRequired = true), PublicAPI, NotNull]
-        public string Nick
+        [ConfigurationProperty("name", IsRequired = true), PublicAPI, NotNull]
+        public string Name
         {
-            get { return (string)this["nick"]; }
-            set { this["nick"] = value; }
+            get { return (string)this["name"]; }
+            set { this["name"] = value; }
         }
 
         /// <summary>

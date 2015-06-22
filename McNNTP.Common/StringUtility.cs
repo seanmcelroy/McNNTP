@@ -15,6 +15,7 @@ namespace McNNTP.Common
     using System.Globalization;
     using System.IO;
     using System.Linq;
+    using System.Net;
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
@@ -76,6 +77,18 @@ namespace McNNTP.Common
                 var str = Encoding.UTF8.GetString(array);
                 return str;
             }
+        }
+
+        // ReSharper disable once InconsistentNaming
+        public static bool MatchesAsIPInCIDRRange([NotNull] this string test, [NotNull] string cidrMask)
+        {
+            IPAddress address;
+            return IPAddress.TryParse(test, out address) && address.MatchesCIDRRange(cidrMask);
+        }
+
+        public static bool MatchesWildchar([NotNull] this string test, [NotNull] string mask)
+        {
+            return Regex.IsMatch(test, "^" + Regex.Escape(mask).Replace(@"\*", ".*").Replace(@"\?", ".") + "$");
         }
 
         /// <summary>

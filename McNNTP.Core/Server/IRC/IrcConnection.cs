@@ -19,6 +19,7 @@ namespace McNNTP.Core.Server.IRC
     using System.Net;
     using System.Net.Sockets;
     using System.Reflection;
+    using System.Security.Cryptography;
     using System.Text;
     using System.Text.RegularExpressions;
     using System.Threading.Tasks;
@@ -35,6 +36,11 @@ namespace McNNTP.Core.Server.IRC
     /// </summary>
     internal class IrcConnection
     {
+        /// <summary>
+        /// The class used to securely hash hostnames
+        /// </summary>
+        private static SHA256 _hasher = SHA256.Create();
+
         /// <summary>
         /// The size of the stream receive buffer
         /// </summary>
@@ -173,6 +179,7 @@ namespace McNNTP.Core.Server.IRC
                                    { "LUSERS", async (c, m) => await c.Lusers(m) },
                                    { "MOTD", async (c, m) => await c.Motd(m) },
                                    { "NICK", async (c, m) => await c.Nick(m) },
+                                   { "OPER", async (c, m) => await c.Oper(m) },
                                    { "QUIT", async (c, m) => await c.Quit(m) },
                                    { "STATS", async (c, m) => await c.Stats(m) },
                                    { "USER", async (c, m) => await c.User(m) },
@@ -697,7 +704,7 @@ namespace McNNTP.Core.Server.IRC
 
                     await this.Send(new Message(principalAsUser.RawUserhost, "NICK", newNick));
                 }
-                else if (principalAsUser != null && principalAsUser.RegistrationNickRecevied && principalAsUser.RegistrationUserRecevied)
+                else if (this.VerifyRegisteredUser())
                 {
                     // An existing user sent this and is just changing their nickname.
                     await this.Send(new Message(principalAsUser.RawUserhost, "NICK", newNick));
@@ -754,7 +761,7 @@ namespace McNNTP.Core.Server.IRC
                     await this.server.SendChannelMembers(chan, new Message(this.server.Self.Name, "NICK", newNick));
                 
                 // TODO: Copy history (CopyHistory) for WHOWAS
-                if (principalAsUser != null && principalAsUser.RegistrationNickRecevied && principalAsUser.RegistrationUserRecevied)
+                if (this.VerifyRegisteredUser())
                 {
                     // TODO: COPYHISTORY
                 }
@@ -762,9 +769,89 @@ namespace McNNTP.Core.Server.IRC
                 if (principalAsUser != null)
                     principalAsUser.RegistrationNickRecevied = true;
 
-                await this.SendLoginBanner(principalAsUser);
+                await this.SendLoginBanner();
             }
 
+            return new CommandProcessingResult(true);
+        }
+
+        /// <summary>
+        /// A normal user uses the OPER command to obtain operator privileges.
+        /// The combination of &lt;name&gt; and &lt;password&gt; are REQUIRED to gain
+        /// Operator privileges.  Upon success, the user will receive a MODE
+        /// message indicating the new user modes.
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.1.4">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> Oper(Message m)
+        {
+            if (!this.VerifyRegisteredUser())
+                return new CommandProcessingResult(false);
+
+            if (m.Parameters.Count() < 2)
+            {
+                await this.SendNumeric(CommandCode.ERR_NEEDMOREPARAMS, "OPER :Not enough parameters");
+                return new CommandProcessingResult(true);
+            }
+
+            string dns;
+            try
+            {
+                var entry = await Dns.GetHostEntryAsync(this.remoteAddress);
+                dns = entry.HostName;
+            }
+            catch (SocketException)
+            {
+                dns = null;
+            }
+
+            var name = m[0];
+            var pass = m[1];
+
+            if (string.IsNullOrWhiteSpace(pass))
+            {
+                await this.SendNumeric(CommandCode.ERR_PASSWDMISMATCH, ":Password incorrect");
+                return new CommandProcessingResult(true);
+            }
+            
+            var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
+            var mcnntpConfigurationSection = (McNNTPConfigurationSection)config.GetSection("mcnntp");
+            var opers = mcnntpConfigurationSection.Protocols
+                .OfType<Core.Server.Configuration.IRC.IrcProtocolConfigurationElement>()
+                .SelectMany(p => p.Operators)
+                .Where(o => new ScandanavianStringComparison().Compare(o.Name, name) == 0)
+                .ToArray();
+
+            if (opers.Length == 0)
+            {
+                await this.SendNumeric(CommandCode.ERR_NOOPERHOST, ":No O-lines for your host");
+                return new CommandProcessingResult(true);
+            }
+
+            opers = opers.Where(o => (!string.IsNullOrWhiteSpace(dns) && dns.MatchesWildchar(o.HostMask)) || (o.HostMask.Contains('/') && this.remoteAddress.MatchesCIDRRange(o.HostMask))).ToArray();
+
+            if (opers.Length == 0)
+            {
+                await this.SendNumeric(CommandCode.ERR_NOOPERHOST, ":No O-lines for your host");
+                return new CommandProcessingResult(true);
+            }
+
+            var compare = string.Concat(_hasher.ComputeHash(Encoding.UTF8.GetBytes(pass)).Select(b => b.ToString("X2")));
+            opers = opers.Where(o => string.Compare(compare, o.SHA256HashedPassword, StringComparison.OrdinalIgnoreCase) == 0).ToArray();
+
+            if (opers.Length == 0)
+            {
+                await this.SendNumeric(CommandCode.ERR_PASSWDMISMATCH, ":Password incorrect");
+                return new CommandProcessingResult(true);
+            }
+
+            var user = (User)this.Principal;
+            Debug.Assert(user != null);
+            user.Operator = true;
+
+            await this.SendReply(CommandCode.RPL_YOUREOPER, ":You are now an IRC operator");
+            await this.SendReply(CommandCode.RPL_UMODEIS, user.ModeString);
             return new CommandProcessingResult(true);
         }
 
@@ -856,7 +943,7 @@ namespace McNNTP.Core.Server.IRC
                             var config = ConfigurationManager.OpenExeConfiguration(ConfigurationUserLevel.None);
                             var mcnntpConfigurationSection = (McNNTPConfigurationSection)config.GetSection("mcnntp");
                             foreach (var o in mcnntpConfigurationSection.Protocols.OfType<Core.Server.Configuration.IRC.IrcProtocolConfigurationElement>().SelectMany(p => p.Operators))
-                                await this.SendReply(CommandCode.RPL_STATSOLINE, string.Format("O {0} * {1}", o.HostMask, o.Nick));
+                                await this.SendReply(CommandCode.RPL_STATSOLINE, string.Format("O {0} * {1}", o.HostMask, o.Name));
 
                             break;
                         case "u":
@@ -932,7 +1019,7 @@ namespace McNNTP.Core.Server.IRC
                 principalAsUser.RegistrationUserRecevied = true;
             }
 
-            await this.SendLoginBanner(principalAsUser);
+            await this.SendLoginBanner();
 
             return new CommandProcessingResult(true);
         }
@@ -976,10 +1063,13 @@ namespace McNNTP.Core.Server.IRC
         }
         #endregion
 
-        private async Task SendLoginBanner([CanBeNull] User user)
+        private async Task SendLoginBanner()
         {
-            if (user != null && user.RegistrationNickRecevied && user.RegistrationUserRecevied)
+            if (this.VerifyRegisteredUser())
             {
+                var user = (User)this.Principal;
+                Debug.Assert(user != null);
+
                 var assembly = Assembly.GetExecutingAssembly();
                 var fvi = FileVersionInfo.GetVersionInfo(assembly.Location);
                 var version = fvi.FileVersion;
@@ -1018,6 +1108,12 @@ namespace McNNTP.Core.Server.IRC
             dt = dt.AddSeconds(secondsSince1970);
             dt = dt.ToLocalTime();
             return dt;
+        }
+
+        private bool VerifyRegisteredUser()
+        {
+            var principalAsUser = this.Principal as User;
+            return principalAsUser != null && principalAsUser.RegistrationUserRecevied && principalAsUser.RegistrationNickRecevied;
         }
     }
 }

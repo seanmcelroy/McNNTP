@@ -44,6 +44,7 @@
     <Reference Include="System.Core" />
     <Reference Include="System.DirectoryServices" />
     <Reference Include="System.DirectoryServices.AccountManagement" />
+    <Reference Include="System.Numerics" />
     <Reference Include="System.Xml.Linq" />
     <Reference Include="System.Data.DataSetExtensions" />
     <Reference Include="Microsoft.CSharp" />
@@ -55,6 +56,7 @@
     <Compile Include="IIdentity.cs" />
     <Compile Include="IMessageDetail.cs" />
     <Compile Include="InternetMessageFormatUtility.cs" />
+    <Compile Include="IPAddressUtility.cs" />
     <Compile Include="LdapUtility.cs" />
     <Compile Include="LogUtility.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

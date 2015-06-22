@@ -137,6 +137,18 @@
 
         public bool Restricted { get; set; }
 
+        public string ModeString
+        {
+            get
+            {
+                return string.Format("+{0}{1}{2}{3}",
+                    this.Invisible ? "i" : string.Empty,
+                    this.Operator ? "o" : string.Empty,
+                    this.Restricted ? "r" : string.Empty,
+                    this.ReceiveWallops ? "w" : string.Empty);
+            }
+        }
+
         /// <summary>
         /// Retrieves the name for the principal
         /// </summary>
