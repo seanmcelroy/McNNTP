@@ -10,6 +10,7 @@
 namespace McNNTP.Core.Server.IRC
 {
     using System;
+    using System.Collections.Concurrent;
     using System.Collections.Generic;
     using System.Configuration;
     using System.Diagnostics;
@@ -43,6 +44,11 @@ namespace McNNTP.Core.Server.IRC
         /// A command-indexed dictionary with function pointers to support client command
         /// </summary>
         private static readonly Dictionary<string, Func<IrcConnection, Message, Task<CommandProcessingResult>>> _CommandDirectory;
+
+        /// <summary>
+        /// A command-indexed dictionary with a tuple of invocation count and byte count
+        /// </summary>
+        private static readonly ConcurrentDictionary<string, Tuple<ulong, ulong>> _CommandStats = new ConcurrentDictionary<string, Tuple<ulong, ulong>>();
 
         /// <summary>
         /// The logging utility instance to use to log events from this class
@@ -376,17 +382,26 @@ namespace McNNTP.Core.Server.IRC
                             var mesasge = new Message(input);
                             this.RecvMessageCount++;
 
-                            if (_CommandDirectory.ContainsKey(mesasge.Command.ToUpperInvariant()))
+                            var cmd = mesasge.Command.ToUpperInvariant();
+
+                            if (_CommandDirectory.ContainsKey(cmd))
                             {
+                                // Update command stats
+                                Tuple<ulong, ulong> currentStat;
+                                if (_CommandStats.TryGetValue(cmd, out currentStat))
+                                    _CommandStats.TryUpdate(cmd, new Tuple<ulong, ulong>(currentStat.Item1 + 1, currentStat.Item2 + (ulong)bytesRead), currentStat);
+                                else
+                                    _CommandStats.TryAdd(cmd, new Tuple<ulong, ulong>(1, (ulong)bytesRead));
+
                                 try
                                 {
                                     if (this.ShowCommands)
                                         _Logger.TraceFormat(
                                             "{0}:{1} >{2}> {3} {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
-                                            mesasge.Command,
+                                            cmd,
                                             mesasge.Parameters.Aggregate((c,n) => c + " " + n));
 
-                                    var result = await _CommandDirectory[mesasge.Command.ToUpperInvariant()].Invoke(this, mesasge);
+                                    var result = await _CommandDirectory[cmd].Invoke(this, mesasge);
 
                                     if (result.MessageHandler != null) this.inProcessCommand = result;
                                     else if (result.IsQuitting) return;
@@ -398,7 +413,7 @@ namespace McNNTP.Core.Server.IRC
                                 }
                             }
                             else
-                                await this.SendNumeric(CommandCode.ERR_UNKNOWNCOMMAND, string.Format("{0}: Unknown command", mesasge.Command.ToUpperInvariant()));
+                                await this.SendNumeric(CommandCode.ERR_UNKNOWNCOMMAND, string.Format("{0}: Unknown command", cmd));
                         }
                     }
                 }
@@ -816,14 +831,14 @@ namespace McNNTP.Core.Server.IRC
                             foreach (var g in grouped)
                             {
                                 var linkname = string.Format("{0}[{1}.{2}][{3}]", this.server.Self.Name, g.Key.Item1, g.Key.Item2, "*");
-                                var sendq = "*";
+                                const string Sendq = "0";
                                 var recvKBytes = g.Sum(c => (long)c.RecvMessageBytes) / 1024;
                                 var recvMsgs = g.Sum(c => (long)c.RecvMessageCount);
                                 var sentKBytes = g.Sum(c => (long)c.SentMessageBytes) / 1024;
                                 var sentMsgs = g.Sum(c => (long)c.SentMessageCount);
                                 var timeopen = (int)(DateTime.UtcNow - g.Min(c => c.Established)).TotalSeconds;
 
-                                await this.SendReply(CommandCode.RPL_STATSLINKINFO, string.Format("{0} {1} {2} {3} {4} {5} {6}", linkname, sendq, sentMsgs, sentKBytes, recvMsgs, recvKBytes, timeopen));
+                                await this.SendReply(CommandCode.RPL_STATSLINKINFO, string.Format("{0} {1} {2} {3} {4} {5} {6}", linkname, Sendq, sentMsgs, sentKBytes, recvMsgs, recvKBytes, timeopen));
                             }
 
                             break;
@@ -832,6 +847,9 @@ namespace McNNTP.Core.Server.IRC
                              * by the server; commands for which the usage count is
                              * zero MAY be omitted;
                              */
+                            foreach (var stat in _CommandStats.ToArray().OrderBy(c => c.Key))
+                                await this.SendReply(CommandCode.RPL_STATSCOMMANDS, string.Format("{0} {1} {2}", stat.Key, stat.Value.Item1, stat.Value.Item2));
+                            
                             break;
                         case "o":
                             // Returns a list of configured privileged users, operators;
