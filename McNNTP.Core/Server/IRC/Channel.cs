@@ -49,9 +49,42 @@
         /// </summary>
         public string Topic { get; set; }
 
+        public bool Anonymous { get; set; }
+
+        public bool InviteOnly { get; set; }
+
+        public bool Moderated { get; set; }
+
+        public bool NoExternalMessages { get; set; }
+
+        public bool Quiet { get; set; }
+
+        public bool ServerReop { get; set; }
+
+        public bool TopicLocked { get; set; }
+
+        public string ModeString
+        {
+            get
+            {
+                return string.Format("+{0}{1}{2}{3}{4}{5}{6}{7}{8}",
+                    this.Anonymous ? "a" : string.Empty,
+                    this.InviteOnly ? "i" : string.Empty,
+                    this.Moderated ? "m" : string.Empty,
+                    this.NoExternalMessages ? "n" : string.Empty,
+                    this.Private ? "p" : string.Empty,
+                    this.Quiet ? "q" : string.Empty,
+                    this.ServerReop ? "r" : string.Empty,
+                    this.Secret ? "s" : string.Empty,
+                    this.TopicLocked ? "t" : string.Empty);
+            }
+        }
+
         /// <summary>
         /// All users known across all local and remote servers
         /// </summary>
-        internal readonly ConcurrentBag<User> Users = new ConcurrentBag<User>();
+        internal readonly ConcurrentDictionary<User, string> UsersModes = new ConcurrentDictionary<User, string>();
+
+        internal readonly ConcurrentDictionary<string, string> BanMasks = new ConcurrentDictionary<string, string>();
     }
 }

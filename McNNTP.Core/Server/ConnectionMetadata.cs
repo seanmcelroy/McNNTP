@@ -72,5 +72,20 @@ namespace McNNTP.Core.Server
         /// </summary>
         [CanBeNull]
         public string AuthenticatedUsername { get; set; }
+
+        /// <summary>
+        /// Gets or sets the name of the principal associated with this connection
+        /// </summary>
+        /// <remarks>
+        /// The user may have a principal but not be authenticated, such as with an anonymous user
+        /// </remarks>
+        [CanBeNull]
+        public string PrincipalName { get; set; }
+
+        /// <summary>
+        /// Gets or sets the connection this metadata is associated with
+        /// </summary>
+        [NotNull]
+        public IConnection Connection { get; internal set; }
     }
 }

@@ -139,11 +139,15 @@
 
         public bool Restricted { get; set; }
 
+        [CanBeNull]
+        public string AwayMessage { get; set; }
+
         public string ModeString
         {
             get
             {
-                return string.Format("+{0}{1}{2}{3}{4}",
+                return string.Format("+{0}{1}{2}{3}{4}{5}",
+                    string.IsNullOrWhiteSpace(this.AwayMessage) ? string.Empty : "a",
                     this.Invisible ? "i" : string.Empty,
                     this.OperatorGlobal ? "o" : string.Empty,
                     this.OperatorLocal ? "O" : string.Empty,

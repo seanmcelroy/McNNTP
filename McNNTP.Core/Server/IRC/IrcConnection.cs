@@ -34,7 +34,7 @@ namespace McNNTP.Core.Server.IRC
     /// <summary>
     /// A connection from a client to the server
     /// </summary>
-    internal class IrcConnection
+    internal class IrcConnection : IConnection
     {
         /// <summary>
         /// The class used to securely hash hostnames
@@ -182,6 +182,7 @@ namespace McNNTP.Core.Server.IRC
                                    { "MOTD", async (c, m) => await c.Motd(m) },
                                    { "NICK", async (c, m) => await c.Nick(m) },
                                    { "OPER", async (c, m) => await c.Oper(m) },
+                                   { "PRIVMSG", async (c, m) => await c.PrivMsg(m) },
                                    { "QUIT", async (c, m) => await c.Quit(m) },
                                    { "STATS", async (c, m) => await c.Stats(m) },
                                    { "USER", async (c, m) => await c.User(m) },
@@ -603,9 +604,9 @@ namespace McNNTP.Core.Server.IRC
                  * MUST be omitted from replies to queries like the WHOIS command.
                  */
                 foreach (var c in this.server.Channels
-                    .Where(c => (!c.Private && !c.Secret) || c.Users.Contains(user))
+                    .Where(c => (!c.Private && !c.Secret) || c.UsersModes.Select(u => u.Key).Contains(user))
                     .Where(c => string.IsNullOrWhiteSpace(chanList) || chanList.Split(',').Contains(c.Name, new ScandanavianStringComparison())))
-                    await this.SendReply(CommandCode.RPL_LIST, string.Format("{0} {1} :{2}", c.Name, c.Users.Count(u => !u.Invisible), c.Topic));
+                    await this.SendReply(CommandCode.RPL_LIST, string.Format("{0} {1} :{2}", c.Name, c.UsersModes.Select(u => u.Key).Count(u => !u.Invisible), c.Topic));
                 await this.SendReply(CommandCode.RPL_LISTEND, ":End of LIST");
             }
             else if (!await this.server.SendPeersByTarget(m, target))
@@ -918,7 +919,7 @@ namespace McNNTP.Core.Server.IRC
                     throw new InvalidOperationException("Unhandled condition");
 
                 // Send to local users in the same channel as this user.
-                foreach (var chan in this.server.Channels.Where(c => c.Users.Any(u => u.Nickname == newNick)))
+                foreach (var chan in this.server.Channels.Where(c => c.UsersModes.Any(u => u.Key.Nickname == newNick)))
                     await this.server.SendChannelMembers(chan, new Message(this.server.Self.Name, "NICK", newNick));
                 
                 // TODO: Copy history (CopyHistory) for WHOWAS
@@ -1017,6 +1018,109 @@ namespace McNNTP.Core.Server.IRC
 
             await this.SendReply(CommandCode.RPL_YOUREOPER, ":You are now an IRC operator");
             await this.SendReply(CommandCode.RPL_UMODEIS, user.ModeString);
+            return new CommandProcessingResult(true);
+        }
+
+        /// <summary>
+        /// PRIVMSG is used to send private messages between users, as well as to
+        /// send messages to channels.  &lt;msgtarget&gt; is usually the nickname of
+        /// the recipient of the message, or a channel name.
+        /// 
+        ///    Command: PRIVMSG
+        ///    Parameters: &lt;msgtarget&gt; &lt;text to be sent&gt;
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.3.1">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> PrivMsg(Message m)
+        {
+            var target = m[0];
+            var payload = m[1];
+
+            if (string.IsNullOrWhiteSpace(target))
+            {
+                await this.SendNumeric(CommandCode.ERR_NORECIPIENT, string.Format(":No recipient given ({0})", m.Command));
+                return new CommandProcessingResult(true);
+            }
+
+            if (string.IsNullOrWhiteSpace(payload))
+            {
+                await this.SendNumeric(CommandCode.ERR_NOTEXTTOSEND, ":No text to send");
+                return new CommandProcessingResult(true);
+            }
+
+            var comparer = new ScandanavianStringComparison();
+
+            var targetUser = this.server.Users.SingleOrDefault(u => comparer.Compare(u.Nickname, target) == 0);
+            if (targetUser != null)
+            {
+                m.Prefix = targetUser.SecureUserhost;
+
+                if (targetUser.Server == this.server.Self)
+                {
+                    // Locally connected target user.
+                    var targetUserConnection = this.server.Connections.SingleOrDefault(c => comparer.Compare(c.PrincipalName, target) == 0);
+                    if (targetUserConnection != null)
+                    {
+                        // Pass the message on
+                        await ((IrcConnection)targetUserConnection.Connection).Send(m);
+
+                        // RPL_AWAY is only sent by the server to which the client is connected.
+                        if (!string.IsNullOrWhiteSpace(targetUser.AwayMessage))
+                            await this.SendReply(CommandCode.RPL_AWAY, string.Format("{0} :{1}", targetUser.Nickname, targetUser.AwayMessage));
+                    }
+                }
+                else
+                    await this.server.SendPeerByChain(targetUser.Server, m);
+
+                return new CommandProcessingResult(true);
+            }
+
+            var targetChannel = this.server.Channels.SingleOrDefault(c => comparer.Compare(c.Name, target) == 0);
+            var principalAsUser = this.Principal as User;
+            if (targetChannel != null)
+            {
+                if (principalAsUser == null)
+                {
+                    await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
+                    return new CommandProcessingResult(true);
+                }
+
+                string userChannelMode;
+                if (!targetChannel.UsersModes.TryGetValue(principalAsUser, out userChannelMode))
+                    userChannelMode = "!";
+                
+                if (targetChannel.Moderated && userChannelMode.IndexOfAny(new[] { 'O', 'o', 'v' }, 0) == -1)
+                {
+                    await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
+                    return new CommandProcessingResult(true);
+                }
+
+                if (targetChannel.NoExternalMessages && userChannelMode == "!")
+                {
+                    await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
+                    return new CommandProcessingResult(true);
+                }
+
+                /* Servers MUST NOT allow a channel member who is banned from the
+                 * channel to speak on the channel, unless this member is a channel
+                 * operator or has voice privilege. (See Section 4.1.3 (Voice
+                 * Privilege)).
+                 * https://tools.ietf.org/html/rfc2811#section-4.3.1
+                 */
+                if ((targetChannel.BanMasks.Any(bm => bm.Key.MatchesWildchar(principalAsUser.RawUserhost)) || targetChannel.BanMasks.Any(bm => bm.Key.MatchesWildchar(principalAsUser.SecureUserhost))) && userChannelMode.IndexOfAny(new[] { 'O', 'o', 'v' }, 0) == -1)
+                {
+                    await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
+                    return new CommandProcessingResult(true);
+                }
+
+                m.Prefix = targetChannel.Anonymous ? "anonymous!anonymous@anonymous." : principalAsUser.SecureUserhost;
+
+                await this.server.SendChannelMembers(targetChannel, m);
+                return new CommandProcessingResult(true);
+            }
+
+            await this.SendNumeric(CommandCode.ERR_NOSUCHNICK, string.Format("{0} :No such nick/channel", target));
             return new CommandProcessingResult(true);
         }
 

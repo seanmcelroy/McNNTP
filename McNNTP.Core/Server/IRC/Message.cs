@@ -25,18 +25,18 @@
 
         public const string RegexParams = @"^(:(?<prefix>\S+))?(?<command>\S+)((?!:)(?<params>.+?))?(:(?<trail>.+))?$";
 
-        private static Regex ParameterRegex = new Regex(RegexParams, RegexOptions.Compiled | RegexOptions.ExplicitCapture);
+        private static Regex _parameterRegex = new Regex(RegexParams, RegexOptions.Compiled | RegexOptions.ExplicitCapture);
 
-        private readonly string message;
+        private string message;
 
-        private Match _match = null;
+        private Match match = null;
 
         private Match MessageMatch
         {
             get
             {
-                this._match = this._match ?? Regex.Match(this.message, RegexParams);
-                return this._match;
+                this.match = this.match ?? Regex.Match(this.message, RegexParams);
+                return this.match;
             }
         }
 
@@ -46,6 +46,22 @@
             get
             {
                 return this.MessageMatch.Groups["prefix"].Value;
+            }
+            set
+            {
+                if (string.IsNullOrEmpty(value))
+                {
+                    if (!string.IsNullOrWhiteSpace(this.Prefix))
+                        this.message = this.message.Substring(0, this.message.IndexOf(' '));
+                }
+                else
+                    this.message = _parameterRegex.Replace(this.message, m =>
+                    {
+                        var capture = m.Value;
+                        capture = capture.Remove(m.Groups["prefix"].Index - m.Index, m.Groups["prefix"].Length);
+                        capture = capture.Insert(m.Groups["prefix"].Index - m.Index, ":" + value + " ");
+                        return capture;
+                    });
             }
         }
 

@@ -97,11 +97,13 @@ namespace McNNTP.Core.Server.IRC
                 return this.connections.Select(c => new ConnectionMetadata
                 {
                     AuthenticatedUsername = c.Identity == null ? null : c.Identity.Username,
+                    Connection = c,
                     RemoteAddress = c.RemoteAddress,
                     RemotePort = c.RemotePort,
                     Established = c.Established,
                     ListenAddress = c.ListenAddress,
                     ListenPort = c.ListenPort,
+                    PrincipalName = c.Principal == null ? null : c.Principal.Name,
                     RecvMessageBytes = c.RecvMessageBytes,
                     RecvMessageCount = c.RecvMessageCount,
                     SentMessageBytes = c.SentMessageBytes,
@@ -383,6 +385,17 @@ namespace McNNTP.Core.Server.IRC
         {
             Debug.Assert(message.Prefix == null || message.Prefix.IndexOf('@') == -1);
             // TODO: Complete.
+            return await Task.FromResult(true);
+        }
+
+        internal async Task<bool> SendPeerByChain(Server destination, Message message)
+        {
+            if (this.Servers.Any(s => s == destination))
+            { // TODO: Send
+            }
+            else
+                return await this.SendPeerByChain(destination.Parent, message);
+
             return await Task.FromResult(true);
         }
 

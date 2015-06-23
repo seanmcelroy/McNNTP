@@ -147,6 +147,7 @@
     <Compile Include="Server\Configuration\PortConfigurationElementCollection.cs" />
     <Compile Include="Server\Configuration\McNNTPConfigurationSection.cs" />
     <Compile Include="Server\ConnectionMetadata.cs" />
+    <Compile Include="Server\IConnection.cs" />
     <Compile Include="Server\ImapConnection.cs">
       <SubType>Code</SubType>
     </Compile>
