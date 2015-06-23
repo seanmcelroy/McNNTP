@@ -7,7 +7,7 @@
 // </summary>
 // --------------------------------------------------------------------------------------------------------------------
 
-namespace McNNTP.Core.Server
+namespace McNNTP.Core.Server.IMAP
 {
     using System;
     using System.Collections.Generic;
@@ -37,12 +37,12 @@ namespace McNNTP.Core.Server
         /// <summary>
         /// A command-indexed dictionary with function pointers to support client command
         /// </summary>
-        private static readonly Dictionary<string, Func<ImapConnection, string, string, Task<CommandProcessingResult>>> CommandDirectory;
+        private static readonly Dictionary<string, Func<ImapConnection, string, string, Task<CommandProcessingResult>>> _CommandDirectory;
 
         /// <summary>
         /// The logging utility instance to use to log events from this class
         /// </summary>
-        private static readonly ILog Logger = LogManager.GetLogger(typeof(ImapConnection));
+        private static readonly ILog _Logger = LogManager.GetLogger(typeof(ImapConnection));
 
         /// <summary>
         /// The store to use to satisfy requests of this connection
@@ -113,7 +113,7 @@ namespace McNNTP.Core.Server
         /// </summary>
         static ImapConnection()
         {
-            CommandDirectory = new Dictionary<string, Func<ImapConnection, string, string, Task<CommandProcessingResult>>>
+            _CommandDirectory = new Dictionary<string, Func<ImapConnection, string, string, Task<CommandProcessingResult>>>
                                {
                                    { "CHECK", async (c, tag, command) => await c.Noop("CHECK", tag) },
                                    { "CLOSE", async (c, tag, command) => await c.Close(tag) },
@@ -323,16 +323,16 @@ namespace McNNTP.Core.Server
                     // All the data has been read from the 
                     // client. Display it on the console.
                     if (this.ShowBytes && this.ShowData)
-                        Logger.TraceFormat(
+                        _Logger.TraceFormat(
                             "{0}:{1} >{2}> {3} bytes: {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             builderString.Length,
                             builderString.TrimEnd('\r', '\n'));
                     else if (this.ShowBytes)
-                        Logger.TraceFormat(
+                        _Logger.TraceFormat(
                             "{0}:{1} >{2}> {3} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             builderString.Length);
                     else if (this.ShowData)
-                        Logger.TraceFormat(
+                        _Logger.TraceFormat(
                             "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             builderString.TrimEnd('\r', '\n'));
                     
@@ -355,16 +355,16 @@ namespace McNNTP.Core.Server
                             {
                                 var command = parts.ElementAt(1).TrimEnd('\r', '\n').ToUpperInvariant();
                                 var phrase = parts.Skip(1).Aggregate((c, n) => c + " " + n).TrimEnd('\r', '\n');
-                                if (CommandDirectory.ContainsKey(command))
+                                if (_CommandDirectory.ContainsKey(command))
                                 {
                                     try
                                     {
                                         if (this.ShowCommands)
-                                            Logger.TraceFormat(
+                                            _Logger.TraceFormat(
                                                 "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                                                 phrase);
 
-                                        var result = await CommandDirectory[command].Invoke(this, tag, phrase);
+                                        var result = await _CommandDirectory[command].Invoke(this, tag, phrase);
 
                                         if (!result.IsHandled) 
                                             await this.Send("{0} BAD unexpected end of data", "*");
@@ -373,7 +373,7 @@ namespace McNNTP.Core.Server
                                     }
                                     catch (Exception ex)
                                     {
-                                        Logger.Error("Exception processing a command", ex);
+                                        _Logger.Error("Exception processing a command", ex);
                                         break;
                                     }
                                 }
@@ -387,26 +387,26 @@ namespace McNNTP.Core.Server
             catch (DecoderFallbackException dfe)
             {
                 send403 = true;
-                Logger.Error("Decoder Fallback Exception socket " + this.RemoteAddress, dfe);
+                _Logger.Error("Decoder Fallback Exception socket " + this.RemoteAddress, dfe);
             }
             catch (IOException se)
             {
                 send403 = true;
-                Logger.Error("I/O Exception on socket " + this.RemoteAddress, se);
+                _Logger.Error("I/O Exception on socket " + this.RemoteAddress, se);
             }
             catch (SocketException se)
             {
                 send403 = true;
-                Logger.Error("Socket Exception on socket " + this.RemoteAddress, se);
+                _Logger.Error("Socket Exception on socket " + this.RemoteAddress, se);
             }
             catch (NotSupportedException nse)
             {
-                Logger.Error("Not Supported Exception", nse);
+                _Logger.Error("Not Supported Exception", nse);
                 return;
             }
             catch (ObjectDisposedException ode)
             {
-                Logger.Error("Object Disposed Exception", ode);
+                _Logger.Error("Object Disposed Exception", ode);
                 return;
             }
 
@@ -443,18 +443,18 @@ namespace McNNTP.Core.Server
                 // Begin sending the data to the remote device.
                 await this.stream.WriteAsync(byteData, 0, byteData.Length);
                 if (this.ShowBytes && this.ShowData)
-                    Logger.TraceFormat(
+                    _Logger.TraceFormat(
                         "{0}:{1} <{2}{3} {4} bytes: {5}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
                         compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         byteData.Length,
                         data.TrimEnd('\r', '\n'));
                 else if (this.ShowBytes)
-                    Logger.TraceFormat(
+                    _Logger.TraceFormat(
                         "{0}:{1} <{2}{3} {4} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
                         compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         byteData.Length);
                 else if (this.ShowData)
-                    Logger.TraceFormat(
+                    _Logger.TraceFormat(
                         "{0}:{1} <{2}{3} {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
                         compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         data.TrimEnd('\r', '\n'));
@@ -464,18 +464,18 @@ namespace McNNTP.Core.Server
             catch (IOException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (SocketException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (ObjectDisposedException)
             {
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
         }
@@ -617,7 +617,7 @@ namespace McNNTP.Core.Server
                         this.server.LdapDirectoryConfiguration.SearchPath, this.Username,
                         password))
                 {
-                    Logger.WarnFormat("User {0} failed authentication against LDAP server.", this.Username);
+                    _Logger.WarnFormat("User {0} failed authentication against LDAP server.", this.Username);
                     await this.Send("{0} NO login failure: username or password rejected", tag);
                     return new CommandProcessingResult(true);
                 }
@@ -628,7 +628,7 @@ namespace McNNTP.Core.Server
                 this.Identity = this.store.GetIdentityByClearAuth(this.Username, password);
                 if (this.Identity == null)
                 {
-                    Logger.WarnFormat("User {0} failed authentication against local authentication database.", this.Username);
+                    _Logger.WarnFormat("User {0} failed authentication against local authentication database.", this.Username);
                     await this.Send("{0} NO login failure: username or password rejected", tag);
                     return new CommandProcessingResult(true);
                 }
@@ -640,7 +640,7 @@ namespace McNNTP.Core.Server
                 return new CommandProcessingResult(true);
             }
 
-            Logger.InfoFormat("User {0} authenticated from {1}", this.Identity.Username, this.RemoteAddress);
+            _Logger.InfoFormat("User {0} authenticated from {1}", this.Identity.Username, this.RemoteAddress);
 
             // Ensure user has personal INBOX defined.
             this.store.Ensure(this.Identity);

@@ -1,26 +1,20 @@
-﻿namespace McNNTP.Core.Server
+﻿using System;
+using System.IO;
+using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using JetBrains.Annotations;
+using log4net;
+
+namespace McNNTP.Core.Server.NNTP
 {
-    using System;
-    using System.IO;
-    using System.Net;
-    using System.Net.Security;
-    using System.Net.Sockets;
-
-    using JetBrains.Annotations;
-
-    using log4net;
-
-    using Common;
-    using Database;
-
-    internal class ImapListener : TcpListener
+    internal class NntpListener : TcpListener
     {
         // Thread signal.
-        private static readonly IStoreProvider _Store = new SqliteStoreProvider(); // TODO: Make loaded by configuration
-        private readonly ImapServer server;
-        private static readonly ILog _Logger = LogManager.GetLogger(typeof(ImapListener));
+        private readonly NntpServer server;
+        private static readonly ILog _Logger = LogManager.GetLogger(typeof(NntpListener));
 
-        public ImapListener([NotNull] ImapServer server, [NotNull] IPEndPoint localEp)
+        public NntpListener([NotNull] NntpServer server, [NotNull] IPEndPoint localEp)
             : base(localEp)
         {
             this.server = server;
@@ -34,7 +28,7 @@
             var localEndPoint = new IPEndPoint(IPAddress.Any, ((IPEndPoint) this.LocalEndpoint).Port);
 
             // Create a TCP/IP socket.
-            var listener = new ImapListener(this.server, localEndPoint);
+            var listener = new NntpListener(this.server, localEndPoint);
 
             // Bind the socket to the local endpoint and listen for incoming connections.
             try
@@ -47,13 +41,13 @@
                     var handler = await listener.AcceptTcpClientAsync();
 
                     // Create the state object.
-                    ImapConnection imapConnection;
+                    NntpConnection nntpConnection;
 
                     if (this.PortType == PortClass.ClearText || this.PortType == PortClass.ExplicitTLS)
                     {
                         var stream = handler.GetStream();
 
-                        imapConnection = new ImapConnection(_Store, this.server, handler, stream);
+                        nntpConnection = new NntpConnection(this.server, handler, stream);
                     }
                     else
                     {
@@ -70,12 +64,12 @@
                             return;
                         }
 
-                        imapConnection = new ImapConnection(_Store, this.server, handler, sslStream, true);
+                        nntpConnection = new NntpConnection(this.server, handler, sslStream, true);
                     }
 
-                    this.server.AddConnection(imapConnection);
+                    this.server.AddConnection(nntpConnection);
 
-                    imapConnection.Process();
+                    nntpConnection.Process();
                 }
 
             }

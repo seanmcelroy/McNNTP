@@ -28,6 +28,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McNNTP.Data", "McNNTP.Data\
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "McNNTP.Common", "McNNTP.Common\McNNTP.Common.csproj", "{F84582B7-D84F-4AF5-972F-3DAA26DD69BD}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Documentation", "Documentation", "{22E11EEA-EC14-4D83-9521-34ABF7BAA193}"
+	ProjectSection(SolutionItems) = preProject
+		mcnntp_cross_protocol_flow.svg = mcnntp_cross_protocol_flow.svg
+	EndProjectSection
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -101,5 +106,8 @@ Global
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{22E11EEA-EC14-4D83-9521-34ABF7BAA193} = {BD85F287-EAB6-47ED-B4C0-23C12DC9E513}
 	EndGlobalSection
 EndGlobal

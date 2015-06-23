@@ -21,9 +21,10 @@ namespace McNNTP.Server.Console
     using log4net.Config;
 
     using McNNTP.Core.Database;
-    using McNNTP.Core.Server;
     using McNNTP.Core.Server.Configuration;
+    using McNNTP.Core.Server.IMAP;
     using McNNTP.Core.Server.IRC;
+    using McNNTP.Core.Server.NNTP;
     using McNNTP.Data;
 
     using NHibernate.Linq;
@@ -36,7 +37,7 @@ namespace McNNTP.Server.Console
         /// <summary>
         /// A dictionary of commands and function pointers to command handlers for console commands
         /// </summary>
-        private static readonly Dictionary<string, Func<string, bool>> CommandDirectory = new Dictionary<string, Func<string, bool>>
+        private static readonly Dictionary<string, Func<string, bool>> _CommandDirectory = new Dictionary<string, Func<string, bool>>
         {
             { "?", s => Help() }, 
             { "HELP", s => Help() }, 
@@ -54,27 +55,27 @@ namespace McNNTP.Server.Console
         /// <summary>
         /// The strings that evaluate to 'true' for a Boolean value
         /// </summary>
-        private static readonly string[] YesStrings = { "ENABLE", "T", "TRUE", "ON", "Y", "YES", "1" };
+        private static readonly string[] _YesStrings = { "ENABLE", "T", "TRUE", "ON", "Y", "YES", "1" };
 
         /// <summary>
         /// The strings that evaluate to 'false' for a Boolean value
         /// </summary>
-        private static readonly string[] NoStrings = { "DISABLE", "F", "FALSE", "OFF", "N", "NO", "0" };
+        private static readonly string[] _NoStrings = { "DISABLE", "F", "FALSE", "OFF", "N", "NO", "0" };
 
         /// <summary>
         /// The IRC server object instance
         /// </summary>
-        private static IrcServer ircServer;
+        private static IrcServer _ircServer;
 
         /// <summary>
         /// The IMAP server object instance
         /// </summary>
-        private static ImapServer imapServer;
+        private static ImapServer _imapServer;
 
         /// <summary>
         /// The NNTP server object instance
         /// </summary>
-        private static NntpServer nntpServer;
+        private static NntpServer _nntpServer;
 
         /// <summary>
         /// The main program message loop
@@ -115,7 +116,7 @@ namespace McNNTP.Server.Console
                     }
                 }
 
-                ircServer = new IrcServer
+                _ircServer = new IrcServer
                 {
                     SslGenerateSelfSignedServerCertificate =
                         mcnntpConfigurationSection.Ssl == null
@@ -126,9 +127,9 @@ namespace McNNTP.Server.Console
                             : mcnntpConfigurationSection.Ssl.ServerCertificateThumbprint
                 };
 
-                ircServer.Start();
+                _ircServer.Start();
 
-                imapServer = new ImapServer
+                _imapServer = new ImapServer
                                  {
                                      AllowPosting = true,
                                      ImapClearPorts =
@@ -153,9 +154,9 @@ namespace McNNTP.Server.Console
                                              : mcnntpConfigurationSection.Ssl.ServerCertificateThumbprint
                                  };
 
-                imapServer.Start();
+                _imapServer.Start();
 
-                nntpServer = new NntpServer
+                _nntpServer = new NntpServer
                              {
                                  AllowPosting = true,
                                  IrcClearPorts =
@@ -193,7 +194,7 @@ namespace McNNTP.Server.Console
                                          : mcnntpConfigurationSection.Ssl.ServerCertificateThumbprint
                              };
 
-                nntpServer.Start();
+                _nntpServer.Start();
 
                 Console.WriteLine("Type QUIT and press Enter to end the server.");
 
@@ -201,16 +202,16 @@ namespace McNNTP.Server.Console
                 {
                     Console.Write("\r\n> ");
                     var input = Console.ReadLine();
-                    if (input == null || !CommandDirectory.ContainsKey(input.Split(' ')[0].ToUpperInvariant()))
+                    if (input == null || !_CommandDirectory.ContainsKey(input.Split(' ')[0].ToUpperInvariant()))
                     {
                         Console.WriteLine("Unrecongized command.  Type HELP for a list of available commands.");
                         continue;
                     }
 
-                    if (!CommandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input)) continue;
+                    if (!_CommandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input)) continue;
 
-                    imapServer.Stop();
-                    nntpServer.Stop();
+                    _imapServer.Stop();
+                    _nntpServer.Stop();
                     return 0;
                 }
             }
@@ -393,14 +394,14 @@ namespace McNNTP.Server.Console
                         var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
                         if (newsgroup == null)
                             Console.WriteLine("No newsgroup named '{0}' exists.", name);
-                        else if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        else if (_YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         {
                             newsgroup.DenyLocalPosting = true;
                             session.SaveOrUpdate(newsgroup);
                             session.Flush();
                             Console.WriteLine("Local posting to newsgroup {0} denied.", name);
                         }
-                        else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        else if (_NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         {
                             newsgroup.DenyLocalPosting = false;
                             session.SaveOrUpdate(newsgroup);
@@ -425,14 +426,14 @@ namespace McNNTP.Server.Console
                         var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
                         if (newsgroup == null)
                             Console.WriteLine("No newsgroup named '{0}' exists.", name);
-                        else if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        else if (_YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         {
                             newsgroup.DenyPeerPosting = true;
                             session.SaveOrUpdate(newsgroup);
                             session.Flush();
                             Console.WriteLine("Peer posting to newsgroup {0} denied.", name);
                         }
-                        else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        else if (_NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         {
                             newsgroup.DenyPeerPosting = false;
                             session.SaveOrUpdate(newsgroup);
@@ -457,14 +458,14 @@ namespace McNNTP.Server.Console
                         var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == name);
                         if (newsgroup == null)
                             Console.WriteLine("No newsgroup named '{0}' exists.", name);
-                        else if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        else if (_YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         {
                             newsgroup.Moderated = true;
                             session.SaveOrUpdate(newsgroup);
                             session.Flush();
                             Console.WriteLine("Moderation of newsgroup {0} enabled.", name);
                         }
-                        else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        else if (_NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
                         {
                             newsgroup.Moderated = false;
                             session.SaveOrUpdate(newsgroup);
@@ -494,10 +495,10 @@ namespace McNNTP.Server.Console
         /// <returns>A value indicating whether the nntpServer should terminate</returns>
         private static bool ShowConn()
         {
-            nntpServer.ShowBytes = !nntpServer.ShowBytes;
-            Console.WriteLine("\r\nConnections ({0})", nntpServer.Connections.Count);
+            _nntpServer.ShowBytes = !_nntpServer.ShowBytes;
+            Console.WriteLine("\r\nConnections ({0})", _nntpServer.Connections.Count);
             Console.WriteLine("-----------");
-            foreach (var connection in nntpServer.Connections)
+            foreach (var connection in _nntpServer.Connections)
             {
                 if (connection.AuthenticatedUsername == null)
                     Console.WriteLine("{0}:{1} (nntp)", connection.RemoteAddress, connection.RemotePort);
@@ -505,7 +506,7 @@ namespace McNNTP.Server.Console
                     Console.WriteLine("{0}:{1} (nntp:{2})", connection.RemoteAddress, connection.RemotePort, connection.AuthenticatedUsername);
             }
 
-            foreach (var connection in imapServer.Connections)
+            foreach (var connection in _imapServer.Connections)
             {
                 if (connection.AuthenticatedUsername == null)
                     Console.WriteLine("{0}:{1} (imap)", connection.RemoteAddress, connection.RemotePort);
@@ -579,17 +580,17 @@ namespace McNNTP.Server.Console
                 {
                     var val = parts[2];
 
-                    if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        nntpServer.ShowBytes = true;
-                    else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        nntpServer.ShowBytes = false;
+                    if (_YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        _nntpServer.ShowBytes = true;
+                    else if (_NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        _nntpServer.ShowBytes = false;
                     else
                         Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
 
                     Console.Write("[DEBUG BYTES: ");
                     var orig = Console.ForegroundColor;
-                    Console.ForegroundColor = nntpServer.ShowBytes ? ConsoleColor.Green : ConsoleColor.Red;
-                    Console.Write(nntpServer.ShowBytes ? "ON" : "OFF");
+                    Console.ForegroundColor = _nntpServer.ShowBytes ? ConsoleColor.Green : ConsoleColor.Red;
+                    Console.Write(_nntpServer.ShowBytes ? "ON" : "OFF");
                     Console.ForegroundColor = orig;
                     Console.Write("]");
 
@@ -600,17 +601,17 @@ namespace McNNTP.Server.Console
                 {
                     var val = parts[2];
 
-                    if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        nntpServer.ShowCommands = true;
-                    else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        nntpServer.ShowCommands = false;
+                    if (_YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        _nntpServer.ShowCommands = true;
+                    else if (_NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        _nntpServer.ShowCommands = false;
                     else
                         Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
 
                     Console.Write("[DEBUG COMMANDS: ");
                     var orig = Console.ForegroundColor;
-                    Console.ForegroundColor = nntpServer.ShowCommands ? ConsoleColor.Green : ConsoleColor.Red;
-                    Console.Write(nntpServer.ShowCommands ? "ON" : "OFF");
+                    Console.ForegroundColor = _nntpServer.ShowCommands ? ConsoleColor.Green : ConsoleColor.Red;
+                    Console.Write(_nntpServer.ShowCommands ? "ON" : "OFF");
                     Console.ForegroundColor = orig;
                     Console.Write("]");
 
@@ -621,17 +622,17 @@ namespace McNNTP.Server.Console
                 {
                     var val = parts[2];
 
-                    if (YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        nntpServer.ShowData = true;
-                    else if (NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
-                        nntpServer.ShowData = false;
+                    if (_YesStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        _nntpServer.ShowData = true;
+                    else if (_NoStrings.Contains(val, StringComparer.OrdinalIgnoreCase))
+                        _nntpServer.ShowData = false;
                     else
                         Console.WriteLine("Unable to parse '{0}' value.  Please use 'on' or 'off' to change this value.", val);
 
                     Console.Write("[DEBUG DATA: ");
                     var orig = Console.ForegroundColor;
-                    Console.ForegroundColor = nntpServer.ShowData ? ConsoleColor.Green : ConsoleColor.Red;
-                    Console.Write(nntpServer.ShowData ? "ON" : "OFF");
+                    Console.ForegroundColor = _nntpServer.ShowData ? ConsoleColor.Green : ConsoleColor.Red;
+                    Console.Write(_nntpServer.ShowData ? "ON" : "OFF");
                     Console.ForegroundColor = orig;
                     Console.Write("]");
 
@@ -727,7 +728,7 @@ namespace McNNTP.Server.Console
         /// <returns><c>true</c></returns>
         private static bool Quit()
         {
-            nntpServer.Stop();
+            _nntpServer.Stop();
             return true;
         }
         #endregion

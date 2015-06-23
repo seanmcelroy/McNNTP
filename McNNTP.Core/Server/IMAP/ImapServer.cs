@@ -8,7 +8,7 @@
 // </summary>
 // --------------------------------------------------------------------------------------------------------------------
 
-namespace McNNTP.Core.Server
+namespace McNNTP.Core.Server.IMAP
 {
     using System;
     using System.Collections.Generic;

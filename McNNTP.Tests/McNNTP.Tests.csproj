@@ -68,7 +68,7 @@
     </ProjectReference>
     <ProjectReference Include="..\McNNTP.Core\McNNTP.Core.csproj">
       <Project>{6d45d38f-85c0-46bd-950a-f4d0dcf61691}</Project>
-      <Name>McNNTP</Name>
+      <Name>McNNTP.Core</Name>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>

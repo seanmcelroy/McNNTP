@@ -181,8 +181,9 @@ namespace McNNTP.Core.Server.IRC
                                    { "MODE", async (c, m) => await c.Mode(m) },
                                    { "MOTD", async (c, m) => await c.Motd(m) },
                                    { "NICK", async (c, m) => await c.Nick(m) },
+                                   { "NOTICE", async (c, m) => await c.PrivMsg(m, false) },
                                    { "OPER", async (c, m) => await c.Oper(m) },
-                                   { "PRIVMSG", async (c, m) => await c.PrivMsg(m) },
+                                   { "PRIVMSG", async (c, m) => await c.PrivMsg(m, true) },
                                    { "QUIT", async (c, m) => await c.Quit(m) },
                                    { "STATS", async (c, m) => await c.Stats(m) },
                                    { "USER", async (c, m) => await c.User(m) },
@@ -1032,20 +1033,22 @@ namespace McNNTP.Core.Server.IRC
         /// <param name="m">The message provided by the client</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.3.1">RFC 2812</a> for more information.</remarks>
-        private async Task<CommandProcessingResult> PrivMsg(Message m)
+        private async Task<CommandProcessingResult> PrivMsg(Message m, bool sendReplies)
         {
             var target = m[0];
             var payload = m[1];
 
             if (string.IsNullOrWhiteSpace(target))
             {
-                await this.SendNumeric(CommandCode.ERR_NORECIPIENT, string.Format(":No recipient given ({0})", m.Command));
+                if (sendReplies)
+                    await this.SendNumeric(CommandCode.ERR_NORECIPIENT, string.Format(":No recipient given ({0})", m.Command));
                 return new CommandProcessingResult(true);
             }
 
             if (string.IsNullOrWhiteSpace(payload))
             {
-                await this.SendNumeric(CommandCode.ERR_NOTEXTTOSEND, ":No text to send");
+                if (sendReplies)
+                    await this.SendNumeric(CommandCode.ERR_NOTEXTTOSEND, ":No text to send");
                 return new CommandProcessingResult(true);
             }
 
@@ -1066,7 +1069,7 @@ namespace McNNTP.Core.Server.IRC
                         await ((IrcConnection)targetUserConnection.Connection).Send(m);
 
                         // RPL_AWAY is only sent by the server to which the client is connected.
-                        if (!string.IsNullOrWhiteSpace(targetUser.AwayMessage))
+                        if (sendReplies && !string.IsNullOrWhiteSpace(targetUser.AwayMessage))
                             await this.SendReply(CommandCode.RPL_AWAY, string.Format("{0} :{1}", targetUser.Nickname, targetUser.AwayMessage));
                     }
                 }
@@ -1080,25 +1083,21 @@ namespace McNNTP.Core.Server.IRC
             var principalAsUser = this.Principal as User;
             if (targetChannel != null)
             {
-                if (principalAsUser == null)
-                {
-                    await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
-                    return new CommandProcessingResult(true);
-                }
-
                 string userChannelMode;
-                if (!targetChannel.UsersModes.TryGetValue(principalAsUser, out userChannelMode))
+                if (principalAsUser == null || !targetChannel.UsersModes.TryGetValue(principalAsUser, out userChannelMode))
                     userChannelMode = "!";
                 
                 if (targetChannel.Moderated && userChannelMode.IndexOfAny(new[] { 'O', 'o', 'v' }, 0) == -1)
                 {
-                    await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
+                    if (sendReplies)
+                        await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
                     return new CommandProcessingResult(true);
                 }
 
                 if (targetChannel.NoExternalMessages && userChannelMode == "!")
                 {
-                    await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
+                    if (sendReplies)
+                        await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
                     return new CommandProcessingResult(true);
                 }
 
@@ -1108,19 +1107,27 @@ namespace McNNTP.Core.Server.IRC
                  * Privilege)).
                  * https://tools.ietf.org/html/rfc2811#section-4.3.1
                  */
-                if ((targetChannel.BanMasks.Any(bm => bm.Key.MatchesWildchar(principalAsUser.RawUserhost)) || targetChannel.BanMasks.Any(bm => bm.Key.MatchesWildchar(principalAsUser.SecureUserhost))) && userChannelMode.IndexOfAny(new[] { 'O', 'o', 'v' }, 0) == -1)
+                if (principalAsUser != null && (targetChannel.BanMasks.Any(bm => bm.Key.MatchesWildchar(principalAsUser.RawUserhost)) || targetChannel.BanMasks.Any(bm => bm.Key.MatchesWildchar(principalAsUser.SecureUserhost))) && userChannelMode.IndexOfAny(new[] { 'O', 'o', 'v' }, 0) == -1)
                 {
-                    await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
+                    if (sendReplies)
+                        await this.SendNumeric(CommandCode.ERR_CANNOTSENDTOCHAN, string.Format("{0} :Cannot send to channel", targetChannel.Name));
                     return new CommandProcessingResult(true);
                 }
 
-                m.Prefix = targetChannel.Anonymous ? "anonymous!anonymous@anonymous." : principalAsUser.SecureUserhost;
+                if (principalAsUser != null)
+                    m.Prefix = targetChannel.Anonymous ? "anonymous!anonymous@anonymous." : principalAsUser.SecureUserhost;
+                else
+                {
+                    Debug.Assert(this.Principal != null);
+                    m.Prefix = this.Principal.Name;
+                }
 
                 await this.server.SendChannelMembers(targetChannel, m);
                 return new CommandProcessingResult(true);
             }
 
-            await this.SendNumeric(CommandCode.ERR_NOSUCHNICK, string.Format("{0} :No such nick/channel", target));
+            if (sendReplies)
+                await this.SendNumeric(CommandCode.ERR_NOSUCHNICK, string.Format("{0} :No such nick/channel", target));
             return new CommandProcessingResult(true);
         }
 

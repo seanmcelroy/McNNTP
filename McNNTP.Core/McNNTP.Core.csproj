@@ -148,10 +148,10 @@
     <Compile Include="Server\Configuration\McNNTPConfigurationSection.cs" />
     <Compile Include="Server\ConnectionMetadata.cs" />
     <Compile Include="Server\IConnection.cs" />
-    <Compile Include="Server\ImapConnection.cs">
+    <Compile Include="Server\IMAP\ImapConnection.cs">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="Server\ImapListener.cs" />
+    <Compile Include="Server\IMAP\ImapListener.cs" />
     <Compile Include="Server\IRC\CommandCode.cs" />
     <Compile Include="Server\IRC\IPrincipal.cs" />
     <Compile Include="Server\IRC\IrcConnection.cs" />
@@ -164,10 +164,10 @@
     <Compile Include="Server\IRC\Channel.cs" />
     <Compile Include="Server\IRC\Service.cs" />
     <Compile Include="Server\IRC\User.cs" />
-    <Compile Include="Server\NntpListener.cs" />
-    <Compile Include="Server\ImapServer.cs" />
-    <Compile Include="Server\NntpServer.cs" />
-    <Compile Include="Server\NntpConnection.cs" />
+    <Compile Include="Server\NNTP\NntpListener.cs" />
+    <Compile Include="Server\IMAP\ImapServer.cs" />
+    <Compile Include="Server\NNTP\NntpServer.cs" />
+    <Compile Include="Server\NNTP\NntpConnection.cs" />
     <Compile Include="Server\PortClass.cs" />
   </ItemGroup>
   <ItemGroup>

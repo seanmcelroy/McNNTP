@@ -8,7 +8,7 @@
 // </summary>
 // --------------------------------------------------------------------------------------------------------------------
 
-namespace McNNTP.Core.Server
+namespace McNNTP.Core.Server.NNTP
 {
     using System;
     using System.Collections.Generic;

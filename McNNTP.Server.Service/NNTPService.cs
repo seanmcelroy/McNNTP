@@ -7,8 +7,8 @@
     using log4net;
     using log4net.Config;
 
-    using McNNTP.Core.Server;
     using McNNTP.Core.Server.Configuration;
+    using McNNTP.Core.Server.NNTP;
 
     public class NntpService : ServiceBase
     {
@@ -21,13 +21,13 @@
 
         public NntpService()
         {
-            AutoLog = true;
-            CanHandlePowerEvent = false;
-            CanHandleSessionChangeEvent = false;
-            CanPauseAndContinue = false;
-            CanShutdown = false;
-            CanStop = true;
-            ServiceName = "McNNTP";
+            this.AutoLog = true;
+            this.CanHandlePowerEvent = false;
+            this.CanHandleSessionChangeEvent = false;
+            this.CanPauseAndContinue = false;
+            this.CanShutdown = false;
+            this.CanStop = true;
+            this.ServiceName = "McNNTP";
 
             // Setup LOG4NET
             XmlConfigurator.Configure();
