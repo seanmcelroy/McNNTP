@@ -375,7 +375,7 @@ namespace McNNTP.Core.Server.IRC
             return true;
         }
 
-        internal async Task<bool> SendChannelMembers(Channel channel, Message message)
+        internal async Task<bool> SendLocalChannelMembers(Channel channel, Message message)
         {
             // TODO: Complete.
             return await Task.FromResult(true);

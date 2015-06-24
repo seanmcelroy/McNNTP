@@ -176,6 +176,7 @@ namespace McNNTP.Core.Server.IRC
             _CommandDirectory = new Dictionary<string, Func<IrcConnection, Message, Task<CommandProcessingResult>>>
                                {
                                    { "CAP", async (c, m) => await c.Capability(m) },
+                                   { "JOIN", async (c, m) => await c.Join(m) },
                                    { "LIST", async (c, m) => await c.List(m) },
                                    { "LUSERS", async (c, m) => await c.Lusers(m) },
                                    { "MODE", async (c, m) => await c.Mode(m) },
@@ -574,6 +575,106 @@ namespace McNNTP.Core.Server.IRC
         }
 
         /// <summary>
+        /// The JOIN command is used by a user to request to start listening to
+        /// the specific channel.  Servers MUST be able to parse arguments in the
+        /// form of a list of target, but SHOULD NOT use lists when sending JOIN
+        /// messages to clients.
+        /// 
+        ///     Command: JOIN
+        ///     Parameters: ( &lt;channel> *( "," &lt;channel> ) [ &lt;key> *( "," &lt;key> ) ] )
+        ///                 / "0"
+        /// </summary>
+        /// <param name="m">The message provided by the client</param>
+        /// <returns>A command processing result specifying the command is handled.</returns>
+        /// <remarks>See <a href="https://tools.ietf.org/html/rfc2812#section-3.2.1">RFC 2812</a> for more information.</remarks>
+        private async Task<CommandProcessingResult> Join(Message m)
+        {
+            if (!this.VerifyRegisteredUser())
+                return new CommandProcessingResult(false);
+
+            var chanList = m[0];
+            var keyList = m[1];
+
+            if (string.IsNullOrWhiteSpace(chanList))
+            {
+                await this.SendNumeric(CommandCode.ERR_NEEDMOREPARAMS, string.Format("{0} :Not enough parameters", m.Command));
+                return new CommandProcessingResult(true);
+            }
+
+            var user = (User)this.Principal;
+            Debug.Assert(user != null);
+            var comparer = new ScandanavianStringComparison();
+
+            var chanIndex = -1;
+            var keys = string.IsNullOrWhiteSpace(keyList) ? new string[0] : keyList.Split(',');
+            foreach (var chan in chanList.Split(','))
+            {
+                chanIndex++;
+                var key = keys.ElementAtOrDefault(chanIndex);
+
+                var targetChannel = this.server.Channels.SingleOrDefault(c => comparer.Compare(c.Name, chan) == 0);
+
+                if (targetChannel == null)
+                {
+                    // Create it
+                    if (!Regex.IsMatch(chan, Message.RegexChannel))
+                    {
+                        await this.SendNumeric(CommandCode.ERR_NOSUCHCHANNEL, string.Format("{0} :No such channel", chan));
+                        return new CommandProcessingResult(true);
+                    }
+
+                    targetChannel = new Channel(chan);
+                    targetChannel.UsersModes.TryAdd(user, "O");
+                }
+                else
+                {
+                    // Join it
+                    if (targetChannel.BanMasks.Any(bm => bm.Key.MatchesWildchar(user.RawUserhost)) || targetChannel.BanMasks.Any(bm => bm.Key.MatchesWildchar(user.SecureUserhost)))
+                    {
+                        await this.SendNumeric(CommandCode.ERR_BANNEDFROMCHAN, string.Format("{0} :Cannot join channel (+b)", targetChannel.Name));
+                        return new CommandProcessingResult(true);
+                    }
+
+                    // TODO: Invite only channel check
+
+                    // TODO: Keyed channel check
+
+                    // Limit check
+                    if (targetChannel.UserLimit.HasValue && targetChannel.UsersModes.Count >= targetChannel.UserLimit.Value)
+                    {
+                        await this.SendNumeric(CommandCode.ERR_CHANNELISFULL, string.Format("{0} :Cannot join channel (+l)", targetChannel.Name));
+                        return new CommandProcessingResult(true);
+                    }
+                    
+                    targetChannel.UsersModes.TryAdd(user, null);
+                }
+
+                await this.Send(new Message(user.RawUserhost, "JOIN", targetChannel.Name));
+                if (string.IsNullOrWhiteSpace(targetChannel.Topic))
+                    await this.SendReply(CommandCode.RPL_NOTOPIC, string.Format("{0} :No topic is set", targetChannel.Name));
+                else
+                    await this.SendReply(CommandCode.RPL_TOPIC, string.Format("{0} :{1}", targetChannel.Name, targetChannel.Topic));
+
+                var members = targetChannel.Anonymous
+                    ? new Queue<string>(new[] { user.Nickname })
+                    : new Queue<string>(targetChannel.UsersModes.ToArray().Select(u => (u.Value.IndexOfAny(new[] { 'O', 'o' }) > -1 ? "@" : u.Value.IndexOf('v') > -1 ? "+" : string.Empty) + u.Key.Nickname));
+
+                while (members.Count > 0)
+                {
+                    var sb = new StringBuilder();
+                    sb.AppendFormat("{0} {1} :", targetChannel.Secret ? "@" : targetChannel.Private ? "*" : "=", targetChannel.Name);
+                    while (members.Count > 0 && sb.Length + members.Peek().Length <= 450)
+                        sb.Append(members.Dequeue()).Append(' ');
+                    await this.SendReply(CommandCode.RPL_NAMREPLY, sb.ToString().TrimEnd(' '));
+                }
+
+                await this.SendReply(CommandCode.RPL_ENDOFNAMES, string.Format("{0} :End of NAMES list", targetChannel.Name));
+            }
+
+            return new CommandProcessingResult(true);
+        }
+
+        /// <summary>
         /// The list command is used to list channels and their topics.  If the
         /// &lt;channel&gt; parameter is used, only the status of that channel is
         /// displayed.
@@ -675,96 +776,158 @@ namespace McNNTP.Core.Server.IRC
             var target = m[0];
             var modes = m[1];
 
-            if (m.Parameters.Count() < 2 || string.IsNullOrWhiteSpace(target) || string.IsNullOrWhiteSpace(modes) || !this.VerifyRegisteredUser())
+            if (!m.Parameters.Any() || string.IsNullOrWhiteSpace(target) || !this.VerifyRegisteredUser())
             {
                 await this.SendNumeric(CommandCode.ERR_NEEDMOREPARAMS, "MODE :Not enough parameters");
                 return new CommandProcessingResult(true);
             }
 
-            if (Regex.IsMatch(Message.RegexChannel, target))
+            if (Regex.IsMatch(target, Message.RegexChannel))
+                return await this.ModeChannel(m);
+
+            return await this.ModeUser(m);
+        }
+
+        private async Task<CommandProcessingResult> ModeChannel(Message m)
+        {
+            // User modes
+            var target = m[0];
+            var modes = m[1];
+
+            var user = this.Principal as User;
+            var comparer = new ScandanavianStringComparison();
+            var targetChannel = this.server.Channels.SingleOrDefault(c => comparer.Compare(c.Name, target) == 0);
+            string userModes;
+            if (user == null || targetChannel == null || !targetChannel.UsersModes.TryGetValue(user, out userModes))
             {
-                // TODO: Channel modes
-                await this.SendNumeric(CommandCode.ERR_NEEDMOREPARAMS, "MODE :Not enough parameters");
+                await this.SendNumeric(CommandCode.ERR_NOTONCHANNEL, string.Format("{0} :You're not on that channel", target));
                 return new CommandProcessingResult(true);
             }
-            // ReSharper disable once PossibleNullReferenceException
-            if (new ScandanavianStringComparison().Compare(target, this.Principal.Name) != 0)
+
+            Debug.Assert(user != null);
+            char? unknownModeFlagSeen = null;
+
+            if (!string.IsNullOrWhiteSpace(modes))
+                foreach (Match match in Regex.Matches(modes, @"(?<mode>[\+\-][ilkmnpst]*)"))
+                {
+                    var s = match.Groups["mode"].Value;
+                    if (s.Length < 2)
+                        continue;
+
+                    if (s[0] == '+')
+                    {
+                        // Adding mode
+                        foreach (var c in s.ToCharArray().Skip(1))
+                            switch (c)
+                            {
+                                default:
+                                    unknownModeFlagSeen = c;
+                                    break;
+                            }
+                    }
+                    else if (s[0] == '-')
+                    {
+                        // Removing mode
+                        foreach (var c in s.ToCharArray().Skip(1))
+                            switch (c)
+                            {
+                                default:
+                                    unknownModeFlagSeen = c;
+                                    break;
+                            }
+                    }
+                }
+
+            if (unknownModeFlagSeen.HasValue)
+                await this.SendNumeric(CommandCode.ERR_UNKNOWNMODE, string.Format("{0} :is unknown mode char to me for {1}", unknownModeFlagSeen.Value, target));
+
+            await this.SendReply(CommandCode.RPL_CHANNELMODEIS, targetChannel.ModeString);
+            return new CommandProcessingResult(true);
+        }
+
+        private async Task<CommandProcessingResult> ModeUser(Message m)
+        {
+            // User modes
+            var target = m[0];
+            var modes = m[1];
+
+            if (this.Principal == null || new ScandanavianStringComparison().Compare(target, this.Principal.Name) != 0)
             {
                 await this.SendNumeric(CommandCode.ERR_USERSDONTMATCH, ":Cannot change mode for other users");
                 return new CommandProcessingResult(true);
             }
 
-            // User modes
             var user = (User)this.Principal;
             Debug.Assert(user != null);
             var unknownModeFlagSeen = false;
 
-            foreach (Match match in Regex.Matches(modes, @"(?<mode>[\+\-][iwoOr]*)"))
-            {
-                var s = match.Groups["mode"].Value;
-                if (s.Length < 2)
-                    continue;
+            if (!string.IsNullOrWhiteSpace(modes))
+                foreach (Match match in Regex.Matches(modes, @"(?<mode>[\+\-][iwoOr]*)"))
+                {
+                    var s = match.Groups["mode"].Value;
+                    if (s.Length < 2)
+                        continue;
 
-                if (s[0] == '+')
-                {
-                    // Adding mode
-                    foreach (var c in s.ToCharArray().Skip(1))
-                        switch (c)
-                        {
-                            // The flag 'a' SHALL NOT be toggled by the user using the MODE command, instead use of the AWAY command is REQUIRED.
-                            case 'i':
-                                user.Invisible = true;
-                                break;
-                            case 'O':
-                            case 'o':
-                                /* If a user attempts to make themselves an operator using the "+o" or
-                                     * "+O" flag, the attempt SHOULD be ignored as users could bypass the
-                                     * authentication mechanisms of the OPER command.  There is no
-                                     * restriction, however, on anyone `deopping' themselves (using "-o" or
-                                     * "-O").
-                                     */
-                                break;
-                            case 'r':
-                                user.Restricted = true;
-                                break;
-                            case 'w':
-                                user.ReceiveWallops = true;
-                                break;
-                            default:
-                                unknownModeFlagSeen = true;
-                                break;
-                        }
+                    if (s[0] == '+')
+                    {
+                        // Adding mode
+                        foreach (var c in s.ToCharArray().Skip(1))
+                            switch (c)
+                            {
+                                // The flag 'a' SHALL NOT be toggled by the user using the MODE command, instead use of the AWAY command is REQUIRED.
+                                case 'i':
+                                    user.Invisible = true;
+                                    break;
+                                case 'O':
+                                case 'o':
+                                    /* If a user attempts to make themselves an operator using the "+o" or
+                                         * "+O" flag, the attempt SHOULD be ignored as users could bypass the
+                                         * authentication mechanisms of the OPER command.  There is no
+                                         * restriction, however, on anyone `deopping' themselves (using "-o" or
+                                         * "-O").
+                                         */
+                                    break;
+                                case 'r':
+                                    user.Restricted = true;
+                                    break;
+                                case 'w':
+                                    user.ReceiveWallops = true;
+                                    break;
+                                default:
+                                    unknownModeFlagSeen = true;
+                                    break;
+                            }
+                    }
+                    else if (s[0] == '-')
+                    {
+                        // Removing mode
+                        foreach (var c in s.ToCharArray().Skip(1))
+                            switch (c)
+                            {
+                                // The flag 'a' SHALL NOT be toggled by the user using the MODE command, instead use of the AWAY command is REQUIRED.
+                                case 'i':
+                                    user.Invisible = false;
+                                    break;
+                                case 'O':
+                                    user.OperatorLocal = false;
+                                    break;
+                                case 'o':
+                                    user.OperatorGlobal = false;
+                                    break;
+                                case 'r':
+                                    /* On the other hand, if a user attempts to make themselves unrestricted
+                                         * using the "-r" flag, the attempt SHOULD be ignored.
+                                         */
+                                    break;
+                                case 'w':
+                                    user.ReceiveWallops = false;
+                                    break;
+                                default:
+                                    unknownModeFlagSeen = true;
+                                    break;
+                            }
+                    }
                 }
-                else if (s[0] == '-')
-                {
-                    // Removing mode
-                    foreach (var c in s.ToCharArray().Skip(1))
-                        switch (c)
-                        {
-                            // The flag 'a' SHALL NOT be toggled by the user using the MODE command, instead use of the AWAY command is REQUIRED.
-                            case 'i':
-                                user.Invisible = false;
-                                break;
-                            case 'O':
-                                user.OperatorLocal = false;
-                                break;
-                            case 'o':
-                                user.OperatorGlobal = false;
-                                break;
-                            case 'r':
-                                /* On the other hand, if a user attempts to make themselves unrestricted
-                                     * using the "-r" flag, the attempt SHOULD be ignored.
-                                     */
-                                break;
-                            case 'w':
-                                user.ReceiveWallops = false;
-                                break;
-                            default:
-                                unknownModeFlagSeen = true;
-                                break;
-                        }
-                }
-            }
 
             if (unknownModeFlagSeen)
                 await this.SendNumeric(CommandCode.ERR_UMODEUNKNOWNFLAG, ":Unknown MODE flag");
@@ -921,7 +1084,7 @@ namespace McNNTP.Core.Server.IRC
 
                 // Send to local users in the same channel as this user.
                 foreach (var chan in this.server.Channels.Where(c => c.UsersModes.Any(u => u.Key.Nickname == newNick)))
-                    await this.server.SendChannelMembers(chan, new Message(this.server.Self.Name, "NICK", newNick));
+                    await this.server.SendLocalChannelMembers(chan, new Message(this.server.Self.Name, "NICK", newNick));
                 
                 // TODO: Copy history (CopyHistory) for WHOWAS
                 if (this.VerifyRegisteredUser())
@@ -1115,14 +1278,26 @@ namespace McNNTP.Core.Server.IRC
                 }
 
                 if (principalAsUser != null)
-                    m.Prefix = targetChannel.Anonymous ? "anonymous!anonymous@anonymous." : principalAsUser.SecureUserhost;
+                    m.Prefix = principalAsUser.SecureUserhost;
                 else
                 {
                     Debug.Assert(this.Principal != null);
                     m.Prefix = this.Principal.Name;
                 }
 
-                await this.server.SendChannelMembers(targetChannel, m);
+                await this.server.SendPeers(m);
+
+                /* https://tools.ietf.org/html/rfc2811#section-7.3
+                 * The anonymous channel flag (See Section 4.2.1) can be used to render
+                 * all users on such channel "anonymous" by presenting all messages to
+                 * the channel as originating from a pseudo user which nickname is
+                 * "anonymous".  This is done at the client-server level, and no
+                 * anonymity is provided at the server-server level.
+                 */
+                if (principalAsUser != null && targetChannel.Anonymous)
+                    m.Prefix = "anonymous!anonymous@anonymous.";
+
+                await this.server.SendLocalChannelMembers(targetChannel, m);
                 return new CommandProcessingResult(true);
             }
 

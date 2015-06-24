@@ -133,7 +133,7 @@
 
         public const string RPL_LISTEND = "323"; // RFC 1459 4.2.6
 
-        public const string RPL_CHANMODEIS = "324";
+        public const string RPL_CHANNELMODEIS = "324";
 
         public const string RPL_UNIQOPIS = "325";
 

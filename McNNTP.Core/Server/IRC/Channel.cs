@@ -19,6 +19,7 @@
             this.name = name;
         }
 
+        [NotNull]
         public string Name
         {
             get
@@ -63,11 +64,16 @@
 
         public bool TopicLocked { get; set; }
 
+        public int? UserLimit { get; set; }
+
+        [CanBeNull]
+        public string Key { get; set; }
+
         public string ModeString
         {
             get
             {
-                return string.Format("+{0}{1}{2}{3}{4}{5}{6}{7}{8}",
+                return string.Format("+{0}{1}{2}{3}{4}{5}{6}{7}{8}{9}{11} {10} {12}",
                     this.Anonymous ? "a" : string.Empty,
                     this.InviteOnly ? "i" : string.Empty,
                     this.Moderated ? "m" : string.Empty,
@@ -76,7 +82,11 @@
                     this.Quiet ? "q" : string.Empty,
                     this.ServerReop ? "r" : string.Empty,
                     this.Secret ? "s" : string.Empty,
-                    this.TopicLocked ? "t" : string.Empty);
+                    this.TopicLocked ? "t" : string.Empty,
+                    this.UserLimit.HasValue ? "l" : string.Empty,
+                    this.UserLimit.HasValue ? this.UserLimit.Value.ToString() : string.Empty,
+                    !string.IsNullOrWhiteSpace(this.Key) ? "k" : string.Empty,
+                    !string.IsNullOrWhiteSpace(this.Key) ? this.Key : string.Empty).Trim();
             }
         }
 
