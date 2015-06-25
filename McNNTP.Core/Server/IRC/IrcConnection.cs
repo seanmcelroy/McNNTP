@@ -624,7 +624,8 @@ namespace McNNTP.Core.Server.IRC
                     }
 
                     targetChannel = new Channel(chan);
-                    targetChannel.UsersModes.TryAdd(user, "O");
+                    targetChannel.AddUser(user, "O");
+                    this.server.Channels.Add(targetChannel);
                 }
                 else
                 {
@@ -638,6 +639,11 @@ namespace McNNTP.Core.Server.IRC
                     // TODO: Invite only channel check
 
                     // TODO: Keyed channel check
+                    if (!string.IsNullOrWhiteSpace(targetChannel.Key) && comparer.Compare(targetChannel.Key, key) != 0)
+                    {
+                        await this.SendNumeric(CommandCode.ERR_BADCHANNELKEY, string.Format("{0} :Cannot join channel (+k)", targetChannel.Name));
+                        return new CommandProcessingResult(true);
+                    }
 
                     // Limit check
                     if (targetChannel.UserLimit.HasValue && targetChannel.UsersModes.Count >= targetChannel.UserLimit.Value)
@@ -646,7 +652,7 @@ namespace McNNTP.Core.Server.IRC
                         return new CommandProcessingResult(true);
                     }
                     
-                    targetChannel.UsersModes.TryAdd(user, null);
+                    targetChannel.AddUser(user, null);
                 }
 
                 await this.Send(new Message(user.RawUserhost, "JOIN", targetChannel.Name));
@@ -806,42 +812,295 @@ namespace McNNTP.Core.Server.IRC
 
             Debug.Assert(user != null);
             char? unknownModeFlagSeen = null;
+            char? currentMod = null; 
+            char? currentParam = null;
 
             if (!string.IsNullOrWhiteSpace(modes))
-                foreach (Match match in Regex.Matches(modes, @"(?<mode>[\+\-][ilkmnpst]*)"))
+                foreach (Match match in Regex.Matches(modes, @"(?<mode>[\+\-][OIabeilklmnoqprstv]*)|(?<modeparam>[^\+\-]\S*)"))
                 {
-                    var s = match.Groups["mode"].Value;
-                    if (s.Length < 2)
-                        continue;
+                    var mode = match.Groups["mode"].Success ? match.Groups["mode"].Value : null;
+                    var modeParam = match.Groups["modeparam"].Success ? match.Groups["modeparam"].Value : null;
 
-                    if (s[0] == '+')
+                    if (mode != null)
                     {
-                        // Adding mode
-                        foreach (var c in s.ToCharArray().Skip(1))
-                            switch (c)
-                            {
-                                default:
-                                    unknownModeFlagSeen = c;
-                                    break;
-                            }
+                        if (mode.Length < 2)
+                            continue;
+
+                        if (mode[0] == '+')
+                        {
+                            // Adding mode
+                            currentMod = '+';
+                            foreach (var c in mode.ToCharArray().Skip(1))
+                                switch (c)
+                                {
+                                    case 'I':
+                                        currentParam = 'I';
+                                        break;
+                                    case 'a':
+                                        /* On channels with the character '&' as prefix, this flag MAY be
+                                         * toggled by channel operators, but on channels with the character '!'
+                                         * as prefix, this flag can be set (but SHALL NOT be unset) by the
+                                         * "channel creator" only.  This flag MUST NOT be made available on
+                                         * other types of channels.
+                                         * https://tools.ietf.org/html/rfc2811#section-4.2.1
+                                         */
+                                        if (targetChannel.Name[0] == '&')
+                                        {
+                                            if (userModes.IndexOfAny(new[] {'O', 'o' }) == -1)
+                                                await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                            else
+                                                targetChannel.Anonymous = true;
+                                        }
+                                        else if (targetChannel.Name[0] == '!')
+                                        {
+                                            if (userModes.IndexOf('O') == -1)
+                                                await this.SendNumeric(CommandCode.ERR_UNIQOPPRIVSNEEDED, ":You're not the original channel operator");
+                                            else
+                                                targetChannel.Anonymous = true;
+                                        }
+                                        else
+                                            await this.SendNumeric(CommandCode.ERR_UNKNOWNMODE, string.Format("{0} :is unknown mode char to me for {1}", c, targetChannel.Name));
+                                        break;
+                                    case 'b':
+                                        currentParam = 'b';
+                                        break;
+                                    case 'e':
+                                        currentParam = 'e';
+                                        break;
+                                    case 'i':
+                                        if (userModes.IndexOfAny(new[] {'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                            targetChannel.InviteOnly = true;
+                                        break;
+                                    case 'k':
+                                        currentParam = 'k';
+                                        break;
+                                    case 'l':
+                                        currentParam = 'l';
+                                        break;
+                                    case 'm':
+                                        if (userModes.IndexOfAny(new[] {'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                            targetChannel.Moderated = true;
+                                        break;
+                                    case 'n':
+                                        if (userModes.IndexOfAny(new[] {'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                            targetChannel.NoExternalMessages = true;
+                                        break;
+                                    case 'p':
+                                        /* The channel flags 'p' and 's' MUST NOT both be set at the same time.
+                                         * If a MODE message originating from a server sets the flag 'p' and the
+                                         * flag 's' is already set for the channel, the change is silently
+                                         * ignored.
+                                         * https://tools.ietf.org/html/rfc2811#section-4.2.6
+                                         */
+                                        if (userModes.IndexOfAny(new[] {'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else if (!targetChannel.Secret)
+                                            targetChannel.Private = true;
+                                        break;
+                                    case 'r':
+                                        /* The channel flag 'r' is only available on channels which name begins
+                                         * with the character '!' and MAY only be toggled by the "channel
+                                         * creator".
+                                         * https://tools.ietf.org/html/rfc2811#section-4.2.7
+                                         */
+                                        if (targetChannel.Name[0] == '!')
+                                        {
+                                            if (userModes.IndexOf('O') == -1)
+                                                await this.SendNumeric(CommandCode.ERR_UNIQOPPRIVSNEEDED, ":You're not the original channel operator");
+                                            else
+                                                targetChannel.ServerReop = true;
+                                        }
+                                        else
+                                            await this.SendNumeric(CommandCode.ERR_UNKNOWNMODE, string.Format("{0} :is unknown mode char to me for {1}", c, targetChannel.Name));
+                                        break;
+                                    case 's':
+                                        if (userModes.IndexOfAny(new[] { 'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                        {
+                                            targetChannel.Private = false;
+                                            targetChannel.Secret = true;
+                                        }
+                                        break;
+                                    default:
+                                        unknownModeFlagSeen = c;
+                                        break;
+                                }
+                        }
+                        else if (mode[0] == '-')
+                        {
+                            // Removing mode
+                            currentMod = '+';
+                            foreach (var c in mode.ToCharArray().Skip(1))
+                                switch (c)
+                                {
+                                    case 'a':
+                                        /* On channels with the character '&' as prefix, this flag MAY be
+                                         * toggled by channel operators, but on channels with the character '!'
+                                         * as prefix, this flag can be set (but SHALL NOT be unset) by the
+                                         * "channel creator" only.  This flag MUST NOT be made available on
+                                         * other types of channels.
+                                         * https://tools.ietf.org/html/rfc2811#section-4.2.1
+                                         */
+                                        if (targetChannel.Name[0] == '&')
+                                        {
+                                            if (userModes.IndexOfAny(new[] { 'O', 'o' }) == -1)
+                                                await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                            else
+                                                targetChannel.Anonymous = false;
+                                        }
+                                        else
+                                            await this.SendNumeric(CommandCode.ERR_UNKNOWNMODE, string.Format("{0} :is unknown mode char to me for {1}", c, targetChannel.Name));
+                                        break;
+                                    case 'i':
+                                        if (userModes.IndexOfAny(new[] {'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                            targetChannel.InviteOnly = false;
+                                        break;
+                                    case 'k':
+                                        if (userModes.IndexOfAny(new[] { 'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                            targetChannel.Key = null;
+                                        break;
+                                    case 'l':
+                                        if (userModes.IndexOfAny(new[] { 'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                            targetChannel.UserLimit = null;
+                                        break;
+                                    case 'm':
+                                        if (userModes.IndexOfAny(new[] {'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                            targetChannel.Moderated = false;
+                                        break;
+                                    case 'n':
+                                        if (userModes.IndexOfAny(new[] {'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                            targetChannel.NoExternalMessages = false;
+                                        break;
+                                    case 'p':
+                                        if (userModes.IndexOfAny(new[] {'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                            targetChannel.Private = false;
+                                        break;
+                                    case 'r':
+                                        /* The channel flag 'r' is only available on channels which name begins
+                                         * with the character '!' and MAY only be toggled by the "channel
+                                         * creator".
+                                         * https://tools.ietf.org/html/rfc2811#section-4.2.7
+                                         */
+                                        if (targetChannel.Name[0] == '!')
+                                        {
+                                            if (userModes.IndexOf('O') == -1)
+                                                await this.SendNumeric(CommandCode.ERR_UNIQOPPRIVSNEEDED, ":You're not the original channel operator");
+                                            else
+                                                targetChannel.ServerReop = false;
+                                        }
+                                        else
+                                            await this.SendNumeric(CommandCode.ERR_UNKNOWNMODE, string.Format("{0} :is unknown mode char to me for {1}", c, targetChannel.Name));
+                                        break;
+                                    case 's':
+                                        if (userModes.IndexOfAny(new[] {'O', 'o' }) == -1)
+                                            await this.SendNumeric(CommandCode.ERR_CHANOPRIVSNEEDED, string.Format("{0} :You're not channel operator", targetChannel.Name));
+                                        else
+                                            targetChannel.Secret = false;
+                                        break;
+                                    default:
+                                        unknownModeFlagSeen = c;
+                                        break;
+                                }
+                        }
                     }
-                    else if (s[0] == '-')
-                    {
-                        // Removing mode
-                        foreach (var c in s.ToCharArray().Skip(1))
-                            switch (c)
-                            {
-                                default:
-                                    unknownModeFlagSeen = c;
-                                    break;
-                            }
-                    }
+                    else if (modeParam != null)
+                        switch (currentParam)
+                        {
+                            case 'I':
+                                if (currentMod == '+')
+                                    targetChannel.InviteeMasks.TryAdd(modeParam, modeParam);
+                                if (currentMod == '-')
+                                    targetChannel.InviteeMasks.TryRemove(modeParam, out modeParam);
+                                currentParam = null;
+                                break;
+                            case 'b':
+                                if (currentMod == '+')
+                                    targetChannel.BanMasks.TryAdd(modeParam, modeParam);
+                                if (currentMod == '-')
+                                    targetChannel.BanMasks.TryRemove(modeParam, out modeParam);
+                                currentParam = null;
+                                break;
+                            case 'e':
+                                if (currentMod == '+')
+                                    targetChannel.ExceptionMasks.TryAdd(modeParam, modeParam);
+                                if (currentMod == '-')
+                                    targetChannel.ExceptionMasks.TryRemove(modeParam, out modeParam);
+                                currentParam = null;
+                                break;
+                            case 'k':
+                                if (currentMod == '+')
+                                    targetChannel.Key = modeParam;
+                                currentParam = null;
+                                break;
+                            case 'l':
+                                if (currentMod == '+')
+                                {
+                                    int i;
+                                    if (int.TryParse(modeParam, out i) && i > 0)
+                                        targetChannel.UserLimit = i;
+                                    else
+                                        targetChannel.UserLimit = null;
+                                }
+                                currentParam = null;
+                                break;
+                        }
                 }
+
+            switch (currentParam)
+            {
+                // Unhandled 'b' -- LIST ALL BANS
+                case 'b':
+                    if (currentMod == '+')
+                    {
+                        foreach (var b in targetChannel.BanMasks)
+                            await this.SendReply(CommandCode.RPL_BANLIST, string.Format("{0} {1}", targetChannel.Name, b.Key));
+                        await this.SendReply(CommandCode.RPL_ENDOFBANLIST, string.Format("{0} :End of channel ban list", targetChannel.Name));
+                        return new CommandProcessingResult(true);
+                    }
+                    break;
+                case 'e':
+                    if (currentMod == '+')
+                    {
+                        foreach (var e in targetChannel.ExceptionMasks)
+                            await this.SendReply(CommandCode.RPL_EXCEPTLIST, string.Format("{0} {1}", targetChannel.Name, e.Key));
+                        await this.SendReply(CommandCode.RPL_ENDOFEXCEPTLIST, string.Format("{0} :End of channel exception list", targetChannel.Name));
+                        return new CommandProcessingResult(true);
+                    }
+                    break;
+                case 'i':
+                    if (currentMod == '+')
+                    {
+                        foreach (var i in targetChannel.InviteeMasks)
+                            await this.SendReply(CommandCode.RPL_INVITELIST, string.Format("{0} {1}", targetChannel.Name, i.Key));
+                        await this.SendReply(CommandCode.RPL_ENDOFINVITELIST, string.Format("{0} :End of channel invite list", targetChannel.Name));
+                        return new CommandProcessingResult(true);
+                    }
+                    break;
+            }
 
             if (unknownModeFlagSeen.HasValue)
                 await this.SendNumeric(CommandCode.ERR_UNKNOWNMODE, string.Format("{0} :is unknown mode char to me for {1}", unknownModeFlagSeen.Value, target));
 
-            await this.SendReply(CommandCode.RPL_CHANNELMODEIS, targetChannel.ModeString);
+            await this.SendReply(CommandCode.RPL_CHANNELMODEIS, string.Format("{0} {1}", targetChannel.Name, targetChannel.ModeString));
             return new CommandProcessingResult(true);
         }
 

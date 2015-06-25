@@ -1,7 +1,11 @@
 ﻿namespace McNNTP.Core.Server.IRC
 {
+    using System;
     using System.Collections.Concurrent;
+    using System.Collections.Generic;
+    using System.Collections.ObjectModel;
     using System.Diagnostics;
+    using System.Linq;
     using System.Text.RegularExpressions;
 
     using JetBrains.Annotations;
@@ -91,10 +95,87 @@
         }
 
         /// <summary>
-        /// All users known across all local and remote servers
+        /// Channel members
         /// </summary>
-        internal readonly ConcurrentDictionary<User, string> UsersModes = new ConcurrentDictionary<User, string>();
+        private readonly ConcurrentDictionary<WeakReference<User>, string> usersModes = new ConcurrentDictionary<WeakReference<User>, string>();
 
+        /// <summary>
+        /// Channel members
+        /// </summary>
+        private readonly ConcurrentDictionary<WeakReference<User>, DateTime> invitees = new ConcurrentDictionary<WeakReference<User>, DateTime>();
+        
         internal readonly ConcurrentDictionary<string, string> BanMasks = new ConcurrentDictionary<string, string>();
+
+        internal readonly ConcurrentDictionary<string, string> InviteeMasks = new ConcurrentDictionary<string, string>();
+
+        internal readonly ConcurrentDictionary<string, string> ExceptionMasks = new ConcurrentDictionary<string, string>();
+
+        public ReadOnlyCollection<User> Invitees
+        {
+            get
+            {
+                var expired = new List<WeakReference<User>>();
+
+                var ret = new ReadOnlyCollection<User>(
+                    this.invitees.Select(kvp =>
+                    {
+                        User u;
+                        if (kvp.Key.TryGetTarget(out u))
+                            return u;
+
+                        expired.Add(kvp.Key);
+                        return null;
+                    }).Where(k => k != null)
+                    .ToList());
+
+                DateTime dud;
+                foreach (var e in expired)
+                    this.invitees.TryRemove(e, out dud);
+
+                return ret;
+            }
+        }
+
+        public ReadOnlyDictionary<User, string> UsersModes
+        {
+            get
+            {
+                var expired = new List<WeakReference<User>>();
+
+                var ret = new ReadOnlyDictionary<User, string>(
+                    this.usersModes.Select(kvp =>
+                    {
+                        User u;
+                        if (kvp.Key.TryGetTarget(out u))
+                            return new KeyValuePair<User, string>(u, kvp.Value);
+
+                        expired.Add(kvp.Key);
+                        return default(KeyValuePair<User, string>);
+                    }).Where(k => !default(KeyValuePair<User, string>).Equals(k))
+                    .ToDictionary(k => k.Key, v => v.Value));
+                
+                string dud;
+                foreach (var e in expired)
+                    this.usersModes.TryRemove(e, out dud);
+
+                return ret;
+            }
+        }
+
+        public void AddInvitee(User user)
+        {
+            var w = new WeakReference<User>(user);
+
+            if (!this.invitees.ContainsKey(w))
+                this.invitees.TryAdd(w, DateTime.UtcNow);
+        }
+
+        public void AddUser(User user, string modes)
+        {
+            var w = new WeakReference<User>(user);
+
+            if (!this.usersModes.ContainsKey(w))
+                this.usersModes.TryAdd(w, modes);
+        }
     }
 }
