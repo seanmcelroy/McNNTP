@@ -1284,7 +1284,8 @@ namespace McNNTP.Core.Server.NNTP
             {
                 previousArticleNewsgroup = session.Query<ArticleNewsgroup>()
                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number < currentArticleNumber.Value)
-                    .MaxBy(an => an.Number);
+                    .MaxBy(an => an.Number)
+                    .FirstOrDefault();
                 session.Close();
             }
 
@@ -1846,7 +1847,8 @@ namespace McNNTP.Core.Server.NNTP
             {
                 previousArticleNewsgroup = session.Query<ArticleNewsgroup>()
                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number > currentArticleNumber.Value)
-                    .MinBy(an => an.Number);
+                    .MinBy(an => an.Number)
+                    .FirstOrDefault();
                 session.Close();
             }
 
