@@ -19,16 +19,6 @@ namespace McNNTP.Common
     public static class LogUtility
     {
         /// <summary>
-        /// Provides a simple 'Trace' level logging of a message.
-        /// </summary>
-        /// <param name="logger">The logger to use to log the message.</param>
-        /// <param name="message">The message to log.</param>
-        public static void Trace([NotNull] this ILogger logger, [NotNull] string message)
-        {
-            logger.LogTrace(message);
-        }
-
-        /// <summary>
         /// Provides a simple 'Trace' level logging of a message using a format string and arguments.
         /// </summary>
         /// <param name="logger">The logger to use to log the message.</param>
@@ -36,6 +26,8 @@ namespace McNNTP.Common
         /// <param name="args">The format arguments used to formulate the message to log.</param>
         public static void TraceFormat([NotNull] this ILogger logger, [NotNull][StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, params object[] args)
         {
+            ArgumentNullException.ThrowIfNull(logger);
+            ArgumentNullException.ThrowIfNull(format);
             logger.LogTrace(format, args);
         }
 
@@ -46,6 +38,8 @@ namespace McNNTP.Common
         /// <param name="message">The message to log.</param>
         public static void Verbose([NotNull] this ILogger logger, [NotNull] string message)
         {
+            ArgumentNullException.ThrowIfNull(logger);
+            ArgumentNullException.ThrowIfNull(message);
             logger.LogDebug(message);
         }
 
@@ -57,6 +51,8 @@ namespace McNNTP.Common
         /// <param name="args">The format arguments used to formulate the message to log.</param>
         public static void VerboseFormat([NotNull] this ILogger logger, [NotNull][StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, params object[] args)
         {
+            ArgumentNullException.ThrowIfNull(logger);
+            ArgumentNullException.ThrowIfNull(format);
             logger.LogDebug(format, args);
         }
     }
