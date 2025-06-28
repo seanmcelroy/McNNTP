@@ -24,7 +24,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="log4net" Version="3.1.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging" Version="9.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
     <PackageReference Include="MoreLinq" Version="4.4.0" />
     <PackageReference Include="roslynator.analyzers" Version="4.13.1">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

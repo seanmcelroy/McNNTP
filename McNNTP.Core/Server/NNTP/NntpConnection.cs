@@ -25,7 +25,7 @@ namespace McNNTP.Core.Server.NNTP
     using System.Threading.Tasks;
     using McNNTP.Common;
     using McNNTP.Data;
-    using log4net;
+    using Microsoft.Extensions.Logging;
     using MoreLinq;
     using NHibernate;
     using NHibernate.Criterion;
@@ -50,7 +50,7 @@ namespace McNNTP.Core.Server.NNTP
         /// <summary>
         /// The logging utility instance to use to log events from this class
         /// </summary>
-        private static readonly ILog Logger = LogManager.GetLogger(typeof(NntpConnection));
+        private readonly ILogger<NntpConnection> _logger;
 
         /// <summary>
         /// The server instance to which this connection belongs
@@ -155,8 +155,10 @@ namespace McNNTP.Core.Server.NNTP
             [NotNull] NntpServer server,
             [NotNull] TcpClient client,
             [NotNull] Stream stream,
+            [NotNull] ILogger<NntpConnection> logger,
             bool tls = false)
         {
+            this._logger = logger;
             this.AllowStartTls = server.AllowStartTLS;
             this.CanPost = server.AllowPosting;
             this.client = client;
@@ -313,20 +315,20 @@ namespace McNNTP.Core.Server.NNTP
                     // All the data has been read from the client. Display it on the console.
                     if (this.ShowBytes && this.ShowData)
                     {
-                        Logger.TraceFormat(
+                        _logger.TraceFormat(
                             "{0}:{1} >{2}> {3} bytes: {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             content.Length,
                             content.TrimEnd('\r', '\n'));
                     }
                     else if (this.ShowBytes)
                     {
-                        Logger.TraceFormat(
+                        _logger.TraceFormat(
                             "{0}:{1} >{2}> {3} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             content.Length);
                     }
                     else if (this.ShowData)
                     {
-                        Logger.TraceFormat(
+                        _logger.TraceFormat(
                             "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             content.TrimEnd('\r', '\n'));
                     }
@@ -349,7 +351,7 @@ namespace McNNTP.Core.Server.NNTP
                             {
                                 if (this.ShowCommands)
                                 {
-                                    Logger.TraceFormat(
+                                    _logger.TraceFormat(
                                         "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                                         content.TrimEnd('\r', '\n'));
                                 }
@@ -372,7 +374,7 @@ namespace McNNTP.Core.Server.NNTP
                             catch (Exception ex)
                             {
                                 send403 = true;
-                                Logger.Error("Exception processing a command", ex);
+                                _logger.LogError(ex, "Exception processing a command");
                                 break;
                             }
                         }
@@ -388,26 +390,26 @@ namespace McNNTP.Core.Server.NNTP
             catch (DecoderFallbackException dfe)
             {
                 send403 = true;
-                Logger.Error("Decoder Fallback Exception socket " + this.RemoteAddress, dfe);
+                _logger.LogError(dfe, "Decoder Fallback Exception socket " + this.RemoteAddress);
             }
             catch (IOException se)
             {
                 send403 = true;
-                Logger.Error("I/O Exception on socket " + this.RemoteAddress, se);
+                _logger.LogError(se, "I/O Exception on socket " + this.RemoteAddress);
             }
             catch (SocketException se)
             {
                 send403 = true;
-                Logger.Error("Socket Exception on socket " + this.RemoteAddress, se);
+                _logger.LogError(se, "Socket Exception on socket " + this.RemoteAddress);
             }
             catch (NotSupportedException nse)
             {
-                Logger.Error("Not Supported Exception", nse);
+                _logger.LogError(nse, "Not Supported Exception");
                 return;
             }
             catch (ObjectDisposedException ode)
             {
-                Logger.Error("Object Disposed Exception", ode);
+                _logger.LogError(ode, "Object Disposed Exception");
                 return;
             }
 
@@ -458,7 +460,7 @@ namespace McNNTP.Core.Server.NNTP
                 await this.stream.WriteAsync(byteData, cancellationToken);
                 if (this.ShowBytes && this.ShowData)
                 {
-                    Logger.TraceFormat(
+                    _logger.TraceFormat(
                         "{0}:{1} <{2}{3} {4} bytes: {5}",
                         this.RemoteAddress,
                         this.RemotePort,
@@ -469,7 +471,7 @@ namespace McNNTP.Core.Server.NNTP
                 }
                 else if (this.ShowBytes)
                 {
-                    Logger.TraceFormat(
+                    _logger.TraceFormat(
                         "{0}:{1} <{2}{3} {4} bytes",
                         this.RemoteAddress,
                         this.RemotePort,
@@ -479,7 +481,7 @@ namespace McNNTP.Core.Server.NNTP
                 }
                 else if (this.ShowData)
                 {
-                    Logger.TraceFormat(
+                    _logger.TraceFormat(
                         "{0}:{1} <{2}{3} {4}",
                         this.RemoteAddress,
                         this.RemotePort,
@@ -493,18 +495,18 @@ namespace McNNTP.Core.Server.NNTP
             catch (IOException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (SocketException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (ObjectDisposedException)
             {
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
         }
@@ -719,7 +721,7 @@ namespace McNNTP.Core.Server.NNTP
                 // Local authentication
                 if (admin.PasswordHash != Convert.ToBase64String(new SHA512CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(string.Concat(admin.PasswordSalt, password)))))
                 {
-                    Logger.WarnFormat("User {0} failed authentication against local authentication database.", this.Username);
+                    _logger.LogWarning("User {0} failed authentication against local authentication database.", this.Username);
                     await this.Send("481 Authentication failed/rejected\r\n");
                     return new CommandProcessingResult(true);
                 }
@@ -732,7 +734,7 @@ namespace McNNTP.Core.Server.NNTP
                 }
 
                 this.Identity = admin;
-                Logger.InfoFormat("User {0} authenticated from {1}", admin.Username, this.RemoteAddress);
+                _logger.LogInformation("User {0} authenticated from {1}", admin.Username, this.RemoteAddress);
 
                 await this.Send("281 Authentication accepted\r\n");
                 return new CommandProcessingResult(true);
@@ -1509,12 +1511,12 @@ namespace McNNTP.Core.Server.NNTP
             }
             catch (MappingException mex)
             {
-                Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                _logger.LogError(mex, "NHibernate Mapping Exception! (Is schema out of date or damaged?)");
                 send403 = true;
             }
             catch (Exception ex)
             {
-                Logger.Error("Exception when trying to handle LIST", ex);
+                _logger.LogError(ex, "Exception when trying to handle LIST");
                 send403 = true;
             }
 
@@ -1557,12 +1559,12 @@ namespace McNNTP.Core.Server.NNTP
             catch (MappingException mex)
             {
                 send403 = true;
-                Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                _logger.LogError(mex, "NHibernate Mapping Exception! (Is schema out of date or damaged?)");
             }
             catch (Exception ex)
             {
                 send403 = true;
-                Logger.Error("Exception when trying to handle LIST", ex);
+                _logger.LogError(ex, "Exception when trying to handle LIST");
             }
 
             if (send403)
@@ -1616,12 +1618,12 @@ namespace McNNTP.Core.Server.NNTP
             catch (MappingException mex)
             {
                 send403 = true;
-                Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                _logger.LogError(mex, "NHibernate Mapping Exception! (Is schema out of date or damaged?)");
             }
             catch (Exception ex)
             {
                 send403 = true;
-                Logger.Error("Exception when trying to handle LIST", ex);
+                _logger.LogError(ex, "Exception when trying to handle LIST");
             }
 
             if (send403)
@@ -1759,12 +1761,12 @@ namespace McNNTP.Core.Server.NNTP
             catch (MappingException mex)
             {
                 send403 = true;
-                Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                _logger.LogError(mex, "NHibernate Mapping Exception! (Is schema out of date or damaged?)");
             }
             catch (Exception ex)
             {
                 send403 = true;
-                Logger.Error("Exception when trying to handle LIST", ex);
+                _logger.LogError(ex, "Exception when trying to handle LIST");
             }
 
             if (send403)
@@ -2135,7 +2137,7 @@ namespace McNNTP.Core.Server.NNTP
             catch (Exception ex)
             {
                 send403 = true;
-                Logger.Error("Exception when trying to handle XOVER", ex);
+                _logger.LogError(ex, "Exception when trying to handle XOVER");
             }
 
             if (send403)
@@ -2316,13 +2318,13 @@ namespace McNNTP.Core.Server.NNTP
                             var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == newsgroupNameClosure);
                             if (newsgroup == null)
                             {
-                                Logger.VerboseFormat("Cross-post of message {0} to {1} failed - newsgroup not found", article.MessageId, newsgroupNameClosure);
+                                _logger.VerboseFormat("Cross-post of message {0} to {1} failed - newsgroup not found", article.MessageId, newsgroupNameClosure);
                                 continue;
                             }
 
                             if (newsgroup.DenyLocalPosting)
                             {
-                                Logger.VerboseFormat("Cross-post of message {0} to {1} failed - local posting denied", article.MessageId, newsgroupNameClosure);
+                                _logger.VerboseFormat("Cross-post of message {0} to {1} failed - local posting denied", article.MessageId, newsgroupNameClosure);
                                 continue;
                             }
 
@@ -2354,7 +2356,7 @@ namespace McNNTP.Core.Server.NNTP
                 }
                 catch (Exception ex)
                 {
-                    Logger.Error("Exception when trying to handle POST", ex);
+                    _logger.LogError(ex, "Exception when trying to handle POST");
                     send441 = true;
                 }
 
@@ -2650,7 +2652,7 @@ namespace McNNTP.Core.Server.NNTP
             catch (Exception ex)
             {
                 send403 = true;
-                Logger.Error("Exception when trying to handle XHDR", ex);
+                _logger.LogError(ex, "Exception when trying to handle XHDR");
             }
 
             if (send403)
@@ -2796,7 +2798,7 @@ namespace McNNTP.Core.Server.NNTP
                 catch (Exception ex)
                 {
                     send403 = true;
-                    Logger.Error("Exception when trying to handle XOVER", ex);
+                    _logger.LogError(ex, "Exception when trying to handle XOVER");
                 }
 
                 if (send403)
@@ -3011,7 +3013,7 @@ namespace McNNTP.Core.Server.NNTP
             catch (Exception ex)
             {
                 send403 = true;
-                Logger.Error("Exception when trying to handle XHDR", ex);
+                _logger.LogError(ex, "Exception when trying to handle XHDR");
             }
 
             if (send403)
@@ -3093,7 +3095,7 @@ namespace McNNTP.Core.Server.NNTP
                         }
 
                         session.Flush();
-                        Logger.InfoFormat("{0} cancelled message {1} ({2}) in {3}", this.Identity.Username, messageId, article.Subject, cancelTarget.Newsgroup.Name);
+                        _logger.LogInformation("{0} cancelled message {1} ({2}) in {3}", this.Identity.Username, messageId, article.Subject, cancelTarget.Newsgroup.Name);
                     }
 
                     session.Close();

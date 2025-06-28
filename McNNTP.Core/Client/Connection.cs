@@ -18,7 +18,7 @@ namespace McNNTP.Core.Client
     using System.Net.Sockets;
     using System.Text;
     using System.Threading.Tasks;
-    using log4net;
+    using Microsoft.Extensions.Logging;
     using McNNTP.Common;
 
     /// <summary>
@@ -29,7 +29,7 @@ namespace McNNTP.Core.Client
         /// <summary>
         /// The logging utility instance to use to log events from this class.
         /// </summary>
-        private static readonly ILog Logger = LogManager.GetLogger(typeof(Connection));
+        private readonly ILogger<Connection> _logger;
 
         /// <summary>
         /// The <see cref="TcpClient"/> that created this connection.
@@ -68,8 +68,10 @@ namespace McNNTP.Core.Client
         /// <param name="stream">The <see cref="Stream"/> from the <paramref name="client"/>.</param>
         public Connection(
             [NotNull] TcpClient client,
-            [NotNull] Stream stream)
+            [NotNull] Stream stream,
+            [NotNull] ILogger<Connection> logger)
         {
+            this._logger = logger;
             this.client = client;
             this.client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
             this.stream = stream;
@@ -246,7 +248,7 @@ namespace McNNTP.Core.Client
                 await this.stream.WriteAsync(byteData);
                 if (this.ShowBytes && this.ShowData)
                 {
-                    Logger.TraceFormat(
+                    _logger.LogTrace(
                         "{0}:{1} <{2}{3} {4} bytes: {5}",
                         this.RemoteAddress,
                         this.RemotePort,
@@ -257,7 +259,7 @@ namespace McNNTP.Core.Client
                 }
                 else if (this.ShowBytes)
                 {
-                    Logger.TraceFormat(
+                    _logger.LogTrace(
                         "{0}:{1} <{2}{3} {4} bytes",
                         this.RemoteAddress,
                         this.RemotePort,
@@ -267,7 +269,7 @@ namespace McNNTP.Core.Client
                 }
                 else if (this.ShowData)
                 {
-                    Logger.TraceFormat(
+                    _logger.LogTrace(
                         "{0}:{1} <{2}{3} {4}",
                         this.RemoteAddress,
                         this.RemotePort,
@@ -281,18 +283,18 @@ namespace McNNTP.Core.Client
             catch (IOException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (SocketException)
             {
                 // Don't send 403 - the sending socket isn't working.
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
             catch (ObjectDisposedException)
             {
-                Logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
+                _logger.VerboseFormat("{0}:{1} XXX CONNECTION TERMINATED", this.RemoteAddress, this.RemotePort);
                 return false;
             }
         }

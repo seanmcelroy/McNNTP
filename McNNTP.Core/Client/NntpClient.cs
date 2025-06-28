@@ -55,7 +55,7 @@
                 stream = tcpClient.GetStream();
             }
 
-            this.Connection = new Connection(tcpClient, stream);
+            this.Connection = new Connection(tcpClient, stream, Microsoft.Extensions.Logging.Abstractions.NullLogger<Connection>.Instance);
 
             var response = await this.Connection.Receive();
 

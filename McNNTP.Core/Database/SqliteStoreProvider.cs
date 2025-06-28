@@ -15,7 +15,8 @@ namespace McNNTP.Core.Database
     using System.Security.Cryptography;
     using System.Text;
 
-    using log4net;
+    using Microsoft.Extensions.Logging;
+    using System.Diagnostics.CodeAnalysis;
 
     using Common;
     using Data;
@@ -31,7 +32,7 @@ namespace McNNTP.Core.Database
         /// <summary>
         /// The logging utility instance to use to log events from this class
         /// </summary>
-        private static readonly ILog _Logger = LogManager.GetLogger(typeof(SqliteStoreProvider));
+        private readonly ILogger<SqliteStoreProvider> _logger;
 
         /// <summary>
         /// The delimiter used to separate levels of a catalog hierarchy
@@ -44,8 +45,9 @@ namespace McNNTP.Core.Database
         /// <param name="hierarchyDelimiter">
         /// The delimiter used to separate levels of a catalog hierarchy
         /// </param>
-        public SqliteStoreProvider(string hierarchyDelimiter = "/")
+        public SqliteStoreProvider([NotNull] ILogger<SqliteStoreProvider> logger, string hierarchyDelimiter = "/")
         {
+            this._logger = logger;
             this.hierarchyDelimiter = hierarchyDelimiter;
         }
 
@@ -90,7 +92,7 @@ namespace McNNTP.Core.Database
         /// <param name="identity">The identity of the user making the request</param>
         /// <param name="name">The name of the catalog to retrieve</param>
         /// <returns>The catalog with the specified <paramref name="name"/>, if one exists</returns>
-        public ICatalog GetCatalogByName(IIdentity identity, string name)
+        public ICatalog? GetCatalogByName(IIdentity identity, string name)
         {
             Newsgroup ng;
             using (var session = SessionUtility.OpenSession())
@@ -108,9 +110,9 @@ namespace McNNTP.Core.Database
         /// <param name="identity">The identity of the user making the request</param>
         /// <param name="parentCatalogName">The parent catalog.  When specified, this finds catalogs that are contained in this specified parent catalog</param>
         /// <returns>An enumeration of catalogs available to an end-user at the root level in the store</returns>
-        public IEnumerable<ICatalog> GetGlobalCatalogs(IIdentity identity, string parentCatalogName)
+        public IEnumerable<ICatalog>? GetGlobalCatalogs(IIdentity identity, string parentCatalogName)
         {
-            IEnumerable<Newsgroup> newsGroups = null;
+            IEnumerable<Newsgroup>? newsGroups = null;
             if (this.HierarchyDelimiter == "NIL")
             {
                 return null;
@@ -132,11 +134,11 @@ namespace McNNTP.Core.Database
             }
             catch (MappingException mex)
             {
-                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                _logger.LogError(mex, "NHibernate Mapping Exception! (Is schema out of date or damaged?)");
             }
             catch (Exception ex)
             {
-                _Logger.Error("Exception when trying to handle LIST", ex);
+                _logger.LogError(ex, "Exception when trying to handle LIST");
             }
 
             return newsGroups;
@@ -148,12 +150,11 @@ namespace McNNTP.Core.Database
         /// <param name="identity">The identity of the user making the request</param>
         /// <param name="parentCatalogName">The parent catalog.  When specified, this finds catalogs that are contained in this specified parent catalog</param>
         /// <returns>An enumeration of catalogs available to an end-user at the root level in the store</returns>
-        public IEnumerable<ICatalog>? GetPersonalCatalogs(IIdentity identity, string parentCatalogName)
+        public IEnumerable<ICatalog>? GetPersonalCatalogs(IIdentity identity, string? parentCatalogName)
         {
             IEnumerable<Newsgroup>? newsGroups = null;
 
-            int identityId;
-            if (!int.TryParse(identity.Id, out identityId))
+            if (!int.TryParse(identity.Id, out int identityId))
             {
                 return null;
             }
@@ -171,11 +172,11 @@ namespace McNNTP.Core.Database
             }
             catch (MappingException mex)
             {
-                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                _logger.LogError(mex, "NHibernate Mapping Exception! (Is schema out of date or damaged?)");
             }
             catch (Exception ex)
             {
-                _Logger.Error("Exception when trying to handle LIST", ex);
+                _logger.LogError(ex, "Exception when trying to handle LIST");
             }
 
             return newsGroups;
@@ -227,12 +228,12 @@ namespace McNNTP.Core.Database
             }
             catch (MappingException mex)
             {
-                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                _logger.LogError(mex, "NHibernate Mapping Exception! (Is schema out of date or damaged?)");
                 return false;
             }
             catch (Exception ex)
             {
-                _Logger.Error("Exception when trying to handle LIST", ex);
+                _logger.LogError(ex, "Exception when trying to handle LIST");
                 return false;
             }
 
@@ -265,7 +266,7 @@ namespace McNNTP.Core.Database
 
             if (admin.PasswordHash != Convert.ToBase64String(SHA512.HashData(Encoding.UTF8.GetBytes(string.Concat(admin.PasswordSalt, password)))))
             {
-                _Logger.WarnFormat("User {0} failed authentication against local authentication database.", admin.Username);
+                _logger.LogWarning("User {0} failed authentication against local authentication database.", admin.Username);
                 return null;
             }
 
@@ -379,11 +380,11 @@ namespace McNNTP.Core.Database
             }
             catch (MappingException mex)
             {
-                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                _logger.LogError(mex, "NHibernate Mapping Exception! (Is schema out of date or damaged?)");
             }
             catch (Exception ex)
             {
-                _Logger.Error("Exception when trying to handle SUBSCRIBE", ex);
+                _logger.LogError(ex, "Exception when trying to handle SUBSCRIBE");
             }
 
             return success;
@@ -395,37 +396,35 @@ namespace McNNTP.Core.Database
         /// <param name="identity">The identity of the user making the request</param>
         /// <param name="catalogName">The name of the catalog in which to subscribe the user</param>
         /// <returns>A value indicating whether the operation was successful</returns>
-        public bool DeleteSubscription(IIdentity identity, string catalogName)
+        public bool DeleteSubscription(IIdentity? identity, string catalogName)
         {
             var success = false;
 
             try
             {
-                using (var session = SessionUtility.OpenSession())
+                using var session = SessionUtility.OpenSession();
+                var owner = session.Query<User>().SingleOrDefault(u => u.Username == identity.Username);
+                if (owner != null)
                 {
-                    var owner = session.Query<User>().SingleOrDefault(u => u.Username == identity.Username);
-                    if (owner != null)
+                    var sub = session.Query<Subscription>().SingleOrDefault(s => s.Owner.Id == owner.Id && s.Newsgroup == catalogName);
+                    if (sub != null)
                     {
-                        var sub = session.Query<Subscription>().SingleOrDefault(s => s.Owner.Id == owner.Id && s.Newsgroup == catalogName);
-                        if (sub != null)
-                        {
-                            session.Delete(sub);
-                            session.Flush();
-                        }
-
-                        success = true;
+                        session.Delete(sub);
+                        session.Flush();
                     }
 
-                    session.Close();
+                    success = true;
                 }
+
+                session.Close();
             }
             catch (MappingException mex)
             {
-                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                _logger.LogError(mex, "NHibernate Mapping Exception! (Is schema out of date or damaged?)");
             }
             catch (Exception ex)
             {
-                _Logger.Error("Exception when trying to handle UNSUBSCRIBE", ex);
+                _logger.LogError(ex, "Exception when trying to handle UNSUBSCRIBE");
             }
 
             return success;
@@ -438,7 +437,7 @@ namespace McNNTP.Core.Database
         /// <returns>A list of catalog names that are subscribed to by the specified <paramref name="identity"/></returns>
         public IEnumerable<string> GetSubscriptions(IIdentity identity)
         {
-            var subscriptions = new string[0];
+            var subscriptions = Array.Empty<string>();
 
             try
             {
@@ -455,11 +454,11 @@ namespace McNNTP.Core.Database
             }
             catch (MappingException mex)
             {
-                _Logger.Error("NHibernate Mapping Exception! (Is schema out of date or damaged?)", mex);
+                _logger.LogError(mex, "NHibernate Mapping Exception! (Is schema out of date or damaged?)");
             }
             catch (Exception ex)
             {
-                _Logger.Error("Exception when trying to handle LSUB", ex);
+                _logger.LogError(ex, "Exception when trying to handle LSUB");
             }
 
             return subscriptions;
@@ -473,7 +472,7 @@ namespace McNNTP.Core.Database
         /// <param name="fromId">The lower bound of the message identifier range to retrieve.</param>
         /// <param name="toId">If specified, the upper bound of the message identifier range to retrieve.</param>
         /// <returns>An enumeration of message details available in the specified catalog.</returns>
-        public IEnumerable<IMessageDetail> GetMessageDetails(IIdentity identity, string catalogName, int fromId, int? toId)
+        public IEnumerable<IMessageDetail> GetMessageDetails(IIdentity? identity, string catalogName, int fromId, int? toId)
         {
             // TODO: Add flags for virtual metagroups.
             IList<IMessageDetail> articleFlags;

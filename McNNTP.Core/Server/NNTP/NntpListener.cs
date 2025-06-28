@@ -6,18 +6,21 @@
     using System.Net;
     using System.Net.Security;
     using System.Net.Sockets;
-    using log4net;
+    using Microsoft.Extensions.Logging;
 
     internal class NntpListener : TcpListener
     {
         // Thread signal.
         private readonly NntpServer server;
-        private static readonly ILog _Logger = LogManager.GetLogger(typeof(NntpListener));
+        private readonly ILogger<NntpListener> _logger;
+        private readonly ILoggerFactory _loggerFactory;
 
-        public NntpListener([NotNull] NntpServer server, [NotNull] IPEndPoint localEp)
+        public NntpListener([NotNull] NntpServer server, [NotNull] IPEndPoint localEp, [NotNull] ILogger<NntpListener> logger, [NotNull] ILoggerFactory loggerFactory)
             : base(localEp)
         {
             this.server = server;
+            this._logger = logger;
+            this._loggerFactory = loggerFactory;
         }
 
         public PortClass PortType { get; set; }
@@ -28,7 +31,7 @@
             var localEndPoint = new IPEndPoint(IPAddress.Any, ((IPEndPoint)this.LocalEndpoint).Port);
 
             // Create a TCP/IP socket.
-            var listener = new NntpListener(this.server, localEndPoint);
+            var listener = new NntpListener(this.server, localEndPoint, _logger, _loggerFactory);
 
             // Bind the socket to the local endpoint and listen for incoming connections.
             try
@@ -47,7 +50,7 @@
                     {
                         var stream = handler.GetStream();
 
-                        nntpConnection = new NntpConnection(this.server, handler, stream);
+                        nntpConnection = new NntpConnection(this.server, handler, stream, _loggerFactory.CreateLogger<NntpConnection>());
                     }
                     else
                     {
@@ -60,11 +63,11 @@
                         }
                         catch (IOException ioe)
                         {
-                            _Logger.Error("I/O Exception attempting to perform TLS handshake", ioe);
+                            _logger.LogError(ioe, "I/O Exception attempting to perform TLS handshake");
                             return;
                         }
 
-                        nntpConnection = new NntpConnection(this.server, handler, sslStream, true);
+                        nntpConnection = new NntpConnection(this.server, handler, sslStream, _loggerFactory.CreateLogger<NntpConnection>(), true);
                     }
 
                     this.server.AddConnection(nntpConnection);
@@ -74,7 +77,7 @@
             }
             catch (Exception ex)
             {
-                _Logger.Error("Exception when trying to accept connection from listener", ex);
+                _logger.LogError(ex, "Exception when trying to accept connection from listener");
             }
         }
     }

@@ -26,7 +26,7 @@ namespace McNNTP.Core.Database
         /// </summary>
         private static readonly Lazy<ISessionFactory> SessionFactory = new Lazy<ISessionFactory>(() =>
         {
-            var configuration = new Configuration();
+            var configuration = DatabaseUtility.CreateConfiguration();
             configuration.AddAssembly(typeof(Newsgroup).Assembly);
 
             return configuration.BuildSessionFactory();

@@ -15,7 +15,7 @@ namespace McNNTP.Core.Database
     using System.Linq;
     using System.Security;
 
-    using log4net;
+    using Microsoft.Extensions.Logging;
 
     using McNNTP.Data;
 
@@ -28,13 +28,17 @@ namespace McNNTP.Core.Database
     /// </summary>
     public static class DatabaseUtility
     {
-        private static readonly ILog _Logger = LogManager.GetLogger(typeof(DatabaseUtility));
+        private static ILogger? _logger;
+
+        public static void SetLogger(ILogger logger)
+        {
+            _logger = logger;
+        }
 
         public static bool RebuildSchema(string? dud = null)
         {
-            var configuration = new Configuration();
+            var configuration = CreateConfiguration();
             configuration.AddAssembly(typeof(Newsgroup).Assembly);
-            configuration.Configure();
 
             using (var connection = new SQLiteConnection(configuration.GetProperty("connection.connection_string")))
             {
@@ -47,7 +51,7 @@ namespace McNNTP.Core.Database
                 }
                 catch (Exception ex)
                 {
-                    _Logger.Error("Unable to rebuild the database schema", ex);
+                    _logger?.LogError("Unable to rebuild the database schema", ex);
                     throw;
                 }
                 finally
@@ -65,9 +69,8 @@ namespace McNNTP.Core.Database
         /// <returns>A value indicating whether the update schema method was successful.</returns>
         public static bool UpdateSchema()
         {
-            var configuration = new Configuration();
+            var configuration = CreateConfiguration();
             configuration.AddAssembly(typeof(Newsgroup).Assembly);
-            configuration.Configure();
 
             try
             {
@@ -76,11 +79,11 @@ namespace McNNTP.Core.Database
             }
             catch (Exception ex)
             {
-                _Logger.Error("Unable to update the database schema", ex);
+                _logger?.LogError("Unable to update the database schema", ex);
                 return false;
             }
 
-            _Logger.InfoFormat("Updated the database schema");
+            _logger?.LogInformation("Updated the database schema");
 
             WriteBaselineData();
             return true;
@@ -88,9 +91,8 @@ namespace McNNTP.Core.Database
 
         public static bool VerifyDatabase(bool quiet = false)
         {
-            var configuration = new Configuration();
+            var configuration = CreateConfiguration();
             configuration.AddAssembly(typeof(Newsgroup).Assembly);
-            configuration.Configure();
 
             //try
             //{
@@ -110,11 +112,11 @@ namespace McNNTP.Core.Database
                     var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
                     if (newsgroupCount == 0 && !quiet)
                     {
-                        _Logger.Warn("Verified database has 0 newsgroups");
+                        _logger?.LogWarning("Verified database has 0 newsgroups");
                     }
                     else if (!quiet)
                     {
-                        _Logger.InfoFormat("Verified database has {0} newsgroup{1}", newsgroupCount, newsgroupCount == 1 ? null : "s");
+                        _logger?.LogInformation("Verified database has {0} newsgroup{1}", newsgroupCount, newsgroupCount == 1 ? null : "s");
                     }
 
                     var articleCount = session.Query<Article>().Count(a => a.Headers != null);
@@ -129,37 +131,37 @@ namespace McNNTP.Core.Database
                     }
                     if (!quiet)
                     {
-                        _Logger.InfoFormat("Verified database has {0} article{1}", articleCount, articleCount == 1 ? null : "s");
+                        _logger?.LogInformation("Verified database has {0} article{1}", articleCount, articleCount == 1 ? null : "s");
                     }
 
                     var adminCount = session.Query<User>().Count(a => a.CanInject);
                     if (adminCount == 0 && !quiet)
                     {
-                        _Logger.Warn("Verified database has 0 local admins");
+                        _logger?.LogWarning("Verified database has 0 local admins");
                     }
                     else if (!quiet)
                     {
-                        _Logger.InfoFormat("Verified database has {0} local admin{1}", adminCount, adminCount == 1 ? null : "s");
+                        _logger?.LogInformation("Verified database has {0} local admin{1}", adminCount, adminCount == 1 ? null : "s");
                     }
 
                     var peerCount = session.Query<Peer>().Count();
                     if (peerCount == 0 && !quiet)
                     {
-                        _Logger.Warn("Verified database has 0 distribution patterns");
+                        _logger?.LogWarning("Verified database has 0 distribution patterns");
                     }
                     else if (!quiet)
                     {
-                        _Logger.InfoFormat("Verified database has {0} distribution pattern{1}", peerCount, peerCount == 1 ? null : "s");
+                        _logger?.LogInformation("Verified database has {0} distribution pattern{1}", peerCount, peerCount == 1 ? null : "s");
                     }
 
                     var distPatternCount = session.Query<DistributionPattern>().Count();
                     if (distPatternCount == 0 && !quiet)
                     {
-                        _Logger.Warn("Verified database has 0 distribution patterns");
+                        _logger?.LogWarning("Verified database has 0 distribution patterns");
                     }
                     else if (!quiet)
                     {
-                        _Logger.InfoFormat("Verified database has {0} distribution pattern{1}", distPatternCount, distPatternCount == 1 ? null : "s");
+                        _logger?.LogInformation("Verified database has {0} distribution pattern{1}", distPatternCount, distPatternCount == 1 ? null : "s");
                     }
 
                     session.Close();
@@ -187,7 +189,7 @@ namespace McNNTP.Core.Database
                         Moderated = true,
                         Name = "freenews.config",
                     });
-                    _Logger.InfoFormat("Created 'freenews.config' group");
+                    _logger?.LogInformation("Created 'freenews.config' group");
                 }
 
                 if (!session.Query<Newsgroup>().Any(n => n.Name == "freenews.misc"))
@@ -199,7 +201,7 @@ namespace McNNTP.Core.Database
                         Moderated = false,
                         Name = "freenews.misc",
                     });
-                    _Logger.InfoFormat("Created 'freenews.misc' group");
+                    _logger?.LogInformation("Created 'freenews.misc' group");
                 }
 
                 if (!session.Query<Newsgroup>().Any(n => n.Name == "junk"))
@@ -211,7 +213,7 @@ namespace McNNTP.Core.Database
                         Moderated = true,
                         Name = "junk",
                     });
-                    _Logger.InfoFormat("Created 'junk' group");
+                    _logger?.LogInformation("Created 'junk' group");
                 }
 
                 if (!session.Query<User>().Any())
@@ -238,11 +240,29 @@ namespace McNNTP.Core.Database
 
                     session.Save(admin);
 
-                    _Logger.InfoFormat("Created 'LOCALADMIN' administrator with password 'CHANGEME'.  Please authenticate locally and change your password with a 'changepass' control message");
+                    _logger?.LogInformation("Created 'LOCALADMIN' administrator with password 'CHANGEME'.  Please authenticate locally and change your password with a 'changepass' control message");
                 }
 
                 session.Close();
             }
+        }
+
+        /// <summary>
+        /// Creates a programmatic NHibernate configuration to avoid XML parsing issues
+        /// </summary>
+        /// <returns>A configured NHibernate Configuration object</returns>
+        public static Configuration CreateConfiguration()
+        {
+            var configuration = new Configuration();
+            
+            // Configure properties programmatically
+            configuration.SetProperty("connection.driver_class", "NHibernate.Driver.SQLite20Driver");
+            configuration.SetProperty("connection.connection_string", "Data Source=news.db;Pooling=true;FailIfMissing=false;Version=3");
+            configuration.SetProperty("dialect", "NHibernate.Dialect.SQLiteDialect");
+            configuration.SetProperty("query.substitutions", "true=1;false=0");
+            configuration.SetProperty("show_sql", "false");
+            
+            return configuration;
         }
     }
 }

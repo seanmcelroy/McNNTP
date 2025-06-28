@@ -17,15 +17,14 @@ namespace McNNTP.Core.Server.NNTP
     using System.Net;
     using System.Net.Sockets;
     using System.Security;
+    using System.Security.Cryptography;
     using System.Security.Cryptography.X509Certificates;
-    using System.Security.Permissions;
     using System.Threading;
     using System.Threading.Tasks;
 
-    using log4net;
+    using Microsoft.Extensions.Logging;
 
     using McNNTP.Common;
-    using McNNTP.Core.Server.Configuration;
 
     /// <summary>
     /// Defines the an NNTP server utility that provides connection management and command handling to expose
@@ -36,7 +35,12 @@ namespace McNNTP.Core.Server.NNTP
         /// <summary>
         /// The logging utility instance to use to log events from this class.
         /// </summary>
-        private static readonly ILog Logger = LogManager.GetLogger(typeof(NntpServer));
+        private readonly ILogger<NntpServer> _logger;
+
+        /// <summary>
+        /// The logger factory to create loggers for components.
+        /// </summary>
+        private readonly ILoggerFactory _loggerFactory;
 
         /// <summary>
         /// A list of threads and the associated TCP new-connection listeners that are serviced by each by the client.
@@ -51,8 +55,10 @@ namespace McNNTP.Core.Server.NNTP
         /// <summary>
         /// Initializes a new instance of the <see cref="NntpServer"/> class.
         /// </summary>
-        public NntpServer()
+        public NntpServer([NotNull] ILogger<NntpServer> logger, [NotNull] ILoggerFactory loggerFactory)
         {
+            this._logger = logger;
+            this._loggerFactory = loggerFactory;
             this.AllowStartTLS = true;
             this.ShowData = true;
         }
@@ -64,12 +70,6 @@ namespace McNNTP.Core.Server.NNTP
         public bool AllowPosting { get; set; }
 
         public bool AllowStartTLS { get; set; }
-
-        [NotNull]
-        public int[] IrcClearPorts { get; set; }
-
-        [NotNull]
-        public int[] IrcImplicitTLSPorts { get; set; }
 
         [NotNull]
         public int[] NntpClearPorts { get; set; }
@@ -149,14 +149,14 @@ namespace McNNTP.Core.Server.NNTP
                     var collection = store.Certificates.Find(X509FindType.FindByThumbprint, this.SslServerCertificateThumbprint, true);
                     if (collection.Cast<X509Certificate2>().Count(c => c.HasPrivateKey) == 0)
                     {
-                        Logger.WarnFormat(@"No valid certificate with a public and private key could be found in the LocalMachine\Personal store with thumbprint: {0}.  Disabling SSL.", this.SslServerCertificateThumbprint);
+                        _logger.LogWarning(@"No valid certificate with a public and private key could be found in the LocalMachine\Personal store with thumbprint: {0}.  Disabling SSL.", this.SslServerCertificateThumbprint);
                         this.AllowStartTLS = false;
                         this.NntpExplicitTLSPorts = [];
                         this.NntpImplicitTLSPorts = [];
                     }
                     else
                     {
-                        Logger.InfoFormat("Located valid certificate with subject '{0}' and serial {1}", collection[0].Subject, collection[0].SerialNumber);
+                        _logger.LogInformation("Located valid certificate with subject '{0}' and serial {1}", collection[0].Subject, collection[0].SerialNumber);
                         this.ServerAuthenticationCertificate = collection[0];
                     }
                 }
@@ -167,8 +167,8 @@ namespace McNNTP.Core.Server.NNTP
             }
             else if (this.SslGenerateSelfSignedServerCertificate || this.NntpExplicitTLSPorts.Any() || this.NntpImplicitTLSPorts.Any())
             {
-                var pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
-                this.ServerAuthenticationCertificate = new X509Certificate2(pfx, "password");
+                // Create cross-platform self-signed certificate using modern .NET APIs
+                this.ServerAuthenticationCertificate = CreateSelfSignedCertificate("freenews");
             }
 
             foreach (var clearPort in this.NntpClearPorts)
@@ -177,7 +177,7 @@ namespace McNNTP.Core.Server.NNTP
                 var localEndPoint = new IPEndPoint(IPAddress.Any, clearPort);
 
                 // Create a TCP/IP socket.
-                var listener = new NntpListener(this, localEndPoint)
+                var listener = new NntpListener(this, localEndPoint, _loggerFactory.CreateLogger<NntpListener>(), _loggerFactory)
                 {
                     PortType = PortClass.ClearText,
                 };
@@ -191,7 +191,7 @@ namespace McNNTP.Core.Server.NNTP
                 var localEndPoint = new IPEndPoint(IPAddress.Any, implicitTlsPort);
 
                 // Create a TCP/IP socket.
-                var listener = new NntpListener(this, localEndPoint)
+                var listener = new NntpListener(this, localEndPoint, _loggerFactory.CreateLogger<NntpListener>(), _loggerFactory)
                 {
                     PortType = PortClass.ImplicitTLS,
                 };
@@ -204,11 +204,11 @@ namespace McNNTP.Core.Server.NNTP
                 try
                 {
                     listener.Item1.Start();
-                    Logger.InfoFormat("Listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                    _logger.LogInformation("Listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
                 }
                 catch (OutOfMemoryException oom)
                 {
-                    Logger.Error("Unable to start listener thread.  Not enough memory.", oom);
+                    _logger.LogError(oom, "Unable to start listener thread.  Not enough memory.");
                 }
             }
         }
@@ -220,11 +220,11 @@ namespace McNNTP.Core.Server.NNTP
                 try
                 {
                     listener.Item2.Stop();
-                    Logger.InfoFormat("Stopped listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                    _logger.LogInformation("Stopped listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
                 }
-                catch (SocketException)
+                catch (SocketException ex)
                 {
-                    Logger.ErrorFormat("Exception attempting to stop listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                    _logger.LogError(ex, "Exception attempting to stop listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
                 }
             }
 
@@ -238,16 +238,16 @@ namespace McNNTP.Core.Server.NNTP
                 }
                 catch (SecurityException se)
                 {
-                    Logger.Error(
-                        "Unable to abort the thread due to a security exception.  Application will now exit.",
-                        se);
+                    _logger.LogError(
+                        se,
+                        "Unable to abort the thread due to a security exception.  Application will now exit.");
                     Environment.Exit(se.HResult);
                 }
                 catch (ThreadStateException tse)
                 {
-                    Logger.Error(
-                        "Unable to abort the thread due to a thread state exception.  Application will now exit.",
-                        tse);
+                    _logger.LogError(
+                        tse,
+                        "Unable to abort the thread due to a thread state exception.  Application will now exit.");
                     Environment.Exit(tse.HResult);
                 }
             }
@@ -256,7 +256,7 @@ namespace McNNTP.Core.Server.NNTP
         internal void AddConnection([NotNull] NntpConnection nntpConnection)
         {
             this.connections.Add(nntpConnection);
-            Logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort);
+            _logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort);
         }
 
         internal void RemoveConnection([NotNull] NntpConnection nntpConnection)
@@ -264,12 +264,43 @@ namespace McNNTP.Core.Server.NNTP
             this.connections.Remove(nntpConnection);
             if (nntpConnection.Identity == null)
             {
-                Logger.VerboseFormat("Disconnection from {0}:{1}", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort);
+                _logger.VerboseFormat("Disconnection from {0}:{1}", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort);
             }
             else
             {
-                Logger.VerboseFormat("Disconnection from {0}:{1} ({2})", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort, nntpConnection.Identity.Username);
+                _logger.VerboseFormat("Disconnection from {0}:{1} ({2})", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort, nntpConnection.Identity.Username);
             }
+        }
+
+        /// <summary>
+        /// Creates a self-signed certificate using modern cross-platform .NET APIs
+        /// </summary>
+        /// <param name="commonName">The common name for the certificate</param>
+        /// <returns>A new self-signed X509Certificate2</returns>
+        private static X509Certificate2 CreateSelfSignedCertificate(string commonName)
+        {
+            using var rsa = RSA.Create(2048);
+            var request = new CertificateRequest($"CN={commonName}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
+            
+            // Add basic constraints
+            request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
+            
+            // Add key usage
+            request.CertificateExtensions.Add(new X509KeyUsageExtension(
+                X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
+            
+            // Add enhanced key usage for server authentication
+            request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
+                [new Oid("1.3.6.1.5.5.7.3.1")], false)); // Server Authentication OID
+
+            // Create the certificate with a 100-year validity period
+            var certificate = request.CreateSelfSigned(
+                DateTimeOffset.Now.AddDays(-1), 
+                DateTimeOffset.Now.AddYears(100));
+
+            // Export and reimport to ensure the certificate has a private key
+            var pfxData = certificate.Export(X509ContentType.Pfx, "");
+            return new X509Certificate2(pfxData, "", X509KeyStorageFlags.Exportable);
         }
         #endregion
     }
