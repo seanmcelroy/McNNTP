@@ -10,7 +10,7 @@
 namespace McNNTP.Core.Server.Configuration
 {
     /// <summary>
-    /// A configuration reference to the local user directory located within the news database
+    /// A configuration reference to the local user directory located within the news database.
     /// </summary>
     public class LocalDirectoryConfigurationElement : UserDirectoryConfigurationElement
     {

@@ -10,18 +10,18 @@
 namespace McNNTP.Core.Server.Configuration.IRC
 {
     using System.Configuration;
-
-    using JetBrains.Annotations;
+    using System.Diagnostics.CodeAnalysis;
 
     /// <summary>
-    /// A configuration reference to the local user directory located within the news database
+    /// A configuration reference to the local user directory located within the news database.
     /// </summary>
     public class OperatorConfigurationElement : ConfigurationElement
     {
         /// <summary>
-        /// Gets or sets the allowed hostmask or CIDR-notation IP block for sources supplying the OPER command
+        /// Gets or sets the allowed hostmask or CIDR-notation IP block for sources supplying the OPER command.
         /// </summary>
-        [ConfigurationProperty("hostmask", IsRequired = true), PublicAPI, NotNull]
+        [ConfigurationProperty("hostmask", IsRequired = true)]
+        [NotNull]
         public string HostMask
         {
             get { return (string)this["hostmask"]; }
@@ -29,9 +29,10 @@ namespace McNNTP.Core.Server.Configuration.IRC
         }
 
         /// <summary>
-        /// Gets or sets the nickname for the user permitted to authenticate with this configuration line
+        /// Gets or sets the nickname for the user permitted to authenticate with this configuration line.
         /// </summary>
-        [ConfigurationProperty("name", IsRequired = true), PublicAPI, NotNull]
+        [ConfigurationProperty("name", IsRequired = true)]
+        [NotNull]
         public string Name
         {
             get { return (string)this["name"]; }
@@ -39,9 +40,10 @@ namespace McNNTP.Core.Server.Configuration.IRC
         }
 
         /// <summary>
-        /// Gets or sets the password of the user
+        /// Gets or sets the password of the user.
         /// </summary>
-        [ConfigurationProperty("sha256PasswordHash", IsRequired = true), PublicAPI, NotNull]
+        [ConfigurationProperty("sha256PasswordHash", IsRequired = true)]
+        [NotNull]
         public string Sha256HashedPassword
         {
             get { return (string)this["sha256PasswordHash"]; }
@@ -49,9 +51,9 @@ namespace McNNTP.Core.Server.Configuration.IRC
         }
 
         /// <summary>
-        /// Gets or sets the nickname for the user permitted to authenticate with this configuration line
+        /// Gets or sets a value indicating whether the nickname for the user permitted to authenticate with this configuration line.
         /// </summary>
-        [ConfigurationProperty("global", IsRequired = false), PublicAPI]
+        [ConfigurationProperty("global", IsRequired = false)]
         public bool Global
         {
             get { return (bool)this["global"]; }

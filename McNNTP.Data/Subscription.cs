@@ -9,19 +9,17 @@
 
 namespace McNNTP.Data
 {
-    using JetBrains.Annotations;
+    using System.Diagnostics.CodeAnalysis;
 
     /// <summary>
-    /// A record that indicates a user has identified a newsgroup as 'active' or 'subscribed'
+    /// A record that indicates a user has identified a newsgroup as 'active' or 'subscribed'.
     /// </summary>
-    // ReSharper disable once ClassWithVirtualMembersNeverInherited.Global
     public class Subscription
     {
         /// <summary>
-        /// Gets or sets the unique identifier for the subscription record
+        /// Gets or sets the unique identifier for the subscription record.
         /// </summary>
-        /// <remarks>This field must be unique</remarks>
-        // ReSharper disable once MemberCanBeProtected.Global
+        /// <remarks>This field must be unique.</remarks>
         public virtual int Id { get; set; }
 
         /// <summary>
@@ -33,7 +31,7 @@ namespace McNNTP.Data
         public virtual User Owner { get; set; }
 
         /// <summary>
-        /// Gets or sets the name of the newsgroup to which the user is subscribed
+        /// Gets or sets the name of the newsgroup to which the user is subscribed.
         /// </summary>
         /// <remarks>
         /// This is provided as a string and not a reference to a newsgroup object due to RFC 3501 6.3.9:

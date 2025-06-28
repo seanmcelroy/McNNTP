@@ -1,17 +1,39 @@
-﻿using McNNTP.Common;
-using Microsoft.VisualStudio.TestTools.UnitTesting;
+﻿/*
+ * <one line to give the program's name and a brief idea of what it does.>
+ * Copyright (C) 2025 Sean A. McElroy
+ * 
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ * 
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ * 
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE 
+ * SOFTWARE.
+*/
+
+using McNNTP.Common;
 
 namespace McNNTP.Tests
 {
     [TestClass]
     public class CompressionTests
     {
-        [TestMethod, Ignore]
-        public void TestZlibCompression()
+        [TestMethod]
+        public async Task TestZlibCompression()
         {
-            var gzip = new byte[]
+            var deflated = new byte[]
             {
-                0x78, 0x01, 0x95, 0xce, 0x31, 0x4f, 0xc3, 0x30, 0x10, 0x05, 0xe0, 0xd9, 0x91, 0xfa, 0x1f, 0x6e, 0x2c,
+                0x78, 0x01, 0x94,/*was 0x95*/ 0xce, 0x31, 0x4f, 0xc3, 0x30, 0x10, 0x05, 0xe0, 0xd9, 0x91, 0xfa, 0x1f, 0x6e, 0x2c,
                 0x12, 0xb2, 0x72, 0x8e, 0x9d, 0x34, 0x11, 0x42, 0x19, 0x90, 0x10, 0x03, 0x2c, 0x74, 0x60, 0x75, 0xd3,
                 0x6b, 0x62, 0xe1, 0xd8, 0x91, 0xed, 0xb4, 0x94, 0x5f, 0x0f, 0x11, 0x02, 0x31, 0x81, 0x3a, 0x9e, 0xee,
                 0x3d, 0xbd, 0x4f, 0xb1, 0x07, 0x38, 0xf8, 0xd9, 0xed, 0x21, 0x0d, 0x26, 0x42, 0x1f, 0x48, 0x27, 0xb0,
@@ -25,21 +47,28 @@ namespace McNNTP.Tests
                 0xb8, 0x33, 0xd1, 0xd1, 0x99, 0x8d, 0xe6, 0x33, 0x70, 0x6e, 0x53, 0xd0, 0x47, 0xb2, 0xf4, 0x36, 0x51,
                 0x48, 0x22, 0xcf, 0x25, 0xdf, 0x99, 0xf7, 0xf5, 0xd7, 0xef, 0x5b, 0xbf, 0xf9, 0xd1, 0x97, 0x4d, 0x21,
                 0x1a, 0x54, 0xbf, 0xf4, 0x1b, 0x2c, 0x0b, 0x81, 0x4a, 0xd6, 0x42, 0x56, 0xff, 0xea, 0x37, 0xa2, 0x62,
-                0x28, 0x2e, 0xd6, 0x97, 0xab, 0x8c, 0xaf, 0xb2, 0x0f, 0x7a, 0xdd, 0x84, 0x8f
+                0x28, 0x2e, 0xd6, 0x97, 0xab, 0x8c, 0xaf, 0xb2, 0x0f, /*0x7a, 0xdd, 0x84, 0x8f*/ 0x00, 0x00, 0x00, 0xff, 0xff
             };
 
             const string data = "5\tI found this great little site\tlisawill4u@yahoo.com(I found this great little site)\tSun, 21 Nov 04 15:31:49 GMT\t<04112115314949159@newshost.allthenewsgroups.com>\t\t1131\t7\tXref: number1.nntp.dca.giganews.com eckerd.misc:5\r\n6\tTrip to Disney\tmickey@travelexpert2004.biz(mickey)\tSun, 28 Nov 04 16:32:15 GMT\t<04112816321549247@newshost.allthenewsgroups.com>\t\t827\t12\tXref: number1.nntp.dca.giganews.com eckerd.misc:6\r\n.\r\n";
 
-            var task = data.GZipCompress();
-            var compressedBytes = task.Result;
+            var compressedBytes = await data.ZlibDeflate(CancellationToken.None);
 
-            Assert.AreEqual(gzip, compressedBytes);
+            Console.WriteLine(deflated.Select(b => b.ToString("x2")).Aggregate((c, n) => $"{c} {n}"));
+            Console.WriteLine(compressedBytes.Select(b => b.ToString("x2")).Aggregate((c, n) => $"{c} {n}"));
+
+            Assert.IsNotNull(compressedBytes);
+            Assert.AreEqual(deflated.Length, compressedBytes.Length);
+            Assert.IsTrue(Enumerable.SequenceEqual(deflated, compressedBytes));
+
+            var decompressedData = await deflated.ZlibInflate(CancellationToken.None);
+            Assert.AreEqual(data, decompressedData);
         }
 
         [TestMethod]
-        public void TestZlibDecompression()
+        public async Task TestZlibDecompression()
         {
-            var gzip = new byte[]
+            var deflated = new byte[]
             {
                 0x78, 0x01, 0x95, 0xce, 0x31, 0x4f, 0xc3, 0x30, 0x10, 0x05, 0xe0, 0xd9, 0x91, 0xfa, 0x1f, 0x6e, 0x2c,
                 0x12, 0xb2, 0x72, 0x8e, 0x9d, 0x34, 0x11, 0x42, 0x19, 0x90, 0x10, 0x03, 0x2c, 0x74, 0x60, 0x75, 0xd3,
@@ -58,8 +87,7 @@ namespace McNNTP.Tests
                 0x28, 0x2e, 0xd6, 0x97, 0xab, 0x8c, 0xaf, 0xb2, 0x0f, 0x7a, 0xdd, 0x84, 0x8f
             };
 
-            var task = gzip.GZipUncompress();
-            var str = task.Result;
+            var str = await deflated.ZlibInflate(CancellationToken.None);
             Assert.AreEqual("5\tI found this great little site\tlisawill4u@yahoo.com(I found this great little site)\tSun, 21 Nov 04 15:31:49 GMT\t<04112115314949159@newshost.allthenewsgroups.com>\t\t1131\t7\tXref: number1.nntp.dca.giganews.com eckerd.misc:5\r\n6\tTrip to Disney\tmickey@travelexpert2004.biz(mickey)\tSun, 28 Nov 04 16:32:15 GMT\t<04112816321549247@newshost.allthenewsgroups.com>\t\t827\t12\tXref: number1.nntp.dca.giganews.com eckerd.misc:6\r\n.\r\n", str);
         }
     }

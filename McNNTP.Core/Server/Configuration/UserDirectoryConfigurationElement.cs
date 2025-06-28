@@ -1,12 +1,12 @@
-﻿using System.Configuration;
-using System.Xml;
-
-namespace McNNTP.Core.Server.Configuration
+﻿namespace McNNTP.Core.Server.Configuration
 {
+    using System.Configuration;
+    using System.Xml;
+
     public abstract class UserDirectoryConfigurationElement : ConfigurationElement
     {
         /// <summary>
-        /// The port number
+        /// Gets or sets the port number.
         /// </summary>
         [ConfigurationProperty("priority", IsRequired = true)]
         public int Priority

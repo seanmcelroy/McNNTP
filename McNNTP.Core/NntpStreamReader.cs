@@ -1,16 +1,13 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace McNNTP.Core
+﻿namespace McNNTP.Core
 {
+    using System.Collections.Generic;
+    using System.IO;
+    using System.Text;
+
     /// <summary>
     /// The NntpStreamReader class is a a regular <see cref="StreamReader"/> that defaults to
     /// the UTF-8 encoding and provides a special ReadAllLines() method to enumerate through
-    /// a multi-line response
+    /// a multi-line response.
     /// </summary>
     public class NntpStreamReader : StreamReader
     {
@@ -18,11 +15,10 @@ namespace McNNTP.Core
         /// Initializes an instance of the NntpStreamReader class with a default
         /// UTF-8 encoding for the specified stream.
         /// </summary>
-        /// <param name="stream">The stream to be read</param>
+        /// <param name="stream">The stream to be read.</param>
         public NntpStreamReader(Stream stream)
             : base(stream, Encoding.UTF8, true)
         {
-
         }
 
         public NntpStreamReader(string path)
@@ -55,7 +51,8 @@ namespace McNNTP.Core
         {
         }
 
-        public NntpStreamReader(string path, Encoding encoding, bool detectEncodingFromByteOrderMarks) : base(path, encoding, detectEncodingFromByteOrderMarks){
+        public NntpStreamReader(string path, Encoding encoding, bool detectEncodingFromByteOrderMarks) : base(path, encoding, detectEncodingFromByteOrderMarks)
+        {
         }
 
         public NntpStreamReader(Stream stream, Encoding encoding, bool detectEncodingFromByteOrderMarks, int bufferSize)
@@ -74,7 +71,7 @@ namespace McNNTP.Core
         }
 
         /// <summary>
-        /// Reads all lines in an NNTP response
+        /// Reads all lines in an NNTP response.
         /// </summary>
         /// <returns>Each line of a multi-line response.  Single-line respones yield only a single result.</returns>
         public IEnumerable<string> ReadAllLines()
@@ -82,10 +79,15 @@ namespace McNNTP.Core
             string readLine;
             while ((readLine = this.ReadLine()) != null)
             {
-                if (readLine == ".") break;
+                if (readLine == ".")
+                {
+                    break;
+                }
 
                 if (readLine.StartsWith(".."))
+                {
                     readLine = readLine.Substring(1);
+                }
 
                 yield return readLine;
             }

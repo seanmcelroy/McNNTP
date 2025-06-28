@@ -10,11 +10,13 @@
 
     public class ProtocolsConfigurationElementCollection : ConfigurationElementCollection, IEnumerable<ProtocolConfigurationElementBase>
     {
+        /// <inheritdoc/>
         protected override ConfigurationElement CreateNewElement()
         {
             return new IrcProtocolConfigurationElement();
         }
 
+        /// <inheritdoc/>
         protected override object GetElementKey(ConfigurationElement element)
         {
             var pce = (ProtocolConfigurationElementBase) element;
@@ -23,13 +25,22 @@
 
         public ProtocolConfigurationElementBase this[int index]
         {
-            get { return (ProtocolConfigurationElementBase)this.BaseGet(index); }
+            get
+            {
+                return (ProtocolConfigurationElementBase)this.BaseGet(index);
+            }
+
             set
             {
+
                 if (this.BaseGet(index) != null)
+                {
                     this.BaseRemove(index);
+                }
+
                 this.BaseAdd(index, value);
             }
+
         }
 
         public void Add(ProtocolConfigurationElementBase protocolConfig)
@@ -57,11 +68,13 @@
             this.BaseRemove(name);
         }
 
+        /// <inheritdoc/>
         public new IEnumerator<ProtocolConfigurationElementBase> GetEnumerator()
         {
             return this.BaseGetAllKeys().Select(key => (ProtocolConfigurationElementBase)this.BaseGet(key)).GetEnumerator();
         }
 
+        /// <inheritdoc/>
         protected override bool OnDeserializeUnrecognizedElement(string elementName, XmlReader reader)
         {
             if (elementName.StartsWith("irc", StringComparison.OrdinalIgnoreCase))

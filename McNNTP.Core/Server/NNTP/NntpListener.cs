@@ -1,13 +1,13 @@
-﻿using System;
-using System.IO;
-using System.Net;
-using System.Net.Security;
-using System.Net.Sockets;
-using JetBrains.Annotations;
-using log4net;
-
-namespace McNNTP.Core.Server.NNTP
+﻿namespace McNNTP.Core.Server.NNTP
 {
+    using System;
+    using System.Diagnostics.CodeAnalysis;
+    using System.IO;
+    using System.Net;
+    using System.Net.Security;
+    using System.Net.Sockets;
+    using log4net;
+
     internal class NntpListener : TcpListener
     {
         // Thread signal.
@@ -25,7 +25,7 @@ namespace McNNTP.Core.Server.NNTP
         public async void StartAccepting()
         {
             // Establish the local endpoint for the socket.
-            var localEndPoint = new IPEndPoint(IPAddress.Any, ((IPEndPoint) this.LocalEndpoint).Port);
+            var localEndPoint = new IPEndPoint(IPAddress.Any, ((IPEndPoint)this.LocalEndpoint).Port);
 
             // Create a TCP/IP socket.
             var listener = new NntpListener(this.server, localEndPoint);
@@ -71,7 +71,6 @@ namespace McNNTP.Core.Server.NNTP
 
                     nntpConnection.Process();
                 }
-
             }
             catch (Exception ex)
             {

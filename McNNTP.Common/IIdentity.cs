@@ -1,32 +1,22 @@
-﻿// --------------------------------------------------------------------------------------------------------------------
-// <copyright file="IIdentity.cs" company="Copyright Sean McElroy">
-//   Copyright Sean McElroy
-// </copyright>
-// <summary>
-//   An identity represents a user that can authenticate to the system and perform actions against a store
-// </summary>
-// --------------------------------------------------------------------------------------------------------------------
-
-namespace McNNTP.Common
+﻿namespace McNNTP.Common
 {
     using System;
     using System.Collections.Generic;
-
-    using JetBrains.Annotations;
+    using System.Diagnostics.CodeAnalysis;
 
     /// <summary>
-    /// An identity represents a user that can authenticate to the system and perform actions against a store
+    /// An identity represents a user that can authenticate to the system and perform actions against a store.
     /// </summary>
     public interface IIdentity
     {
         /// <summary>
-        /// Gets or sets the unique identifier for the identity
+        /// Gets or sets the unique identifier for the identity.
         /// </summary>
         [NotNull]
         string Id { get; set; }
-        
+
         /// <summary>
-        /// Gets or sets the unique username for the identity
+        /// Gets or sets the unique username for the identity.
         /// </summary>
         [NotNull]
         string Username { get; set; }
@@ -38,12 +28,12 @@ namespace McNNTP.Common
         string PasswordSalt { get; set; }
 
         /// <summary>
-        /// Whether or not the user can only authenticate from localhost
+        /// Gets or sets a value indicating whether or not the user can only authenticate from localhost.
         /// </summary>
         bool LocalAuthenticationOnly { get; set; }
 
         /// <summary>
-        /// Gets or sets a value indicating whether the user can Approve moderated messages in any group
+        /// Gets or sets a value indicating whether the user can Approve moderated messages in any group.
         /// </summary>
         bool CanApproveAny { get; set; }
 

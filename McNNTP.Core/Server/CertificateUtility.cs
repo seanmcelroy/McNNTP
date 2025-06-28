@@ -10,37 +10,33 @@
 namespace McNNTP.Core.Server
 {
     using System;
+    using System.Diagnostics.CodeAnalysis;
+    using System.Diagnostics.Contracts;
     using System.Runtime.CompilerServices;
     using System.Runtime.InteropServices;
     using System.Security;
 
-    using JetBrains.Annotations;
-
     /// <summary>
-    /// A utility class that provides helper methods for dealing with X.509 security certificates
+    /// A utility class that provides helper methods for dealing with X.509 security certificates.
     /// </summary>
     public static class CertificateUtility
     {
         /// <summary>
-        /// Creates a new self-signed X.509 certificate without any password security
+        /// Creates a new self-signed X.509 certificate without any password security.
         /// </summary>
-        /// <param name="x500">The x500 data to use for the certificate</param>
-        /// <param name="startTime">The issue date of the certificate</param>
-        /// <param name="endTime">The expiry date of the certificate</param>
-        /// <returns>The bytes that represented the certificate in PFX format</returns>
-        [NotNull, Pure]
+        /// <param name="x500">The x500 data to use for the certificate.</param>
+        /// <param name="startTime">The issue date of the certificate.</param>
+        /// <param name="endTime">The expiry date of the certificate.</param>
+        /// <returns>The bytes that represented the certificate in PFX format.</returns>
+        [Pure]
         public static byte[] CreateSelfSignCertificatePfx(
            string x500,
            DateTime startTime,
-           DateTime endTime)
-        {
-            var pfxData = CreateSelfSignCertificatePfx(
+           DateTime endTime) => CreateSelfSignCertificatePfx(
                 x500,
                 startTime,
                 endTime,
                 (SecureString)null);
-            return pfxData;
-        }
 
         public static byte[] CreateSelfSignCertificatePfx(
             string x500,
@@ -49,7 +45,7 @@ namespace McNNTP.Core.Server
             string insecurePassword)
         {
             byte[] pfxData;
-            SecureString password = null;
+            SecureString? password = null;
 
             try
             {
@@ -72,10 +68,7 @@ namespace McNNTP.Core.Server
             }
             finally
             {
-                if (password != null)
-                {
-                    password.Dispose();
-                }
+                password?.Dispose();
             }
 
             return pfxData;
@@ -89,14 +82,13 @@ namespace McNNTP.Core.Server
         {
             byte[] pfxData;
 
-            if (x500 == null)
-                x500 = string.Empty;
+            x500 ??= string.Empty;
 
             var startSystemTime = ToSystemTime(startTime);
             var endSystemTime = ToSystemTime(endTime);
             var containerName = Guid.NewGuid().ToString();
 
-            var dataHandle = new GCHandle();
+            var dataHandle = default(GCHandle);
             var providerContext = IntPtr.Zero;
             var cryptKey = IntPtr.Zero;
             var certContext = IntPtr.Zero;
@@ -151,7 +143,7 @@ namespace McNNTP.Core.Server
                     ref nameDataLength,
                     out errorStringPtr))
                 {
-                    string error = Marshal.PtrToStringUni(errorStringPtr);
+                    string? error = Marshal.PtrToStringUni(errorStringPtr);
                     throw new ArgumentException(error);
                 }
 
@@ -206,7 +198,7 @@ namespace McNNTP.Core.Server
                     passwordPtr = Marshal.SecureStringToCoTaskMemUnicode(password);
                 }
 
-                var pfxBlob = new CryptoApiBlob();
+                var pfxBlob = default(CryptoApiBlob);
                 Check(NativeMethods.PFXExportCertStoreEx(
                     certStore,
                     ref pfxBlob,

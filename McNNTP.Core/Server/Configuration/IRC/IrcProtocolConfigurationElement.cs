@@ -11,17 +11,15 @@ namespace McNNTP.Core.Server.Configuration.IRC
 {
     using System.Configuration;
 
-    using JetBrains.Annotations;
-
     /// <summary>
-    /// IRC protocol-specific configuration
+    /// IRC protocol-specific configuration.
     /// </summary>
     public class IrcProtocolConfigurationElement : ProtocolConfigurationElementBase
     {
         /// <summary>
-        /// Gets or sets the LDAP server hostname or IP
+        /// Gets or sets the LDAP server hostname or IP.
         /// </summary>
-        [ConfigurationProperty("motd", IsRequired = false), PublicAPI]
+        [ConfigurationProperty("motd", IsRequired = false)]
         public string MotdPath
         {
             get { return (string)this["motd"]; }
@@ -29,13 +27,13 @@ namespace McNNTP.Core.Server.Configuration.IRC
         }
 
         /// <summary>
-        /// A collection of <see cref="OperatorConfigurationElement"/> configuration elements that provide
-        /// O: lines, or the oper block, enumerating allowed administrators
+        /// Gets a collection of <see cref="OperatorConfigurationElement"/> configuration elements that provide
+        /// O: lines, or the oper block, enumerating allowed administrators.
         /// </summary>
         [ConfigurationProperty("operators", IsRequired = false)]
         public OperatorsConfigurationElementCollection Operators
         {
-            get { return (OperatorsConfigurationElementCollection)base["operators"]; }
+            get { return (OperatorsConfigurationElementCollection)this["operators"]; }
         }
     }
 }

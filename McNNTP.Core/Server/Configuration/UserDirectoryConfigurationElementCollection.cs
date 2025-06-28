@@ -8,14 +8,16 @@
 
     public class UserDirectoryConfigurationElementCollection : ConfigurationElementCollection, IEnumerable<UserDirectoryConfigurationElement>
     {
+        /// <inheritdoc/>
         protected override ConfigurationElement CreateNewElement()
         {
-            return new LdapDirectoryConfigurationElement();
+            return new LocalDirectoryConfigurationElement();
         }
 
+        /// <inheritdoc/>
         protected override object GetElementKey(ConfigurationElement element)
         {
-            var pce = (UserDirectoryConfigurationElement) element;
+            var pce = (UserDirectoryConfigurationElement)element;
             return pce.GetType().Name;
         }
 
@@ -29,7 +31,10 @@
             set
             {
                 if (this.BaseGet(index) != null)
+                {
                     this.BaseRemove(index);
+                }
+
                 this.BaseAdd(index, value);
             }
         }
@@ -59,21 +64,15 @@
             this.BaseRemove(name);
         }
 
+        /// <inheritdoc/>
         public new IEnumerator<UserDirectoryConfigurationElement> GetEnumerator()
         {
             return this.BaseGetAllKeys().Select(key => (UserDirectoryConfigurationElement)this.BaseGet(key)).GetEnumerator();
         }
 
+        /// <inheritdoc/>
         protected override bool OnDeserializeUnrecognizedElement(string elementName, XmlReader reader)
         {
-            if (elementName.StartsWith("ldap", StringComparison.OrdinalIgnoreCase))
-            {
-                var element = new LdapDirectoryConfigurationElement();
-                element.DeserializeElementForConfig(reader, false);
-                this.BaseAdd(element);
-                return true;
-            }
-
             if (elementName.StartsWith("local", StringComparison.OrdinalIgnoreCase))
             {
                 var element = new LocalDirectoryConfigurationElement();

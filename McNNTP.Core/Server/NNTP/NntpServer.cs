@@ -12,6 +12,7 @@ namespace McNNTP.Core.Server.NNTP
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics.CodeAnalysis;
     using System.Linq;
     using System.Net;
     using System.Net.Sockets;
@@ -20,8 +21,6 @@ namespace McNNTP.Core.Server.NNTP
     using System.Security.Permissions;
     using System.Threading;
     using System.Threading.Tasks;
-
-    using JetBrains.Annotations;
 
     using log4net;
 
@@ -35,17 +34,17 @@ namespace McNNTP.Core.Server.NNTP
     public class NntpServer
     {
         /// <summary>
-        /// The logging utility instance to use to log events from this class
+        /// The logging utility instance to use to log events from this class.
         /// </summary>
         private static readonly ILog Logger = LogManager.GetLogger(typeof(NntpServer));
 
         /// <summary>
-        /// A list of threads and the associated TCP new-connection listeners that are serviced by each by the client
+        /// A list of threads and the associated TCP new-connection listeners that are serviced by each by the client.
         /// </summary>
-        private readonly List<Tuple<Thread, NntpListener>> listeners = new List<Tuple<Thread, NntpListener>>();
+        private readonly List<Tuple<Thread, NntpListener>> listeners = [];
 
         /// <summary>
-        /// A list of connections currently established to this server instance
+        /// A list of connections currently established to this server instance.
         /// </summary>
         private readonly List<NntpConnection> connections = new List<NntpConnection>();
 
@@ -66,7 +65,6 @@ namespace McNNTP.Core.Server.NNTP
 
         public bool AllowStartTLS { get; set; }
 
-
         [NotNull]
         public int[] IrcClearPorts { get; set; }
 
@@ -82,9 +80,6 @@ namespace McNNTP.Core.Server.NNTP
         [NotNull]
         public int[] NntpImplicitTLSPorts { get; set; }
 
-        [CanBeNull]
-        public LdapDirectoryConfigurationElement LdapDirectoryConfiguration { get; set; }
-
         [NotNull]
         public string PathHost { get; set; }
 
@@ -94,8 +89,7 @@ namespace McNNTP.Core.Server.NNTP
         /// Gets or sets the thumbprint of the X.509 certificate to lookup for presentation to clients requesting
         /// secure access over transport layer security (TLS)
         /// </summary>
-        [CanBeNull]
-        public string SslServerCertificateThumbprint { get; set; }
+        public string? SslServerCertificateThumbprint { get; set; }
 
         [NotNull]
         public IReadOnlyList<ConnectionMetadata> Connections
@@ -106,7 +100,7 @@ namespace McNNTP.Core.Server.NNTP
                 {
                     AuthenticatedUsername = c.Identity == null ? null : c.Identity.Username,
                     RemoteAddress = c.RemoteAddress,
-                    RemotePort = c.RemotePort
+                    RemotePort = c.RemotePort,
                 })
                 .ToList()
                 .AsReadOnly();
@@ -116,52 +110,34 @@ namespace McNNTP.Core.Server.NNTP
         /// <summary>
         /// Gets or sets a value indicating whether the byte transmitted counts are logged to the logging instance
         /// </summary>
-        [PublicAPI]
         public bool ShowBytes { get; set; }
 
         /// <summary>
         /// Gets or sets a value indicating whether the commands transmitted are logged to the logging instance
         /// </summary>
-        [PublicAPI]
         public bool ShowCommands { get; set; }
 
         /// <summary>
-        /// Gets or sets a value indicating whether the actual bytes (data) transmitted are logged to the logging instance
+        /// Gets or sets a value indicating whether the actual bytes (data) transmitted are logged to the logging instance.
         /// </summary>
-        [PublicAPI]
         public bool ShowData { get; set; }
 
         /// <summary>
         /// Gets the X.509 server certificate this instance presents to clients
         /// attempting to connect via TLS.
         /// </summary>
-        [CanBeNull]
-        internal X509Certificate2 ServerAuthenticationCertificate { get; private set; }
+        internal X509Certificate2? ServerAuthenticationCertificate { get; private set; }
 
         #region Connection and IO
+
         /// <summary>
-        /// Starts listener threads to begin processing requests
+        /// Starts listener threads to begin processing requests.
         /// </summary>
-        /// <exception cref="System.Security.Cryptography.CryptographicException">Thrown when an error occurs while a SSL certificate is loaded to support TLS-enabled ports</exception>
-        /// <exception cref="SecurityException">Thrown when the certificate store cannot be successfully opened to look up a SSL certificate by its thumbprint</exception>
-        [StorePermission(SecurityAction.Demand, EnumerateCertificates = true, OpenStore = true)]
+        /// <exception cref="System.Security.Cryptography.CryptographicException">Thrown when an error occurs while a SSL certificate is loaded to support TLS-enabled ports.</exception>
+        /// <exception cref="SecurityException">Thrown when the certificate store cannot be successfully opened to look up a SSL certificate by its thumbprint.</exception>
         public void Start()
         {
             this.listeners.Clear();
-
-            // Test LDAP connection, if configured
-            if (this.LdapDirectoryConfiguration != null)
-            {
-                Logger.InfoFormat("Testing LDAP connection to {0} with lookup account {1}", this.LdapDirectoryConfiguration.LdapServer, this.LdapDirectoryConfiguration.LookupAccountUsername);
-
-                if (LdapUtility.UserExists(this.LdapDirectoryConfiguration.LdapServer, this.LdapDirectoryConfiguration.SearchPath, this.LdapDirectoryConfiguration.LookupAccountUsername, this.LdapDirectoryConfiguration.LookupAccountPassword, this.LdapDirectoryConfiguration.LookupAccountUsername))
-                    Logger.Info("LDAP lookup account successfully found.");
-                else
-                {
-                    Logger.Warn("Unable to find LDAP lookup account.  LDAP authentication is being disabled.");
-                    this.LdapDirectoryConfiguration = null;
-                }
-            }
 
             // Setup SSL
             if (!string.IsNullOrWhiteSpace(this.SslServerCertificateThumbprint) && this.SslServerCertificateThumbprint != null)
@@ -175,8 +151,8 @@ namespace McNNTP.Core.Server.NNTP
                     {
                         Logger.WarnFormat(@"No valid certificate with a public and private key could be found in the LocalMachine\Personal store with thumbprint: {0}.  Disabling SSL.", this.SslServerCertificateThumbprint);
                         this.AllowStartTLS = false;
-                        this.NntpExplicitTLSPorts = new int[0];
-                        this.NntpImplicitTLSPorts = new int[0];
+                        this.NntpExplicitTLSPorts = [];
+                        this.NntpImplicitTLSPorts = [];
                     }
                     else
                     {
@@ -194,7 +170,7 @@ namespace McNNTP.Core.Server.NNTP
                 var pfx = CertificateUtility.CreateSelfSignCertificatePfx("CN=freenews", DateTime.Now, DateTime.Now.AddYears(100), "password");
                 this.ServerAuthenticationCertificate = new X509Certificate2(pfx, "password");
             }
-            
+
             foreach (var clearPort in this.NntpClearPorts)
             {
                 // Establish the local endpoint for the socket.
@@ -203,7 +179,7 @@ namespace McNNTP.Core.Server.NNTP
                 // Create a TCP/IP socket.
                 var listener = new NntpListener(this, localEndPoint)
                 {
-                    PortType = PortClass.ClearText
+                    PortType = PortClass.ClearText,
                 };
 
                 this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
@@ -217,7 +193,7 @@ namespace McNNTP.Core.Server.NNTP
                 // Create a TCP/IP socket.
                 var listener = new NntpListener(this, localEndPoint)
                 {
-                    PortType = PortClass.ImplicitTLS
+                    PortType = PortClass.ImplicitTLS,
                 };
 
                 this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
@@ -287,9 +263,13 @@ namespace McNNTP.Core.Server.NNTP
         {
             this.connections.Remove(nntpConnection);
             if (nntpConnection.Identity == null)
+            {
                 Logger.VerboseFormat("Disconnection from {0}:{1}", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort);
+            }
             else
+            {
                 Logger.VerboseFormat("Disconnection from {0}:{1} ({2})", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort, nntpConnection.Identity.Username);
+            }
         }
         #endregion
     }

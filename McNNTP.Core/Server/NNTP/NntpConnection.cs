@@ -12,6 +12,8 @@ namespace McNNTP.Core.Server.NNTP
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
+    using System.Diagnostics.CodeAnalysis;
+    using System.Diagnostics.Contracts;
     using System.Globalization;
     using System.IO;
     using System.Linq;
@@ -21,11 +23,9 @@ namespace McNNTP.Core.Server.NNTP
     using System.Security.Cryptography;
     using System.Text;
     using System.Threading.Tasks;
-    using JetBrains.Annotations;
+    using McNNTP.Common;
+    using McNNTP.Data;
     using log4net;
-    using Common;
-    using Data;
-
     using MoreLinq;
     using NHibernate;
     using NHibernate.Criterion;
@@ -33,12 +33,12 @@ namespace McNNTP.Core.Server.NNTP
     using NHibernate.Transform;
 
     /// <summary>
-    /// A connection from a client to the server
+    /// A connection from a client to the server.
     /// </summary>
     internal class NntpConnection
     {
         /// <summary>
-        /// The size of the stream receive buffer
+        /// The size of the stream receive buffer.
         /// </summary>
         private const int BufferSize = 1024;
 
@@ -61,17 +61,17 @@ namespace McNNTP.Core.Server.NNTP
         /// <summary>
         /// The <see cref="TcpClient"/> that accepted this connection.
         /// </summary>
-        [NotNull] 
+        [NotNull]
         private readonly TcpClient client;
 
         /// <summary>
         /// The <see cref="Stream"/> instance retrieved from the <see cref="TcpClient"/> that accepted this connection.
         /// </summary>
-        [NotNull] 
+        [NotNull]
         private readonly Stream stream;
 
         /// <summary>
-        /// The stream receive buffer
+        /// The stream receive buffer,
         /// </summary>
         [NotNull]
         private readonly byte[] buffer = new byte[BufferSize];
@@ -108,8 +108,7 @@ namespace McNNTP.Core.Server.NNTP
         /// For commands that handle conversational request-replies, this is a reference to the
         /// command that should handle new input received by the main process loop.
         /// </summary>
-        [CanBeNull]
-        private CommandProcessingResult inProcessCommand;
+        private CommandProcessingResult? inProcessCommand;
 
         /// <summary>
         /// Initializes static members of the <see cref="NntpConnection"/> class.
@@ -141,17 +140,17 @@ namespace McNNTP.Core.Server.NNTP
                     { "XFEATURE", async (c, data) => await c.XFeature(data) },
                     { "XHDR", async (c, data) => await c.XHDR(data) },
                     { "XOVER", async (c, data) => await c.XOver(data) },
-                    { "XPAT", async (c, data) => await c.XPAT(data) }
+                    { "XPAT", async (c, data) => await c.XPAT(data) },
                 };
         }
 
         /// <summary>
         /// Initializes a new instance of the <see cref="NntpConnection"/> class.
         /// </summary>
-        /// <param name="server">The server instance that owns this connection</param>
-        /// <param name="client">The <see cref="TcpClient"/> that accepted this connection</param>
-        /// <param name="stream">The <see cref="Stream"/> from the <paramref name="client"/></param>
-        /// <param name="tls">Whether or not the connection has implicit Transport Layer Security</param>
+        /// <param name="server">The server instance that owns this connection.</param>
+        /// <param name="client">The <see cref="TcpClient"/> that accepted this connection.</param>
+        /// <param name="stream">The <see cref="Stream"/> from the <paramref name="client"/>.</param>
+        /// <param name="tls">Whether or not the connection has implicit Transport Layer Security.</param>
         public NntpConnection(
             [NotNull] NntpServer server,
             [NotNull] TcpClient client,
@@ -182,7 +181,6 @@ namespace McNNTP.Core.Server.NNTP
         /// Gets or sets a value indicating whether the connection can be upgraded to use
         /// Transport Later Security (TLS) through the STARTTLS command.
         /// </summary>
-        [PublicAPI]
         public bool AllowStartTls { get; set; }
 
         public bool CanPost { get; private set; }
@@ -196,11 +194,9 @@ namespace McNNTP.Core.Server.NNTP
         public string PathHost { get; set; }
 
         #region Authentication
-        [CanBeNull]
-        public string Username { get; set; }
+        public string? Username { get; set; }
 
-        [CanBeNull]
-        public User Identity { get; set; }
+        public User? Identity { get; set; }
 
         public bool TLS { get; set; }
         #endregion
@@ -209,32 +205,27 @@ namespace McNNTP.Core.Server.NNTP
         /// <summary>
         /// Gets a value indicating whether the connection should have compression enabled
         /// </summary>
-        [PublicAPI]
         public bool Compression { get; private set; }
 
         /// <summary>
         /// Gets a value indicating whether the connection is compressed with the UNIX GZip protocol
         /// </summary>
-        [PublicAPI]
         public bool CompressionGZip { get; private set; }
 
         /// <summary>
         /// Gets a value indicating whether message terminators are also compressed
         /// </summary>
-        [PublicAPI]
         public bool CompressionTerminator { get; private set; }
         #endregion
 
         /// <summary>
         /// Gets the newsgroup currently selected by this connection
         /// </summary>
-        [PublicAPI, CanBeNull]
-        public string CurrentNewsgroup { get; private set; }
+        public string? CurrentNewsgroup { get; private set; }
 
         /// <summary>
         /// Gets the article number currently selected by this connection for the selected newsgroup
         /// </summary>
-        [PublicAPI]
         public long? CurrentArticleNumber { get; private set; }
 
         #region Derived instance properties
@@ -248,7 +239,7 @@ namespace McNNTP.Core.Server.NNTP
         }
 
         /// <summary>
-        /// Gets the remote TCP port number for the remote endpoint to which the connection is established
+        /// Gets the remote TCP port number for the remote endpoint to which the connection is established.
         /// </summary>
         public int RemotePort
         {
@@ -256,7 +247,7 @@ namespace McNNTP.Core.Server.NNTP
         }
 
         /// <summary>
-        /// Gets the local IP address to which the connection is established
+        /// Gets the local IP address to which the connection is established.
         /// </summary>
         [NotNull]
         public IPAddress LocalAddress
@@ -278,10 +269,14 @@ namespace McNNTP.Core.Server.NNTP
         {
             // ReSharper disable ConvertIfStatementToConditionalTernaryExpression
             if (this.CanPost)
+            {
                 // ReSharper restore ConvertIfStatementToConditionalTernaryExpression
                 await this.Send("200 Service available, posting allowed\r\n");
+            }
             else
+            {
                 await this.Send("201 Service available, posting prohibited\r\n");
+            }
 
             Debug.Assert(this.stream != null, "The stream was 'null', but it should not have been because the connection was accepted and processing is beginning.");
 
@@ -291,7 +286,10 @@ namespace McNNTP.Core.Server.NNTP
             {
                 while (true)
                 {
-                    if (!this.client.Connected || !this.client.Client.Connected) return;
+                    if (!this.client.Connected || !this.client.Client.Connected)
+                    {
+                        return;
+                    }
 
                     if (!this.stream.CanRead)
                     {
@@ -312,28 +310,35 @@ namespace McNNTP.Core.Server.NNTP
                         continue;
                     }
 
-                    // All the data has been read from the 
-                    // client. Display it on the console.
+                    // All the data has been read from the client. Display it on the console.
                     if (this.ShowBytes && this.ShowData)
+                    {
                         Logger.TraceFormat(
                             "{0}:{1} >{2}> {3} bytes: {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             content.Length,
                             content.TrimEnd('\r', '\n'));
+                    }
                     else if (this.ShowBytes)
+                    {
                         Logger.TraceFormat(
                             "{0}:{1} >{2}> {3} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             content.Length);
+                    }
                     else if (this.ShowData)
+                    {
                         Logger.TraceFormat(
                             "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                             content.TrimEnd('\r', '\n'));
+                    }
 
                     if (this.inProcessCommand != null && this.inProcessCommand.MessageHandler != null)
                     {
                         // Ongoing read - don't parse it for commands
                         this.inProcessCommand = await this.inProcessCommand.MessageHandler(content, this.inProcessCommand);
                         if (this.inProcessCommand != null && this.inProcessCommand.IsQuitting)
+                        {
                             this.inProcessCommand = null;
+                        }
                     }
                     else
                     {
@@ -343,15 +348,26 @@ namespace McNNTP.Core.Server.NNTP
                             try
                             {
                                 if (this.ShowCommands)
+                                {
                                     Logger.TraceFormat(
                                         "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
                                         content.TrimEnd('\r', '\n'));
+                                }
 
                                 var result = await CommandDirectory[command].Invoke(this, content);
 
-                                if (!result.IsHandled) await this.Send("500 Unknown command\r\n");
-                                else if (result.MessageHandler != null) this.inProcessCommand = result;
-                                else if (result.IsQuitting) return;
+                                if (!result.IsHandled)
+                                {
+                                    await this.Send("500 Unknown command\r\n");
+                                }
+                                else if (result.MessageHandler != null)
+                                {
+                                    this.inProcessCommand = result;
+                                }
+                                else if (result.IsQuitting)
+                                {
+                                    return;
+                                }
                             }
                             catch (Exception ex)
                             {
@@ -360,7 +376,10 @@ namespace McNNTP.Core.Server.NNTP
                                 break;
                             }
                         }
-                        else await this.Send("500 Unknown command\r\n");
+                        else
+                        {
+                            await this.Send("500 Unknown command\r\n");
+                        }
                     }
 
                     this.builder.Clear();
@@ -393,62 +412,81 @@ namespace McNNTP.Core.Server.NNTP
             }
 
             if (send403)
+            {
                 await this.Send("403 Archive server temporarily offline\r\n");
+            }
         }
 
         /// <summary>
-        /// Sends the formatted data to the client
+        /// Sends the formatted data to the client.
         /// </summary>
-        /// <param name="format">The data, or format string for data, to send to the client</param>
-        /// <param name="args">The argument applied as a format string to <paramref name="format"/> to create the data to send to the client</param>
-        /// <returns>A value indicating whether or not the transmission was successful</returns>
-        [StringFormatMethod("format"), NotNull]
-        private async Task<bool> Send([NotNull] string format, [NotNull] params object[] args)
+        /// <param name="format">The data, or format string for data, to send to the client.</param>
+        /// <param name="args">The argument applied as a format string to <paramref name="format"/> to create the data to send to the client.</param>
+        /// <returns>A value indicating whether or not the transmission was successful.</returns>
+        private async Task<bool> Send([NotNull][StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, [NotNull] params object[] args)
         {
-            return await this.SendInternal(string.Format(CultureInfo.InvariantCulture, format, args), false);
+            return await this.SendInternal(string.Format(CultureInfo.InvariantCulture, format, args), false, CancellationToken.None);
         }
 
         /// <summary>
-        /// Sends the formatted data to the client
+        /// Sends the formatted data to the client.
         /// </summary>
-        /// <param name="format">The data, or format string for data, to send to the client</param>
-        /// <param name="args">The argument applied as a format string to <paramref name="format"/> to create the data to send to the client</param>
-        /// <returns>A value indicating whether or not the transmission was successful</returns>
-        [StringFormatMethod("format"), NotNull]
-        private async Task<bool> SendCompressed([NotNull] string format, [NotNull] params object[] args)
+        /// <param name="format">The data, or format string for data, to send to the client.</param>
+        /// <param name="args">The argument applied as a format string to <paramref name="format"/> to create the data to send to the client.</param>
+        /// <returns>A value indicating whether or not the transmission was successful.</returns>
+        private async Task<bool> SendCompressed([NotNull][StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, [NotNull] params object[] args)
         {
-            return await this.SendInternal(string.Format(CultureInfo.InvariantCulture, format, args), true);
+            return await this.SendInternal(string.Format(CultureInfo.InvariantCulture, format, args), true, CancellationToken.None);
         }
 
-        private async Task<bool> SendInternal([NotNull] string data, bool compressedIfPossible)
+        private async Task<bool> SendInternal([NotNull] string data, bool compressedIfPossible, CancellationToken cancellationToken)
         {
             // Convert the string data to byte data using ASCII encoding.
             byte[] byteData;
             if (compressedIfPossible && this.Compression && this.CompressionGZip && this.CompressionTerminator)
-                byteData = await data.GZipCompress();
+            {
+                byteData = await data.ZlibDeflate(cancellationToken);
+            }
             else
+            {
                 byteData = Encoding.UTF8.GetBytes(data);
+            }
 
             try
             {
                 // Begin sending the data to the remote device.
-                await this.stream.WriteAsync(byteData, 0, byteData.Length);
+                await this.stream.WriteAsync(byteData, cancellationToken);
                 if (this.ShowBytes && this.ShowData)
+                {
                     Logger.TraceFormat(
-                        "{0}:{1} <{2}{3} {4} bytes: {5}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
+                        "{0}:{1} <{2}{3} {4} bytes: {5}",
+                        this.RemoteAddress,
+                        this.RemotePort,
+                        this.TLS ? "!" : "<",
                         compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         byteData.Length,
                         data.TrimEnd('\r', '\n'));
+                }
                 else if (this.ShowBytes)
+                {
                     Logger.TraceFormat(
-                        "{0}:{1} <{2}{3} {4} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
+                        "{0}:{1} <{2}{3} {4} bytes",
+                        this.RemoteAddress,
+                        this.RemotePort,
+                        this.TLS ? "!" : "<",
                         compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         byteData.Length);
+                }
                 else if (this.ShowData)
+                {
                     Logger.TraceFormat(
-                        "{0}:{1} <{2}{3} {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : "<",
+                        "{0}:{1} <{2}{3} {4}",
+                        this.RemoteAddress,
+                        this.RemotePort,
+                        this.TLS ? "!" : "<",
                         compressedIfPossible && this.CompressionGZip ? "G" : "<",
                         data.TrimEnd('\r', '\n'));
+                }
 
                 return true;
             }
@@ -496,7 +534,7 @@ namespace McNNTP.Core.Server.NNTP
         /// </example>
         private async Task<CommandProcessingResult> Article(string content)
         {
-            var param = 
+            var param =
                 (string.Compare(content, "ARTICLE\r\n", StringComparison.OrdinalIgnoreCase) == 0) ||
                 (string.Compare(content, "ARTICLE \r\n", StringComparison.OrdinalIgnoreCase) == 0)
                 ? null
@@ -529,11 +567,18 @@ namespace McNNTP.Core.Server.NNTP
                     }
 
                     if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == this.CurrentArticleNumber);
+                    }
                     else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == this.CurrentArticleNumber);
+                    }
                     else
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == this.CurrentArticleNumber);
+                    }
+
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
@@ -557,17 +602,25 @@ namespace McNNTP.Core.Server.NNTP
                     }
 
                     if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
+                    }
                     else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
+                    }
                     else
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == articleNumber);
+                    }
+
                     type = 2;
                 }
 
                 session.Close();
 
                 if (articleNewsgroup == null)
+                {
                     switch (type)
                     {
                         case 1:
@@ -581,6 +634,7 @@ namespace McNNTP.Core.Server.NNTP
                             break;
 
                     }
+                }
                 else
                 {
                     switch (type)
@@ -657,55 +711,18 @@ namespace McNNTP.Core.Server.NNTP
 
                 if (admin == null)
                 {
-                    if (this.server.LdapDirectoryConfiguration != null && this.server.LdapDirectoryConfiguration.AutoEnroll)
-                    {
-                        var memberships =
-                            LdapUtility.GetUserGroupMemberships(this.server.LdapDirectoryConfiguration.LdapServer, this.server.LdapDirectoryConfiguration.LookupAccountUsername, this.server.LdapDirectoryConfiguration.LookupAccountPassword, this.Username);
-
-                        // Auto enroll the user as an administrator.
-                        throw new NotImplementedException("Auto enrollment is not yet implemented.");
-
-                        // if (memberships.Any(m => string.Compare(m, this.server.LdapDirectoryConfiguration.AutoEnrollAdminGroup, StringComparison.OrdinalIgnoreCase) == 0))
-                        // {
-                        //     // Auto enroll the user as an administrator.
-                        //     throw new NotImplementedException("Auto enrollment is not yet implemented.");
-                        // }
-                        // else 
-                        // {
-                        //     // Auto enroll the user as a non-administrator.
-                        //     throw new NotImplementedException("Auto enrollment is not yet implemented.");
-                        // }
-                    }
-                    else
-                    {
-                        // No user with this username in the local database
-                        await this.Send("481 Authentication failed/rejected\r\n");
-                        return new CommandProcessingResult(true);
-                    }
+                    // No user with this username in the local database
+                    await this.Send("481 Authentication failed/rejected\r\n");
+                    return new CommandProcessingResult(true);
                 }
 
-                if (this.server.LdapDirectoryConfiguration != null)
+                // Local authentication
+                if (admin.PasswordHash != Convert.ToBase64String(new SHA512CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(string.Concat(admin.PasswordSalt, password)))))
                 {
-                    // LDAP authentication
-                    if (!LdapUtility.AuthenticateUser(this.server.LdapDirectoryConfiguration.LdapServer,
-                            this.server.LdapDirectoryConfiguration.SearchPath, this.Username, password))
-                    {
-                        Logger.WarnFormat("User {0} failed authentication against LDAP server.", this.Username);
-                        await this.Send("481 Authentication failed/rejected\r\n");
-                        return new CommandProcessingResult(true);
-                    }
+                    Logger.WarnFormat("User {0} failed authentication against local authentication database.", this.Username);
+                    await this.Send("481 Authentication failed/rejected\r\n");
+                    return new CommandProcessingResult(true);
                 }
-                else
-                {
-                    // Local authentication
-                    if (admin.PasswordHash != Convert.ToBase64String(new SHA512CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(string.Concat(admin.PasswordSalt, password)))))
-                    {
-                        Logger.WarnFormat("User {0} failed authentication against local authentication database.", this.Username);
-                        await this.Send("481 Authentication failed/rejected\r\n");
-                        return new CommandProcessingResult(true);
-                    }
-                }
-
 
                 if (admin.LocalAuthenticationOnly &&
                     !IPAddress.IsLoopback(this.RemoteAddress))
@@ -776,11 +793,18 @@ namespace McNNTP.Core.Server.NNTP
                     }
 
                     if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == this.CurrentArticleNumber);
+                    }
                     else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == this.CurrentArticleNumber);
+                    }
                     else
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == this.CurrentArticleNumber);
+                    }
+
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
@@ -804,17 +828,25 @@ namespace McNNTP.Core.Server.NNTP
                     }
 
                     if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
+                    }
                     else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
+                    }
                     else
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == articleNumber);
+                    }
+
                     type = 2;
                 }
 
                 session.Close();
 
                 if (articleNewsgroup == null)
+                {
                     switch (type)
                     {
                         case 1:
@@ -827,6 +859,7 @@ namespace McNNTP.Core.Server.NNTP
                             await this.Send("420 Current article number is invalid\r\n");
                             break;
                     }
+                }
                 else
                 {
                     switch (type)
@@ -854,7 +887,7 @@ namespace McNNTP.Core.Server.NNTP
 
         /// <summary>
         /// Handles the CAPABILITIES command from a client, which allows a client to retrieve a list
-        /// of the functionality available in this server. 
+        /// of the functionality available in this server.
         /// </summary>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-5.2">RFC 3977</a> for more information.</remarks>
@@ -873,7 +906,10 @@ namespace McNNTP.Core.Server.NNTP
             sb.Append("POST\r\n");
             sb.Append("READER\r\n");
             if (this.AllowStartTls)
+            {
                 sb.Append("STARTTLS\r\n");
+            }
+
             sb.Append("XFEATURE-COMPRESS GZIP TERMINATOR\r\n");
             sb.Append("IMPLEMENTATION McNNTP 1.0.0\r\n");
             sb.Append(".\r\n");
@@ -911,7 +947,9 @@ namespace McNNTP.Core.Server.NNTP
             }
 
             if (ng == null)
+            {
                 await this.Send("411 {0} is unknown\r\n", content);
+            }
             else
             {
                 this.CurrentNewsgroup = ng.Name;
@@ -919,10 +957,14 @@ namespace McNNTP.Core.Server.NNTP
 
                 // ReSharper disable ConvertIfStatementToConditionalTernaryExpression
                 if (ng.MessageCount == 0)
+                {
                     // ReSharper restore ConvertIfStatementToConditionalTernaryExpression
                     await this.Send("211 0 0 0 {0}\r\n", ng.Name);
+                }
                 else
+                {
                     await this.Send("211 {0} {1} {2} {3}\r\n", ng.MessageCount, ng.LowWatermark, ng.HighWatermark, ng.Name);
+                }
             }
 
             return new CommandProcessingResult(true);
@@ -940,7 +982,9 @@ namespace McNNTP.Core.Server.NNTP
             int type;
 
             if (parts.Length == 3 && parts[2].StartsWith("<", StringComparison.Ordinal))
+            {
                 type = 1;
+            }
             else if (parts.Length == 3 && !parts[2].StartsWith("<", StringComparison.Ordinal))
             {
                 type = 2;
@@ -992,28 +1036,42 @@ namespace McNNTP.Core.Server.NNTP
 
                         Debug.Assert(this.CurrentNewsgroup != null);
                         if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                        {
                             articleNewsgroups = range.Item2.HasValue
                                 ? session.Query<ArticleNewsgroup>().Where(an => an.Cancelled && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number >= range.Item1 && an.Number <= range.Item2)
                                 : session.Query<ArticleNewsgroup>().Where(an => an.Cancelled && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number >= range.Item1);
+                        }
                         else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                        {
                             articleNewsgroups = (range.Item2.HasValue)
                                 ? session.Query<ArticleNewsgroup>().Where(an => an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number >= range.Item1 && an.Number <= range.Item2)
                                 : session.Query<ArticleNewsgroup>().Where(an => an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number >= range.Item1);
+                        }
                         else
+                        {
                             articleNewsgroups = (range.Item2.HasValue)
                                 ? session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number >= range.Item1 && an.Number <= range.Item2)
                                 : session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number >= range.Item1);
+                        }
+
                         break;
                     case 3:
                         Debug.Assert(this.CurrentArticleNumber.HasValue);
 
                         Debug.Assert(this.CurrentNewsgroup != null);
                         if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>().Where(an => an.Cancelled && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == this.CurrentArticleNumber.Value);
+                        }
                         else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>().Where(an => an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == this.CurrentArticleNumber.Value);
+                        }
                         else
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == this.CurrentArticleNumber.Value);
+                        }
+
                         break;
                     default:
                         // Unrecognized...
@@ -1024,6 +1082,7 @@ namespace McNNTP.Core.Server.NNTP
                 session.Close();
 
                 if (!articleNewsgroups.Any())
+                {
                     switch (type)
                     {
                         case 1:
@@ -1036,11 +1095,12 @@ namespace McNNTP.Core.Server.NNTP
                             await this.Send("420 Current article number is invalid\r\n");
                             break;
                     }
+                }
                 else
                 {
                     await this.Send("225 Headers follow (multi-line)\r\n");
 
-                    Func<Article, string> headerFunction;
+                    Func<Article, string?> headerFunction;
                     switch (parts[1].ToUpperInvariant())
                     {
                         case "APPROVED":
@@ -1090,16 +1150,22 @@ namespace McNNTP.Core.Server.NNTP
                     }
 
                     foreach (var articleNewsgroup in articleNewsgroups)
+                    {
                         if (type == 1)
+                        {
                             await this.Send(
                                 "{0} {1}\r\n",
                                 (!string.IsNullOrEmpty(this.CurrentNewsgroup) && string.CompareOrdinal(articleNewsgroup.Newsgroup.Name, this.CurrentNewsgroup) == 0) ? articleNewsgroup.Article.MessageId : "0",
                                 headerFunction.Invoke(articleNewsgroup.Article));
+                        }
                         else
+                        {
                             await this.Send(
                                 "{0} {1}\r\n",
                                 articleNewsgroup.Number,
                                 headerFunction.Invoke(articleNewsgroup.Article));
+                        }
+                    }
 
                     await this.Send(".\r\n");
                 }
@@ -1144,11 +1210,18 @@ namespace McNNTP.Core.Server.NNTP
                     }
 
                     if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == this.CurrentArticleNumber);
+                    }
                     else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == this.CurrentArticleNumber);
+                    }
                     else
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == this.CurrentArticleNumber);
+                    }
+
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
@@ -1163,7 +1236,7 @@ namespace McNNTP.Core.Server.NNTP
                         await this.Send("412 No newsgroup selected\r\n");
                         return new CommandProcessingResult(true);
                     }
-                    
+
                     int articleNumber;
                     if (!int.TryParse(param, out articleNumber))
                     {
@@ -1172,11 +1245,18 @@ namespace McNNTP.Core.Server.NNTP
                     }
 
                     if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Cancelled && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
+                    }
                     else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Number == articleNumber);
+                    }
                     else
+                    {
                         articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == articleNumber);
+                    }
+
                     type = 2;
                 }
 
@@ -1225,7 +1305,7 @@ namespace McNNTP.Core.Server.NNTP
         /// </summary>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-7.2">RFC 3977</a> for more information.</remarks>
-        [NotNull, Pure]
+        [Pure]
         private async Task<CommandProcessingResult> Help()
         {
             var sb = new StringBuilder();
@@ -1244,11 +1324,15 @@ namespace McNNTP.Core.Server.NNTP
             {
                 sb.Append("The list of commands understood by this server are:\r\n");
                 foreach (var cmd in CommandDirectory)
+                {
                     sb.AppendFormat(CultureInfo.InvariantCulture, "{0}\r\n", cmd.Key);
+                }
             }
 
             if (!sb.ToString().EndsWith("\r\n.\r\n"))
+            {
                 sb.Append("\r\n.\r\n");
+            }
 
             await this.Send(sb.ToString());
             return new CommandProcessingResult(true);
@@ -1260,7 +1344,6 @@ namespace McNNTP.Core.Server.NNTP
         /// </summary>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-6.1.3">RFC 3977</a> for more information.</remarks>
-        [NotNull]
         private async Task<CommandProcessingResult> Last()
         {
             // If the currently selected newsgroup is invalid, a 412 response MUST be returned.
@@ -1272,7 +1355,7 @@ namespace McNNTP.Core.Server.NNTP
 
             var currentArticleNumber = this.CurrentArticleNumber;
 
-            ArticleNewsgroup previousArticleNewsgroup;
+            ArticleNewsgroup? previousArticleNewsgroup;
 
             if (!currentArticleNumber.HasValue)
             {
@@ -1284,8 +1367,7 @@ namespace McNNTP.Core.Server.NNTP
             {
                 previousArticleNewsgroup = session.Query<ArticleNewsgroup>()
                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number < currentArticleNumber.Value)
-                    .MaxBy(an => an.Number)
-                    .FirstOrDefault();
+                    .MaxBy(an => an.Number);
                 session.Close();
             }
 
@@ -1306,7 +1388,7 @@ namespace McNNTP.Core.Server.NNTP
         /// Handles the LIST command from a client, which allows a client to retrieve blocks
         /// of information depending on the parameters and arguments supplied with the command.
         /// </summary>
-        /// <param name="content">The full command request provided by the client</param>
+        /// <param name="content">The full command request provided by the client.</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-7.6.1">RFC 3977</a> for more information.</remarks>
         private async Task<CommandProcessingResult> List(string content)
@@ -1319,7 +1401,7 @@ namespace McNNTP.Core.Server.NNTP
                 var wildmat = contentParts.Length == 2
                     ? null
                     : content.TrimEnd('\r', '\n').Split(' ').Skip(2).Aggregate((c, n) => c + " " + n);
-                
+
                 await this.ListActiveTimes(wildmat);
                 return new CommandProcessingResult(true);
             }
@@ -1396,16 +1478,22 @@ namespace McNNTP.Core.Server.NNTP
 
         private async Task ListActive(string content)
         {
-            IList<Newsgroup> newsGroups = null;
+            IList<Newsgroup>? newsGroups = null;
 
-            string wildmat;
+            string? wildmat;
             if (content.EndsWith("LIST\r\n", StringComparison.OrdinalIgnoreCase) ||
                 content.EndsWith("ACTIVE\r\n", StringComparison.OrdinalIgnoreCase))
+            {
                 wildmat = null;
+            }
             else if (content.StartsWith("LIST ACTIVE ", StringComparison.OrdinalIgnoreCase))
+            {
                 wildmat = content.TrimEnd('\r', '\n').Split(' ').Skip(2).Aggregate((c, n) => c + " " + n);
+            }
             else
+            {
                 wildmat = content.TrimEnd('\r', '\n').Split(' ').Skip(1).Aggregate((c, n) => c + " " + n);
+            }
 
             var send403 = false;
 
@@ -1438,18 +1526,21 @@ namespace McNNTP.Core.Server.NNTP
 
             await this.Send("215 list of newsgroups follows\r\n");
             foreach (var ng in newsGroups)
-                await this.Send("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark ?? 0, ng.LowWatermark ?? 0, 
-                    ng.Moderated ? "m" : 
+            {
+                await this.Send("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark ?? 0, ng.LowWatermark ?? 0,
+                    ng.Moderated ? "m" :
                     !this.CanPost || (ng.DenyLocalPosting && ng.DenyPeerPosting) ? "n" :
                     ng.DenyPeerPosting ? "x" :
                     ng.DenyLocalPosting ? "j" :
                     "y");
+            }
+
             await this.Send(".\r\n");
         }
 
-        private async Task ListActiveTimes([CanBeNull] string wildmat)
+        private async Task ListActiveTimes(string? wildmat)
         {
-            IList<Newsgroup> newsGroups = null;
+            IList<Newsgroup>? newsGroups = null;
 
             var send403 = false;
 
@@ -1481,9 +1572,15 @@ namespace McNNTP.Core.Server.NNTP
             }
 
             await this.Send("215 information follows\r\n");
-            var epoch = new DateTime(1970, 1, 1);
-            foreach (var ng in newsGroups)
-                await this.Send("{0} {1} {2}\r\n", ng.Name, (ng.CreateDate - epoch).TotalSeconds, ng.CreatorEntity);
+            if (newsGroups != null)
+            {
+                var epoch = new DateTime(1970, 1, 1);
+                foreach (var ng in newsGroups)
+                {
+                    await this.Send("{0} {1} {2}\r\n", ng.Name, (ng.CreateDate - epoch).TotalSeconds, ng.CreatorEntity);
+                }
+            }
+
             await this.Send(".\r\n");
         }
 
@@ -1500,9 +1597,9 @@ namespace McNNTP.Core.Server.NNTP
         /// select with the GROUP command (see Section 6.1.1 of [RFC3977]).</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="https://tools.ietf.org/html/rfc6048#section-2.2">RFC 6048</a> for more information.</remarks>
-        private async Task ListCounts([CanBeNull] string wildmat)
+        private async Task ListCounts(string? wildmat)
         {
-            IList<Newsgroup> newsGroups = null;
+            IList<Newsgroup>? newsGroups = null;
 
             var send403 = false;
 
@@ -1536,7 +1633,10 @@ namespace McNNTP.Core.Server.NNTP
             await this.Send("215 List of newsgroups follows\r\n");
             var epoch = new DateTime(1970, 1, 1);
             foreach (var ng in newsGroups)
+            {
                 await this.Send("{0} {1} {2} {3} {4}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, ng.MessageCount, ng.Moderated ? "m" : this.CanPost ? "y" : "n");
+            }
+
             await this.Send(".\r\n");
         }
 
@@ -1552,7 +1652,10 @@ namespace McNNTP.Core.Server.NNTP
 
             await this.Send("215 information follows\r\n");
             foreach (var pat in pats)
+            {
                 await this.Send("{0}:{1}:{2}\r\n", pat.Weight, pat.Wildmat, pat.Distribution);
+            }
+
             await this.Send(".\r\n");
         }
 
@@ -1560,10 +1663,8 @@ namespace McNNTP.Core.Server.NNTP
         /// A "distributions list" is maintained by some NNTP servers to contain
         /// the name of each distribution that is known by the news server and a
         /// short description about the meaning of the distribution.
-        /// 
         /// Distributions are used by clients as potential values for the
-        /// Distribution header field body of a news article being posted (see 
-        /// Section 3.2.4 of [RFC5536] for the definition of this header field).
+        /// Distribution header field body of a news article being posted (see Section 3.2.4 of [RFC5536] for the definition of this header field).
         /// </summary>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="https://tools.ietf.org/html/rfc6048#section-2.3">RFC 6048</a> for more information.</remarks>
@@ -1579,7 +1680,10 @@ namespace McNNTP.Core.Server.NNTP
 
             await this.Send("215 information follows\r\n");
             foreach (var pat in pats)
+            {
                 await this.Send("{0} {1}\r\n", pat.Distribution, pat.Description);
+            }
+
             await this.Send(".\r\n");
         }
 
@@ -1609,7 +1713,7 @@ namespace McNNTP.Core.Server.NNTP
 
             await this.Send(sb.ToString());
         }
-        
+
         private async Task ListMotd()
         {
             var sb = new StringBuilder();
@@ -1625,10 +1729,14 @@ namespace McNNTP.Core.Server.NNTP
                 }
             }
             else
+            {
                 sb.Append("There is no MOTD.TXT file\r\n");
+            }
 
             if (!sb.ToString().EndsWith("\r\n.\r\n"))
+            {
                 sb.Append("\r\n.\r\n");
+            }
 
             await this.Send(sb.ToString());
             return;
@@ -1667,10 +1775,13 @@ namespace McNNTP.Core.Server.NNTP
 
             await this.Send("215 information follows\r\n");
             foreach (var ng in newsGroups)
+            {
                 await this.Send("{0}\t{1}\r\n", ng.Name, ng.Description);
+            }
+
             await this.Send(".\r\n");
         }
-       
+
         /// <summary>
         /// Handles the LISTGROUP command from a client, which allows a client to set the currently
         /// selected newsgroup and also retrieve a list of article numbers.
@@ -1683,7 +1794,9 @@ namespace McNNTP.Core.Server.NNTP
             var parts = content.TrimEnd('\r', '\n').Split(' ');
 
             if (parts.Length == 1 && this.CurrentNewsgroup == null)
+            {
                 await this.Send("412 No newsgroup selected\r\n");
+            }
 
             using (var session = Database.SessionUtility.OpenSession())
             {
@@ -1705,7 +1818,9 @@ namespace McNNTP.Core.Server.NNTP
 
                 IList<ArticleNewsgroup> articleNewsgroups;
                 if (parts.Length < 3)
+                {
                     articleNewsgroups = session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name).OrderBy(a => a.Number).ToList();
+                }
                 else
                 {
                     var range = ParseRange(parts[2]);
@@ -1717,9 +1832,13 @@ namespace McNNTP.Core.Server.NNTP
 
                     // ReSharper disable once ConvertIfStatementToConditionalTernaryExpression
                     if (!range.Item2.HasValue) // LOW-
+                    {
                         articleNewsgroups = session.Query<ArticleNewsgroup>().Fetch(a => a.Newsgroup).Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number >= range.Item1).OrderBy(a => a.Number).ToList();
+                    }
                     else // LOW-HIGH
+                    {
                         articleNewsgroups = session.Query<ArticleNewsgroup>().Fetch(a => a.Newsgroup).Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number >= range.Item1 && an.Number <= range.Item2.Value).ToList();
+                    }
                 }
 
                 session.Close();
@@ -1728,7 +1847,10 @@ namespace McNNTP.Core.Server.NNTP
 
                 await this.Send("211 {0} {1} {2} {3}\r\n", ng.MessageCount, ng.LowWatermark, ng.HighWatermark, ng.Name);
                 foreach (var article in articleNewsgroups)
+                {
                     await this.Send("{0}\r\n", article.Number.ToString(CultureInfo.InvariantCulture));
+                }
+
                 await this.Send(".\r\n");
             }
 
@@ -1769,7 +1891,10 @@ namespace McNNTP.Core.Server.NNTP
 
             await this.Send("231 List of new newsgroups follows (multi-line)\r\n");
             foreach (var ng in newsGroups)
+            {
                 await this.Send("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, this.CanPost ? "y" : "n");
+            }
+
             await this.Send(".\r\n");
             return new CommandProcessingResult(true);
         }
@@ -1790,7 +1915,7 @@ namespace McNNTP.Core.Server.NNTP
                 await this.Send("501 Syntax Error\r\n");
                 return new CommandProcessingResult(true);
             }
-            
+
             var wildmat = parts[1];
 
             var dateTime = string.Join(" ", parts.ElementAt(2), parts.ElementAt(3));
@@ -1801,6 +1926,7 @@ namespace McNNTP.Core.Server.NNTP
                 await this.Send("501 Syntax Error\r\n");
                 return new CommandProcessingResult(true);
             }
+
             afterDate = afterDate.ToUniversalTime();
 
             IList<Article> newArticles;
@@ -1818,8 +1944,13 @@ namespace McNNTP.Core.Server.NNTP
 
             await this.Send("230 list of new articles by message-id follows\r\n");
             if (newArticles != null)
+            {
                 foreach (var a in newArticles.Where(na => na.ArticleNewsgroups.Select(an => an.Newsgroup).Any(ng => ng.Name.MatchesWildmat(wildmat))))
+                {
                     await this.Send("{0}\r\n", a.MessageId);
+                }
+            }
+
             await this.Send(".\r\n");
             return new CommandProcessingResult(true);
         }
@@ -1835,7 +1966,7 @@ namespace McNNTP.Core.Server.NNTP
 
             var currentArticleNumber = this.CurrentArticleNumber;
 
-            ArticleNewsgroup previousArticleNewsgroup;
+            ArticleNewsgroup? previousArticleNewsgroup;
 
             if (!currentArticleNumber.HasValue)
             {
@@ -1847,8 +1978,7 @@ namespace McNNTP.Core.Server.NNTP
             {
                 previousArticleNewsgroup = session.Query<ArticleNewsgroup>()
                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number > currentArticleNumber.Value)
-                    .MinBy(an => an.Number)
-                    .FirstOrDefault();
+                    .MinBy(an => an.Number);
                 session.Close();
             }
 
@@ -1868,7 +1998,7 @@ namespace McNNTP.Core.Server.NNTP
         private async Task<CommandProcessingResult> Over(string content)
         {
             var param = content.Substring(content.IndexOf(' ') + 1).TrimEnd('\r', '\n');
-            
+
             IList<ArticleNewsgroup> articleNewsgroups = null;
             var send403 = false;
 
@@ -1892,17 +2022,23 @@ namespace McNNTP.Core.Server.NNTP
                         }
 
                         if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>()
                                 .Where(an => an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Cancelled && an.Number == this.CurrentArticleNumber)
                                 .ToArray();
+                        }
                         else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>()
                                 .Where(an => an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Pending && an.Number == this.CurrentArticleNumber)
                                 .ToArray();
+                        }
                         else
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>()
                                 .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == this.CurrentArticleNumber)
                                 .ToArray();
+                        }
 
                         if (!articleNewsgroups.Any())
                         {
@@ -1940,38 +2076,50 @@ namespace McNNTP.Core.Server.NNTP
                         if (!range.Item2.HasValue) // LOW-
                         {
                             if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Cancelled && an.Number >= range.Item1)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Pending && an.Number >= range.Item1)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number >= range.Item1)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                         }
                         else // LOW-HIGH
                         {
                             if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Cancelled && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Newsgroup.Name == this.CurrentNewsgroup.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Pending && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                         }
 
                         if (!articleNewsgroups.Any())
@@ -2000,13 +2148,18 @@ namespace McNNTP.Core.Server.NNTP
             Func<string, string> unfold = i => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", string.Empty).Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
 
             if (this.Compression && this.CompressionGZip)
+            {
                 await this.Send("224 Overview information follows (multi-line) [COMPRESS=GZIP]\r\n");
+            }
             else
+            {
                 await this.Send("224 Overview information follows (multi-line)\r\n");
+            }
 
             var sb = new StringBuilder();
 
             foreach (var articleNewsgroup in articleNewsgroups)
+            {
                 sb.AppendFormat(
                     "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
                     string.CompareOrdinal(articleNewsgroup.Newsgroup.Name, this.CurrentNewsgroup) == 0 ? articleNewsgroup.Number : 0,
@@ -2017,6 +2170,8 @@ namespace McNNTP.Core.Server.NNTP
                     unfold(articleNewsgroup.Article.References).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
                     unfold((articleNewsgroup.Article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
                     unfold(articleNewsgroup.Article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture)));
+            }
+
             sb.Append(".\r\n");
             await this.SendCompressed(sb.ToString());
 
@@ -2029,7 +2184,6 @@ namespace McNNTP.Core.Server.NNTP
         /// </summary>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-6.3.1">RFC 3977</a> for more information.</remarks>
-        [NotNull]
         private async Task<CommandProcessingResult> Post()
         {
             if (!this.CanPost)
@@ -2043,13 +2197,15 @@ namespace McNNTP.Core.Server.NNTP
             return await this.PostMessageAccumulator(null, null);
         }
 
-        private async Task<CommandProcessingResult> PostMessageAccumulator(string msg, CommandProcessingResult prev)
+        private async Task<CommandProcessingResult> PostMessageAccumulator(string? msg, CommandProcessingResult? prev)
         {
             if (
+
                 // Message ends naturally
-                    (msg != null && msg.EndsWith("\r\n.\r\n", StringComparison.OrdinalIgnoreCase)) ||
+                (msg != null && msg.EndsWith("\r\n.\r\n", StringComparison.OrdinalIgnoreCase)) ||
+
                 // Message delimiter comes in second batch
-                    (prev != null && prev.Message != null && prev.Message.EndsWith("\r\n", StringComparison.OrdinalIgnoreCase) && msg != null && msg.EndsWith(".\r\n", StringComparison.OrdinalIgnoreCase)))
+                (prev != null && prev.Message != null && prev.Message.EndsWith("\r\n", StringComparison.OrdinalIgnoreCase) && msg != null && msg.EndsWith(".\r\n", StringComparison.OrdinalIgnoreCase)))
             {
                 bool send441;
 
@@ -2073,11 +2229,17 @@ namespace McNNTP.Core.Server.NNTP
                         {
                             bool canApprove;
                             if (this.Identity == null)
+                            {
                                 canApprove = false;
+                            }
                             else if (this.Identity.CanInject || this.Identity.CanApproveAny)
+                            {
                                 canApprove = true;
+                            }
                             else
+                            {
                                 canApprove = this.Identity.Moderates.Any(ng => ng.Name == newsgroupName);
+                            }
 
                             if (!canApprove)
                             {
@@ -2103,7 +2265,9 @@ namespace McNNTP.Core.Server.NNTP
                                 // RFC 5536 3.2.6. The Followup-To header field SHOULD NOT appear in a message, unless its content is different from the content of the Newsgroups header field.
                                 if (!string.IsNullOrWhiteSpace(article.FollowupTo) &&
                                     string.Compare(article.FollowupTo, article.Newsgroups, StringComparison.OrdinalIgnoreCase) == 0)
+                                {
                                     article.FollowupTo = null;
+                                }
                             }
 
                             if ((article.Control != null && this.Identity == null) ||
@@ -2142,7 +2306,7 @@ namespace McNNTP.Core.Server.NNTP
                                     await this.Send("240 Article received OK\r\n");
                                     return new CommandProcessingResult(true, true)
                                     {
-                                        Message = prev.Message + msg
+                                        Message = prev.Message + msg,
                                     };
                                 }
                             }
@@ -2168,22 +2332,24 @@ namespace McNNTP.Core.Server.NNTP
                                 Cancelled = false,
                                 Newsgroup = newsgroup,
                                 Number = session.CreateQuery("select max(an.Number) from ArticleNewsgroup an where an.Newsgroup.Name = :NewsgroupName").SetParameter("NewsgroupName", newsgroupName).UniqueResult<int>() + 1,
-                                Pending = newsgroup.Moderated && !canApprove
+                                Pending = newsgroup.Moderated && !canApprove,
                             };
                             session.Save(articleNewsgroup);
 
                             if (article.Control != null)
+                            {
                                 this.HandleControlMessage(newsgroup, article);
+                            }
                         }
 
                         session.Flush();
                         session.Close();
                     }
-                    
+
                     await this.Send("240 Article received OK\r\n");
                     return new CommandProcessingResult(true, true)
                     {
-                        Message = prev.Message + msg
+                        Message = prev.Message + msg,
                     };
                 }
                 catch (Exception ex)
@@ -2202,7 +2368,7 @@ namespace McNNTP.Core.Server.NNTP
             return new CommandProcessingResult(true, false)
             {
                 MessageHandler = this.PostMessageAccumulator,
-                Message = prev == null ? msg : prev.Message == null ? msg : prev.Message + "\r\n" + msg
+                Message = prev == null ? msg : prev.Message == null ? msg : prev.Message + "\r\n" + msg,
             };
         }
 
@@ -2211,7 +2377,6 @@ namespace McNNTP.Core.Server.NNTP
         /// </summary>
         /// <returns>A command processing result specifying the connection is quitting.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-5.4">RFC 3977</a> for more information.</remarks>
-        [NotNull]
         private async Task<CommandProcessingResult> Quit()
         {
             await this.Shutdown();
@@ -2290,6 +2455,7 @@ namespace McNNTP.Core.Server.NNTP
                 session.Close();
 
                 if (articleNewsgroup == null)
+                {
                     switch (type)
                     {
                         case 1:
@@ -2302,6 +2468,7 @@ namespace McNNTP.Core.Server.NNTP
                             await this.Send("420 Current article number is invalid\r\n");
                             break;
                     }
+                }
                 else
                 {
                     switch (type)
@@ -2351,7 +2518,7 @@ namespace McNNTP.Core.Server.NNTP
         {
             var header = content.Split(' ')[1];
             var rangeExpression = content.Split(' ')[2].TrimEnd('\r', '\n');
-            
+
             if (this.CurrentNewsgroup == null && !rangeExpression.StartsWith("<", StringComparison.OrdinalIgnoreCase))
             {
                 await this.Send("412 No news group current selected\r\n");
@@ -2389,20 +2556,26 @@ namespace McNNTP.Core.Server.NNTP
                         }
 
                         if (currentNewsgroup != null && currentNewsgroup.EndsWith(".deleted"))
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>()
                                 .Where(an => an.Cancelled && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number == this.CurrentArticleNumber)
                                 .OrderBy(a => a.Number)
                                 .ToList();
+                        }
                         else if (currentNewsgroup != null && currentNewsgroup.EndsWith(".pending"))
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>()
                                 .Where(an => an.Pending && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number == this.CurrentArticleNumber)
                                 .OrderBy(a => a.Number)
                                 .ToList();
+                        }
                         else
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>()
                                 .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number == this.CurrentArticleNumber)
                                 .OrderBy(a => a.Number)
                                 .ToList();
+                        }
                     }
                     else if (rangeExpression.StartsWith("<", StringComparison.OrdinalIgnoreCase))
                     {
@@ -2423,39 +2596,51 @@ namespace McNNTP.Core.Server.NNTP
                         {
                             // LOW-
                             if (currentNewsgroup != null && currentNewsgroup.EndsWith(".deleted"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Cancelled && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else if (currentNewsgroup != null && currentNewsgroup.EndsWith(".pending"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Pending && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number >= range.Item1)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                         }
                         else
                         {
                             // LOW-HIGH
                             if (currentNewsgroup != null && currentNewsgroup.EndsWith(".deleted"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Cancelled && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else if (currentNewsgroup != null && currentNewsgroup.EndsWith(".pending"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Pending && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                         }
                     }
 
@@ -2473,7 +2658,7 @@ namespace McNNTP.Core.Server.NNTP
                 await this.Send("403 Archive server temporarily offline\r\n");
                 return new CommandProcessingResult(true);
             }
-            
+
             if (!articleNewsgroups.Any())
             {
                 await this.Send(".\r\n");
@@ -2483,7 +2668,10 @@ namespace McNNTP.Core.Server.NNTP
             await this.Send("221 Header follows\r\n");
             var sb = new StringBuilder();
             foreach (var articleNewsgroup in articleNewsgroups)
+            {
                 sb.AppendFormat("{0} {1}\r\n", articleNewsgroup.Number, articleNewsgroup.Article.GetHeader(header));
+            }
+
             sb.Append(".\r\n");
             await this.SendCompressed(sb.ToString());
 
@@ -2491,22 +2679,24 @@ namespace McNNTP.Core.Server.NNTP
         }
 
         /// <summary>
-        /// Handles the XOVER command from a client, which allows a client to retrieve metadata from articles.  
+        /// Handles the XOVER command from a client, which allows a client to retrieve metadata from articles.
         /// </summary>
-        /// <param name="content">The full command request provided by the client</param>
+        /// <param name="content">The full command request provided by the client.</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc2980#section-2.8">RFC 2980</a> for more information.</remarks>
-        [NotNull, Pure]
+        [Pure]
         private async Task<CommandProcessingResult> XOver([NotNull] string content)
         {
             var rangeExpression = content.Substring(content.IndexOf(' ') + 1).TrimEnd('\r', '\n');
 
             if (this.CurrentNewsgroup == null)
+            {
                 await this.Send("412 No news group current selected\r\n");
+            }
             else
             {
-                Newsgroup ng = null;
-                IList<ArticleNewsgroup> articleNewsgroups = null;
+                Newsgroup? ng = null;
+                IList<ArticleNewsgroup>? articleNewsgroups = null;
                 var send403 = false;
 
                 try
@@ -2518,20 +2708,26 @@ namespace McNNTP.Core.Server.NNTP
                         if (string.IsNullOrEmpty(rangeExpression))
                         {
                             if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Cancelled)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Pending)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Newsgroup.Name == ng.Name && !an.Cancelled && !an.Pending)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                         }
                         else
                         {
@@ -2546,39 +2742,51 @@ namespace McNNTP.Core.Server.NNTP
                             {
                                 // LOW -
                                 if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                                {
                                     articleNewsgroups = session.Query<ArticleNewsgroup>()
                                         .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Cancelled && an.Number >= range.Item1)
                                         .OrderBy(an => an.Number)
                                         .ToList();
+                                }
                                 else if (this.CurrentNewsgroup.EndsWith(".pending"))
+                                {
                                     articleNewsgroups = session.Query<ArticleNewsgroup>()
                                         .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Pending && an.Number >= range.Item1)
                                         .OrderBy(an => an.Number)
                                         .ToList();
+                                }
                                 else
+                                {
                                     articleNewsgroups = session.Query<ArticleNewsgroup>()
                                         .Where(an => an.Newsgroup.Name == ng.Name && !an.Cancelled && !an.Pending && an.Number >= range.Item1)
                                         .OrderBy(an => an.Number)
                                         .ToList();
+                                }
                             }
                             else
                             {
                                 // LOW-HIGH
                                 if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                                {
                                     articleNewsgroups = session.Query<ArticleNewsgroup>()
                                         .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Cancelled && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                         .OrderBy(an => an.Number)
                                         .ToList();
+                                }
                                 else if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                                {
                                     articleNewsgroups = session.Query<ArticleNewsgroup>()
                                         .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Pending && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                         .OrderBy(an => an.Number)
                                         .ToList();
+                                }
                                 else
+                                {
                                     articleNewsgroups = session.Query<ArticleNewsgroup>()
                                         .Where(an => an.Newsgroup.Name == ng.Name && !an.Cancelled && !an.Pending && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                         .OrderBy(an => an.Number)
                                         .ToList();
+                                }
                             }
                         }
 
@@ -2613,13 +2821,18 @@ namespace McNNTP.Core.Server.NNTP
                 Func<string, string> unfold = i => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", string.Empty).Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
 
                 if (this.Compression && this.CompressionGZip)
+                {
                     await this.Send("224 Overview information follows [COMPRESS=GZIP]\r\n");
+                }
                 else
+                {
                     await this.Send("224 Overview information follows\r\n");
+                }
 
                 var sb = new StringBuilder();
 
                 foreach (var articleNewsgroup in articleNewsgroups)
+                {
                     sb.AppendFormat(
                         "{0}\t{1}\t{2}\t{3}\t{4}\t{5}\t{6}\t{7}\r\n",
                         string.CompareOrdinal(articleNewsgroup.Newsgroup.Name, this.CurrentNewsgroup) == 0 ? articleNewsgroup.Number : 0,
@@ -2630,6 +2843,8 @@ namespace McNNTP.Core.Server.NNTP
                         unfold(articleNewsgroup.Article.References),
                         unfold((articleNewsgroup.Article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
                         unfold(articleNewsgroup.Article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture)));
+                }
+
                 sb.Append(".\r\n");
                 await this.SendCompressed(sb.ToString());
             }
@@ -2639,15 +2854,15 @@ namespace McNNTP.Core.Server.NNTP
 
         /// <summary>
         /// The XPAT command is used to retrieve specific headers from specific
-        /// articles, based on pattern matching on the contents of the header. 
-        ///
+        /// articles, based on pattern matching on the contents of the header.
         /// </summary>
-        /// <param name="content">The full command request provided by the client</param>
+        /// <param name="content">The full command request provided by the client.</param>
         /// <returns>A command processing result specifying the command is handled.</returns>
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc2980#section-2.6">RFC 2980</a> for more information.</remarks>
-        // ReSharper disable once InconsistentNaming
         private async Task<CommandProcessingResult> XPAT([NotNull] string content)
         {
+            ArgumentNullException.ThrowIfNull(content);
+
             var contentSplit = content.Split(' ');
             if (contentSplit.Length < 4)
             {
@@ -2696,20 +2911,26 @@ namespace McNNTP.Core.Server.NNTP
                         }
 
                         if (currentNewsgroup != null && currentNewsgroup.EndsWith(".deleted"))
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>()
                                 .Where(an => an.Cancelled && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number == this.CurrentArticleNumber)
                                 .OrderBy(a => a.Number)
                                 .ToList();
+                        }
                         else if (currentNewsgroup != null && currentNewsgroup.EndsWith(".pending"))
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>()
                                 .Where(an => an.Pending && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number == this.CurrentArticleNumber)
                                 .OrderBy(a => a.Number)
                                 .ToList();
+                        }
                         else
+                        {
                             articleNewsgroups = session.Query<ArticleNewsgroup>()
                                 .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number == this.CurrentArticleNumber)
                                 .OrderBy(a => a.Number)
                                 .ToList();
+                        }
                     }
                     else if (rangeExpression.StartsWith("<", StringComparison.OrdinalIgnoreCase))
                     {
@@ -2736,39 +2957,51 @@ namespace McNNTP.Core.Server.NNTP
                         {
                             // LOW-
                             if (currentNewsgroup != null && currentNewsgroup.EndsWith(".deleted"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Cancelled && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else if (currentNewsgroup != null && currentNewsgroup.EndsWith(".pending"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Pending && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number >= range.Item1)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                         }
                         else
                         {
                             // LOW-HIGH
                             if (currentNewsgroup != null && currentNewsgroup.EndsWith(".deleted"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Cancelled && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else if (currentNewsgroup != null && currentNewsgroup.EndsWith(".pending"))
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => an.Pending && an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                             else
+                            {
                                 articleNewsgroups = session.Query<ArticleNewsgroup>()
                                     .Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == ng.Name && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                     .OrderBy(an => an.Number)
                                     .ToList();
+                            }
                         }
                     }
 
@@ -2799,10 +3032,14 @@ namespace McNNTP.Core.Server.NNTP
             {
                 var headerValue = articleNewsgroup.Article.GetHeader(header);
                 if (string.IsNullOrEmpty(headerValue))
+                {
                     continue;
+                }
 
                 if (pats.Any(p => headerValue.MatchesWildmat(p)))
+                {
                     sb.AppendFormat("{0} {1}\r\n", articleNewsgroup.Number, headerValue);
+                }
             }
             sb.Append(".\r\n");
             await this.SendCompressed(sb.ToString());
@@ -2838,7 +3075,9 @@ namespace McNNTP.Core.Server.NNTP
 
                 var messageId = article.Control.Split(' ').Skip(1).Take(1).SingleOrDefault();
                 if (messageId == null || !messageId.StartsWith("<", StringComparison.Ordinal))
+                {
                     return;
+                }
 
                 using (var session = Database.SessionUtility.OpenSession())
                 {
@@ -2862,28 +3101,33 @@ namespace McNNTP.Core.Server.NNTP
             }
         }
 
-        [CanBeNull, Pure]
-        private static Tuple<int, int?> ParseRange([NotNull] string input)
+        [Pure]
+        private static Tuple<int, int?>? ParseRange([NotNull] string input)
         {
             int low, high;
             if (input.IndexOf('-') == -1)
             {
-                return !int.TryParse(input, out low) 
-                    ? default(Tuple<int, int?>) 
+                return !int.TryParse(input, out low)
+                    ? default
                     : new Tuple<int, int?>(low, low);
             }
 
             if (input.EndsWith("-", StringComparison.Ordinal))
             {
-                return !int.TryParse(input, out low) 
-                    ? default(Tuple<int, int?>) 
+                return !int.TryParse(input, out low)
+                    ? default
                     : new Tuple<int, int?>(low, null);
             }
 
             if (!int.TryParse(input.Substring(0, input.IndexOf('-')), NumberStyles.Integer, CultureInfo.InvariantCulture, out low))
+            {
                 return default(Tuple<int, int?>);
+            }
+
             if (!int.TryParse(input.Substring(input.IndexOf('-') + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out high))
+            {
                 return default(Tuple<int, int?>);
+            }
 
             return new Tuple<int, int?>(low, high);
         }

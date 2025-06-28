@@ -1,14 +1,14 @@
 ﻿namespace McNNTP.Common
 {
     using System;
+    using System.Diagnostics.CodeAnalysis;
+    using System.Diagnostics.Contracts;
     using System.Net;
     using System.Net.Sockets;
     using System.Numerics;
 
-    using JetBrains.Annotations;
-
     /// <summary>
-    /// A utility class for analyzing and manipulating IP addresses
+    /// A utility class for analyzing and manipulating IP addresses.
     /// </summary>
     public static class IpAddressUtility
     {
@@ -24,9 +24,9 @@
                 var cidrAddr = BitConverter.ToInt32(IPAddress.Parse(ipAddress).GetAddressBytes(), 0);
                 var cidrMask = IPAddress.HostToNetworkOrder(-1 << (32 - int.Parse(parts[1])));
 
-                return ((ipAddr & cidrMask) == (cidrAddr & cidrMask));
+                return (ipAddr & cidrMask) == (cidrAddr & cidrMask);
             }
-            
+
             if (address.AddressFamily == AddressFamily.InterNetworkV6)
             {
                 var ipAddress = address.ToString();
@@ -36,7 +36,7 @@
                 var cidrAddr = new BigInteger(IPAddress.Parse(ipAddress).GetAddressBytes());
                 var cidrMask = IPAddress.HostToNetworkOrder(-1 << (128 - int.Parse(parts[1])));
 
-                return ((ipAddr & cidrMask) == (cidrAddr & cidrMask));
+                return (ipAddr & cidrMask) == (cidrAddr & cidrMask);
             }
 
             return false;

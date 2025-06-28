@@ -3,37 +3,44 @@
     using System.Collections.Generic;
     using System.Configuration;
     using System.Linq;
-    using System.Xml;
-
-    using JetBrains.Annotations;
 
     /// <summary>
     /// A collection of <see cref="OperatorConfigurationElement"/> configuration elements that provide
-    /// O: lines, or the oper block, enumerating allowed administrators
+    /// O: lines, or the oper block, enumerating allowed administrators.
     /// </summary>
-    [ConfigurationCollection(typeof(OperatorConfigurationElement), AddItemName = "operator"), UsedImplicitly]
+    [ConfigurationCollection(typeof(OperatorConfigurationElement), AddItemName = "operator")]
     public class OperatorsConfigurationElementCollection : ConfigurationElementCollection, IEnumerable<OperatorConfigurationElement>
     {
+        /// <inheritdoc/>
         protected override ConfigurationElement CreateNewElement()
         {
             return new OperatorConfigurationElement();
         }
 
+        /// <inheritdoc/>
         protected override object GetElementKey(ConfigurationElement element)
         {
-            var pce = (OperatorConfigurationElement) element;
+            var pce = (OperatorConfigurationElement)element;
             return pce.GetType().Name;
         }
 
         public OperatorConfigurationElement this[int index]
         {
-            get { return (OperatorConfigurationElement)this.BaseGet(index); }
+            get
+            {
+                return (OperatorConfigurationElement)this.BaseGet(index);
+            }
+
             set
             {
                 if (this.BaseGet(index) != null)
+                {
                     this.BaseRemove(index);
+                }
+
                 this.BaseAdd(index, value);
             }
+
         }
 
         public void Add(OperatorConfigurationElement protocolConfig)
@@ -61,6 +68,7 @@
             this.BaseRemove(name);
         }
 
+        /// <inheritdoc/>
         public new IEnumerator<OperatorConfigurationElement> GetEnumerator()
         {
             return this.BaseGetAllKeys().Select(key => (OperatorConfigurationElement)this.BaseGet(key)).GetEnumerator();

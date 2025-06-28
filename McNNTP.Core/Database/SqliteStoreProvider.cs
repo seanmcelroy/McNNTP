@@ -61,29 +61,26 @@ namespace McNNTP.Core.Database
         }
 
         /// <summary>
-        /// Ensures a user has any requisite initialization in the store performed prior to their execution of other store methods
+        /// Ensures a user has any requisite initialization in the store performed prior to their execution of other store methods.
         /// </summary>
-        /// <param name="identity">The identity of the user to ensure is initialized properly in the store</param>
+        /// <param name="identity">The identity of the user to ensure is initialized properly in the store.</param>
         public void Ensure(IIdentity identity)
         {
             var personalCatalogs = this.GetPersonalCatalogs(identity, null);
 
-            if (personalCatalogs != null && personalCatalogs.All(c => c.Name != "INBOX"))
+            if (personalCatalogs?.All(c => c.Name != "INBOX") == true)
             {
-                using (var session = SessionUtility.OpenSession())
+                using var session = SessionUtility.OpenSession();
+                var ng = new Newsgroup
                 {
-                    var ng = new Newsgroup
-                             {
-                                 CreateDate = DateTime.UtcNow,
-                                 Description = "Personal inbox for " + identity.Username,
-                                 Name = "INBOX",
-                                 Owner = (User)identity
-                             };
+                    CreateDate = DateTime.UtcNow,
+                    Description = "Personal inbox for " + identity.Username,
+                    Name = "INBOX",
+                    Owner = (User)identity,
+                };
 
-                    session.Save(ng);
-                    session.Flush();
-                    session.Close();
-                }
+                session.Save(ng);
+                session.Flush();
             }
         }
 
@@ -115,7 +112,9 @@ namespace McNNTP.Core.Database
         {
             IEnumerable<Newsgroup> newsGroups = null;
             if (this.HierarchyDelimiter == "NIL")
+            {
                 return null;
+            }
 
             try
             {
@@ -149,27 +148,26 @@ namespace McNNTP.Core.Database
         /// <param name="identity">The identity of the user making the request</param>
         /// <param name="parentCatalogName">The parent catalog.  When specified, this finds catalogs that are contained in this specified parent catalog</param>
         /// <returns>An enumeration of catalogs available to an end-user at the root level in the store</returns>
-        public IEnumerable<ICatalog> GetPersonalCatalogs(IIdentity identity, string parentCatalogName)
+        public IEnumerable<ICatalog>? GetPersonalCatalogs(IIdentity identity, string parentCatalogName)
         {
-            IEnumerable<Newsgroup> newsGroups = null;
+            IEnumerable<Newsgroup>? newsGroups = null;
 
             int identityId;
             if (!int.TryParse(identity.Id, out identityId))
+            {
                 return null;
+            }
 
             try
             {
-                using (var session = SessionUtility.OpenSession())
-                {
-                    newsGroups = session.Query<Newsgroup>()
+                using var session = SessionUtility.OpenSession();
+                newsGroups = [.. session.Query<Newsgroup>()
                         .Where(n => n.Owner.Id == identityId)
                         .ToList()
                         .Where(n =>
                             (parentCatalogName == null && (this.HierarchyDelimiter == "NIL" || n.Name.IndexOf(this.HierarchyDelimiter, StringComparison.OrdinalIgnoreCase) == -1)) ||
                             (parentCatalogName != null && (this.HierarchyDelimiter != "NIL" && n.Name.StartsWith(parentCatalogName + this.HierarchyDelimiter))))
-                        .OrderBy(n => n.Name).ToList();
-                    session.Close();
-                }
+                        .OrderBy(n => n.Name)];
             }
             catch (MappingException mex)
             {
@@ -191,8 +189,10 @@ namespace McNNTP.Core.Database
         /// <returns>A value indicating whether the operation was successful</returns>
         public bool CreatePersonalCatalog(IIdentity identity, string catalogName)
         {
-            if (string.Compare(catalogName, "INBOX", StringComparison.OrdinalIgnoreCase) == 0)
+            if (string.Equals(catalogName, "INBOX", StringComparison.OrdinalIgnoreCase))
+            {
                 return false;
+            }
 
             try
             {
@@ -200,23 +200,27 @@ namespace McNNTP.Core.Database
                 {
                     var owner = session.Query<User>().SingleOrDefault(u => u.Username == identity.Username);
                     if (owner == null)
+                    {
                         return false;
+                    }
 
                     var catalog = session.Query<Newsgroup>().SingleOrDefault(ng => ng.Name == catalogName && ng.Owner.Id == owner.Id);
                     if (catalog != null)
+                    {
                         return false;
+                    }
 
                     catalog = new Newsgroup
-                              {
-                                  CreateDate = DateTime.UtcNow,
-                                  CreatorEntity = identity.Username,
-                                  DenyLocalPosting = false,
-                                  DenyPeerPosting = true,
-                                  Description = "Personal inbox for " + identity.Username,
-                                  Moderated = false,
-                                  Name = catalogName,
-                                  Owner = owner
-                              };
+                    {
+                        CreateDate = DateTime.UtcNow,
+                        CreatorEntity = identity.Username,
+                        DenyLocalPosting = false,
+                        DenyPeerPosting = true,
+                        Description = "Personal inbox for " + identity.Username,
+                        Moderated = false,
+                        Name = catalogName,
+                        Owner = owner,
+                    };
                     session.Save(catalog);
                     session.Close();
                 }
@@ -236,14 +240,14 @@ namespace McNNTP.Core.Database
         }
 
         /// <summary>
-        /// Retrieves a user by their clear-text username and password
+        /// Retrieves a user by their clear-text username and password.
         /// </summary>
-        /// <param name="username">The username of the user</param>
-        /// <param name="password">The clear-text password of the user</param>
-        /// <returns>The user, if one was found with the matching username and password</returns>
-        public IIdentity GetIdentityByClearAuth(string username, string password)
+        /// <param name="username">The username of the user.</param>
+        /// <param name="password">The clear-text password of the user.</param>
+        /// <returns>The user, if one was found with the matching username and password.</returns>
+        public IIdentity? GetIdentityByClearAuth(string username, string password)
         {
-            User admin;
+            User? admin;
             using (var session = SessionUtility.OpenSession())
             {
                 admin = session.Query<User>().Fetch(a => a.Moderates).SingleOrDefault(a => a.Username == username);
@@ -252,14 +256,14 @@ namespace McNNTP.Core.Database
                     admin.LastLogin = DateTime.UtcNow;
                     session.SaveOrUpdate(admin);
                 }
-
-                session.Close();
             }
 
             if (admin == null)
+            {
                 return null;
+            }
 
-            if (admin.PasswordHash != Convert.ToBase64String(new SHA512CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(string.Concat(admin.PasswordSalt, password)))))
+            if (admin.PasswordHash != Convert.ToBase64String(SHA512.HashData(Encoding.UTF8.GetBytes(string.Concat(admin.PasswordSalt, password)))))
             {
                 _Logger.WarnFormat("User {0} failed authentication against local authentication database.", admin.Username);
                 return null;
@@ -269,13 +273,13 @@ namespace McNNTP.Core.Database
         }
 
         /// <summary>
-        /// Retrieves an enumeration of messages available in the specified catalog
+        /// Retrieves an enumeration of messages available in the specified catalog.
         /// </summary>
-        /// <param name="identity">The identity of the user making the request</param>
-        /// <param name="catalogName">The name of the catalog in which to retrieve messages</param>
-        /// <param name="fromId">The lower bound of the message identifier range to retrieve</param>
-        /// <param name="toId">If specified, the upper bound of the message identifier range to retrieve</param>
-        /// <returns>An enumeration of messages available in the specified catalog</returns>
+        /// <param name="identity">The identity of the user making the request.</param>
+        /// <param name="catalogName">The name of the catalog in which to retrieve messages.</param>
+        /// <param name="fromId">The lower bound of the message identifier range to retrieve.</param>
+        /// <param name="toId">If specified, the upper bound of the message identifier range to retrieve.</param>
+        /// <returns>An enumeration of messages available in the specified catalog.</returns>
         public IEnumerable<IMessage> GetMessages(IIdentity identity, string catalogName, int fromId, int? toId)
         {
             IList<IMessage> articleNewsgroups;
@@ -283,55 +287,65 @@ namespace McNNTP.Core.Database
             using (var session = SessionUtility.OpenSession())
             {
                 var ng = session.Query<Newsgroup>().AddMetagroups(session, identity).SingleOrDefault(n => n.Name == catalogName);
+                if (ng == null)
+                {
+                    return [];
+                }
 
                 if (toId == null)
-                {
-                    if (catalogName.EndsWith(".deleted"))
-                        articleNewsgroups = session.Query<ArticleNewsgroup>()
+                    {
+                        if (catalogName.EndsWith(".deleted"))
+                        {
+                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Cancelled)
                             .Where(an => an.Number >= fromId)
                             .OrderBy(an => an.Number)
-                            .Cast<IMessage>()
-                            .ToList();
-                    else if (catalogName.EndsWith(".pending"))
-                        articleNewsgroups = session.Query<ArticleNewsgroup>()
+                            .Cast<IMessage>()];
+                        }
+                        else if (catalogName.EndsWith(".pending"))
+                        {
+                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Pending)
                             .Where(an => an.Number >= fromId)
                             .OrderBy(an => an.Number)
-                            .Cast<IMessage>()
-                            .ToList();
-                    else
-                        articleNewsgroups = session.Query<ArticleNewsgroup>()
+                            .Cast<IMessage>()];
+                        }
+                        else
+                        {
+                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name && !an.Cancelled && !an.Pending)
                             .Where(an => an.Number >= fromId)
                             .OrderBy(an => an.Number)
-                            .Cast<IMessage>()
-                            .ToList();
-                }
-                else
-                {
-                    if (catalogName.EndsWith(".deleted"))
-                        articleNewsgroups = session.Query<ArticleNewsgroup>()
+                            .Cast<IMessage>()];
+                        }
+                    }
+                    else
+                    {
+                        if (catalogName.EndsWith(".deleted"))
+                        {
+                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Cancelled)
                             .Where(an => an.Number >= fromId && an.Number <= toId.Value)
                             .OrderBy(an => an.Number)
-                            .Cast<IMessage>()
-                            .ToList();
-                    else if (catalogName.EndsWith(".pending"))
-                        articleNewsgroups = session.Query<ArticleNewsgroup>()
+                            .Cast<IMessage>()];
+                        }
+                        else if (catalogName.EndsWith(".pending"))
+                        {
+                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Pending)
                             .Where(an => an.Number >= fromId && an.Number <= toId.Value)
                             .OrderBy(an => an.Number)
-                            .Cast<IMessage>()
-                            .ToList();
-                    else
-                        articleNewsgroups = session.Query<ArticleNewsgroup>()
+                            .Cast<IMessage>()];
+                        }
+                        else
+                        {
+                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name && !an.Cancelled && !an.Pending)
                             .Where(an => an.Number >= fromId && an.Number <= toId.Value)
                             .OrderBy(an => an.Number)
-                            .Cast<IMessage>()
-                            .ToList();
-                }
+                            .Cast<IMessage>()];
+                        }
+                    }
 
                 session.Close();
             }
@@ -340,31 +354,27 @@ namespace McNNTP.Core.Database
         }
 
         /// <summary>
-        /// Creates a subscription for a user to a catalog, indicating it is 'active' or 'subscribed' for that user
+        /// Creates a subscription for a user to a catalog, indicating it is 'active' or 'subscribed' for that user.
         /// </summary>
-        /// <param name="identity">The identity of the user making the request</param>
-        /// <param name="catalogName">The name of the catalog in which to subscribe the user</param>
-        /// <returns>A value indicating whether the operation was successful</returns>
+        /// <param name="identity">The identity of the user making the request.</param>
+        /// <param name="catalogName">The name of the catalog in which to subscribe the user.</param>
+        /// <returns>A value indicating whether the operation was successful.</returns>
         public bool CreateSubscription(IIdentity identity, string catalogName)
         {
             var success = false;
-            
+
             try
             {
-                using (var session = SessionUtility.OpenSession())
+                using var session = SessionUtility.OpenSession();
+                var owner = session.Query<User>().SingleOrDefault(u => u.Username == identity.Username);
+                if (owner != null)
                 {
-                    var owner = session.Query<User>().SingleOrDefault(u => u.Username == identity.Username);
-                    if (owner != null)
+                    session.Save(new Subscription
                     {
-                        session.Save(new Subscription
-                                     {
-                                         Newsgroup = catalogName,
-                                         Owner = owner
-                                     });
-                        success = true;
-                    }
-
-                    session.Close();
+                        Newsgroup = catalogName,
+                        Owner = owner,
+                    });
+                    success = true;
                 }
             }
             catch (MappingException mex)
@@ -436,7 +446,9 @@ namespace McNNTP.Core.Database
                 {
                     var owner = session.Query<User>().SingleOrDefault(u => u.Username == identity.Username);
                     if (owner != null)
-                        subscriptions = session.Query<Subscription>().Where(ng => ng.Owner.Id == owner.Id).Select(ng => ng.Newsgroup).ToArray();
+                    {
+                        subscriptions = [.. session.Query<Subscription>().Where(ng => ng.Owner.Id == owner.Id).Select(ng => ng.Newsgroup)];
+                    }
 
                     session.Close();
                 }
@@ -454,13 +466,13 @@ namespace McNNTP.Core.Database
         }
 
         /// <summary>
-        /// Retrieves an enumeration of message details available in the specified catalog
+        /// Retrieves an enumeration of message details available in the specified catalog.
         /// </summary>
-        /// <param name="identity">The identity of the user making the request</param>
-        /// <param name="catalogName">The name of the catalog in which to retrieve message details</param>
-        /// <param name="fromId">The lower bound of the message identifier range to retrieve</param>
-        /// <param name="toId">If specified, the upper bound of the message identifier range to retrieve</param>
-        /// <returns>An enumeration of message details available in the specified catalog</returns>
+        /// <param name="identity">The identity of the user making the request.</param>
+        /// <param name="catalogName">The name of the catalog in which to retrieve message details.</param>
+        /// <param name="fromId">The lower bound of the message identifier range to retrieve.</param>
+        /// <param name="toId">If specified, the upper bound of the message identifier range to retrieve.</param>
+        /// <returns>An enumeration of message details available in the specified catalog.</returns>
         public IEnumerable<IMessageDetail> GetMessageDetails(IIdentity identity, string catalogName, int fromId, int? toId)
         {
             // TODO: Add flags for virtual metagroups.
@@ -472,21 +484,19 @@ namespace McNNTP.Core.Database
 
                 if (toId == null)
                 {
-                    articleFlags = session.Query<ArticleFlag>()
+                    articleFlags = [.. session.Query<ArticleFlag>()
                         .Where(af => af.Id == ng.Id)
                         .Where(af => af.Id >= fromId)
                         .OrderBy(af => af.Id)
-                        .Cast<IMessageDetail>()
-                        .ToList();
+                        .Cast<IMessageDetail>()];
                 }
                 else
                 {
-                    articleFlags = session.Query<ArticleFlag>()
+                    articleFlags = [.. session.Query<ArticleFlag>()
                         .Where(af => af.Id == ng.Id)
                         .Where(af => af.Id >= fromId && af.Id <= toId.Value)
                         .OrderBy(af => af.Id)
-                        .Cast<IMessageDetail>()
-                        .ToList();
+                        .Cast<IMessageDetail>()];
                 }
 
                 session.Close();

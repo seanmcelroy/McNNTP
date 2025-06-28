@@ -20,7 +20,6 @@ namespace McNNTP.Core.Database
     using McNNTP.Data;
 
     using NHibernate.Cfg;
-    using NHibernate.Linq;
     using NHibernate.Tool.hbm2ddl;
 
     /// <summary>
@@ -30,8 +29,8 @@ namespace McNNTP.Core.Database
     public static class DatabaseUtility
     {
         private static readonly ILog _Logger = LogManager.GetLogger(typeof(DatabaseUtility));
-        
-        public static bool RebuildSchema(string dud = null)
+
+        public static bool RebuildSchema(string? dud = null)
         {
             var configuration = new Configuration();
             configuration.AddAssembly(typeof(Newsgroup).Assembly);
@@ -61,9 +60,9 @@ namespace McNNTP.Core.Database
         }
 
         /// <summary>
-        /// Updates a news database schema to the latest as dictated by the object relational model in code
+        /// Updates a news database schema to the latest as dictated by the object relational model in code.
         /// </summary>
-        /// <returns>A value indicating whether the update schema method was successful</returns>
+        /// <returns>A value indicating whether the update schema method was successful.</returns>
         public static bool UpdateSchema()
         {
             var configuration = new Configuration();
@@ -110,9 +109,13 @@ namespace McNNTP.Core.Database
                 {
                     var newsgroupCount = session.Query<Newsgroup>().Count(n => n.Name != null);
                     if (newsgroupCount == 0 && !quiet)
+                    {
                         _Logger.Warn("Verified database has 0 newsgroups");
+                    }
                     else if (!quiet)
+                    {
                         _Logger.InfoFormat("Verified database has {0} newsgroup{1}", newsgroupCount, newsgroupCount == 1 ? null : "s");
+                    }
 
                     var articleCount = session.Query<Article>().Count(a => a.Headers != null);
                     var article = session.Query<Article>().FirstOrDefault(a => a.ArticleNewsgroups.Any(an => !an.Cancelled));
@@ -125,26 +128,39 @@ namespace McNNTP.Core.Database
                         session.Save(article);
                     }
                     if (!quiet)
+                    {
                         _Logger.InfoFormat("Verified database has {0} article{1}", articleCount, articleCount == 1 ? null : "s");
+                    }
 
                     var adminCount = session.Query<User>().Count(a => a.CanInject);
                     if (adminCount == 0 && !quiet)
+                    {
                         _Logger.Warn("Verified database has 0 local admins");
+                    }
                     else if (!quiet)
+                    {
                         _Logger.InfoFormat("Verified database has {0} local admin{1}", adminCount, adminCount == 1 ? null : "s");
+                    }
 
                     var peerCount = session.Query<Peer>().Count();
                     if (peerCount == 0 && !quiet)
+                    {
                         _Logger.Warn("Verified database has 0 distribution patterns");
+                    }
                     else if (!quiet)
+                    {
                         _Logger.InfoFormat("Verified database has {0} distribution pattern{1}", peerCount, peerCount == 1 ? null : "s");
-
+                    }
 
                     var distPatternCount = session.Query<DistributionPattern>().Count();
                     if (distPatternCount == 0 && !quiet)
+                    {
                         _Logger.Warn("Verified database has 0 distribution patterns");
+                    }
                     else if (!quiet)
+                    {
                         _Logger.InfoFormat("Verified database has {0} distribution pattern{1}", distPatternCount, distPatternCount == 1 ? null : "s");
+                    }
 
                     session.Close();
 
@@ -163,13 +179,13 @@ namespace McNNTP.Core.Database
             using (var session = SessionUtility.OpenSession())
             {
                 if (!session.Query<Newsgroup>().Any(n => n.Name == "freenews.config"))
-                { 
+                {
                     session.Save(new Newsgroup
                     {
                         CreateDate = DateTime.UtcNow,
                         Description = "Control group for the repository",
                         Moderated = true,
-                        Name = "freenews.config"
+                        Name = "freenews.config",
                     });
                     _Logger.InfoFormat("Created 'freenews.config' group");
                 }
@@ -181,19 +197,19 @@ namespace McNNTP.Core.Database
                         CreateDate = DateTime.UtcNow,
                         Description = "Test group for the repository",
                         Moderated = false,
-                        Name = "freenews.misc"
+                        Name = "freenews.misc",
                     });
                     _Logger.InfoFormat("Created 'freenews.misc' group");
                 }
 
                 if (!session.Query<Newsgroup>().Any(n => n.Name == "junk"))
-                { 
+                {
                     session.Save(new Newsgroup
                     {
                         CreateDate = DateTime.UtcNow,
                         Description = "Junk group for the repository",
                         Moderated = true,
-                        Name = "junk"
+                        Name = "junk",
                     });
                     _Logger.InfoFormat("Created 'junk' group");
                 }
@@ -209,12 +225,15 @@ namespace McNNTP.Core.Database
                         CanDeleteCatalogs = true,
                         CanInject = true,
                         LocalAuthenticationOnly = true,
-                        Username = "LOCALADMIN"
+                        Username = "LOCALADMIN",
                     };
 
                     var ss = new SecureString();
                     foreach (var c in "CHANGEME")
+                    {
                         ss.AppendChar(c);
+                    }
+
                     admin.SetPassword(ss);
 
                     session.Save(admin);

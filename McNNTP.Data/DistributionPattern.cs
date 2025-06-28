@@ -1,10 +1,11 @@
-﻿using JetBrains.Annotations;
-
-namespace McNNTP.Data
+﻿namespace McNNTP.Data
 {
+    using System.Diagnostics.CodeAnalysis;
+
     public class DistributionPattern
     {
         public virtual int Id { get; set; }
+
         public virtual int Weight { get; set; }
 
         [NotNull]
@@ -13,7 +14,6 @@ namespace McNNTP.Data
         [NotNull]
         public virtual string Distribution { get; set; }
 
-        [CanBeNull]
-        public virtual string Description { get; set; }
+        public virtual string? Description { get; set; }
     }
 }

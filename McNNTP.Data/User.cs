@@ -1,15 +1,12 @@
-﻿using System;
-using System.Runtime.InteropServices;
-using System.Security;
-using System.Security.Cryptography;
-using System.Text;
-using JetBrains.Annotations;
-using System.Collections.Generic;
-
-namespace McNNTP.Data
+﻿namespace McNNTP.Data
 {
+    using System;
+    using System.Collections.Generic;
     using System.Globalization;
-
+    using System.Runtime.InteropServices;
+    using System.Security;
+    using System.Security.Cryptography;
+    using System.Text;
     using McNNTP.Common;
 
     public class User : IIdentity
@@ -25,17 +22,18 @@ namespace McNNTP.Data
 
             set
             {
-                int id;
-                if (int.TryParse(value, out id))
+                if (int.TryParse(value, out int id))
+                {
                     Id = id;
+                }
+
                 Id = -1;
             }
         }
 
         public virtual string Username { get; set; }
 
-        [CanBeNull]
-        public virtual string Mailbox { get; set; }
+        public virtual string? Mailbox { get; set; }
 
         public virtual string PasswordHash { get; set; }
 
@@ -58,9 +56,9 @@ namespace McNNTP.Data
         /// Indicates the credential can operate as a server, such as usiing the IHAVE command
         /// </summary>
         public virtual bool CanInject { get; set; }
-       
+
         /// <summary>
-        /// Whether or not the user can only authenticate from localhost
+        /// Whether or not the user can only authenticate from localhost.
         /// </summary>
         public virtual bool LocalAuthenticationOnly { get; set; }
 
@@ -76,7 +74,6 @@ namespace McNNTP.Data
 
         public virtual DateTime? LastLogin { get; set; }
 
-
         public virtual void SetPassword(SecureString password)
         {
             var saltBytes = new byte[64];
@@ -86,7 +83,7 @@ namespace McNNTP.Data
             var bstr = Marshal.SecureStringToBSTR(password);
             try
             {
-                PasswordHash = Convert.ToBase64String(new SHA512CryptoServiceProvider().ComputeHash(Encoding.UTF8.GetBytes(string.Concat(salt, Marshal.PtrToStringBSTR(bstr)))));
+                PasswordHash = Convert.ToBase64String(SHA512.HashData(Encoding.UTF8.GetBytes(string.Concat(salt, Marshal.PtrToStringBSTR(bstr)))));
                 PasswordSalt = salt;
             }
             finally
@@ -95,7 +92,8 @@ namespace McNNTP.Data
             }
         }
 
-        public override bool Equals(object obj)
+        /// <inheritdoc/>
+        public override bool Equals(object? obj)
         {
             // If parameter is null return false.
             if (obj == null)
@@ -104,17 +102,16 @@ namespace McNNTP.Data
             }
 
             // If parameter cannot be cast to Point return false.
-            var p = obj as User;
-            if ((object)p == null)
+            if (obj is not User p)
+            {
                 return false;
+            }
 
             // Return true if the fields match:
-            return Id == p.Id;
+            return this.Id == p.Id;
         }
 
-        public override int GetHashCode()
-        {
-            return Id;
-        }
+        /// <inheritdoc/>
+        public override int GetHashCode() => this.Id;
     }
 }

@@ -1,9 +1,7 @@
-﻿using System.Configuration;
-using JetBrains.Annotations;
-
-namespace McNNTP.Core.Server.Configuration
+﻿namespace McNNTP.Core.Server.Configuration
 {
-    [UsedImplicitly]
+    using System.Configuration;
+
     public class SslConfigurationElement : ConfigurationElement
     {
         /// <summary>

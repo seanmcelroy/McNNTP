@@ -2,20 +2,21 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics.CodeAnalysis;
+    using System.Diagnostics.Contracts;
     using System.Linq;
-
-    using JetBrains.Annotations;
 
     public static class ArticleUtility
     {
         public static void ChangeHeader([NotNull] this Article article, [NotNull] string headerName, [NotNull] string headerValue)
         {
-            Dictionary<string, string> headers, headersAndFullLines;
-            if (Article.TryParseHeaders(article.Headers, out headers, out headersAndFullLines) &&
-                headersAndFullLines.Any(hfl => string.Compare(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase) == 0))
+            if (Article.TryParseHeaders(article.Headers, out Dictionary<string, string> headers, out Dictionary<string, string> headersAndFullLines) &&
+                headersAndFullLines.Any(hfl => string.Equals(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase)))
             {
-                foreach (var hfl in headersAndFullLines.Where(hfl => string.Compare(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase) == 0))
+                foreach (var hfl in headersAndFullLines.Where(hfl => string.Equals(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase)))
+                {
                     article.Headers = article.Headers.Replace(hfl.Value + "\r\n", string.Format("{0}: {1}\r\n", hfl.Key, headerValue));
+                }
             }
             else
             {
@@ -23,19 +24,20 @@
             }
         }
 
-        [CanBeNull, Pure]
-        public static string GetHeader([NotNull] this Article article, [NotNull] string headerName)
+        [Pure]
+        public static string? GetHeader([NotNull] this Article article, [NotNull] string headerName)
         {
-            Dictionary<string, string> headers, headersAndFullLines;
-            if (Article.TryParseHeaders(article.Headers, out headers, out headersAndFullLines) &&
-                headersAndFullLines.Any(hfl => string.Compare(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase) == 0))
+            if (Article.TryParseHeaders(article.Headers, out Dictionary<string, string> headers, out Dictionary<string, string> headersAndFullLines) &&
+                headersAndFullLines.Any(hfl => string.Equals(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase)))
             {
-                var fullHeader = headersAndFullLines.Where(hfl => string.Compare(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase) == 0).Select(hfl => hfl.Value).FirstOrDefault();
+                var fullHeader = headersAndFullLines.Where(hfl => string.Equals(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase)).Select(hfl => hfl.Value).FirstOrDefault();
                 if (fullHeader == null)
+                {
                     return null;
+                }
 
-                return fullHeader.Contains(": ") 
-                    ? fullHeader.Substring(fullHeader.IndexOf(": ", StringComparison.OrdinalIgnoreCase) + 2) 
+                return fullHeader.Contains(": ")
+                    ? fullHeader[(fullHeader.IndexOf(": ", StringComparison.OrdinalIgnoreCase) + 2) ..]
                     : fullHeader;
             }
 
@@ -44,12 +46,13 @@
 
         public static void RemoveHeader([NotNull] this Article article, [NotNull] string headerName)
         {
-            Dictionary<string, string> headers, headersAndFullLines;
-            if (Article.TryParseHeaders(article.Headers, out headers, out headersAndFullLines) &&
-                headersAndFullLines.Any(hfl => string.Compare(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase) == 0))
+            if (Article.TryParseHeaders(article.Headers, out Dictionary<string, string> headers, out Dictionary<string, string> headersAndFullLines) &&
+                headersAndFullLines.Any(hfl => string.Equals(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase)))
             {
-                foreach (var hfl in headersAndFullLines.Where(hfl => string.Compare(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase) == 0))
+                foreach (var hfl in headersAndFullLines.Where(hfl => string.Equals(hfl.Key, headerName, StringComparison.OrdinalIgnoreCase)))
+                {
                     article.Headers = article.Headers.Replace(hfl.Value + "\r\n", string.Empty);
+                }
             }
         }
     }

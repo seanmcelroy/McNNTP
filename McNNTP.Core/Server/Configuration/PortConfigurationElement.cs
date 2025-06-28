@@ -12,37 +12,30 @@ namespace McNNTP.Core.Server.Configuration
     using System;
     using System.Configuration;
 
-    using JetBrains.Annotations;
-
     /// <summary>
-    /// A configuration element that specifies a TCP port on which the process will listen for incoming requests
+    /// A configuration element that specifies a TCP port on which the process will listen for incoming requests.
     /// </summary>
     public class PortConfigurationElement : ConfigurationElement
     {
         /// <summary>
-        /// Gets or sets the port number
+        /// Gets or sets the port number.
         /// </summary>
         [ConfigurationProperty("number", IsRequired = true)]
         public int Port
         {
             get { return (int)this["number"]; }
-            [UsedImplicitly]
             set { this["number"] = value; }
         }
 
         /// <summary>
-        /// Gets or sets a value indicating if and how secure sockets are implemented on this listening port
+        /// Gets or sets a value indicating if and how secure sockets are implemented on this listening port.
         /// </summary>
-        /// <exception cref="ConfigurationErrorsException">Thrown when the value passed for the SSL type is not a valid port SSL option</exception>
+        /// <exception cref="ConfigurationErrorsException">Thrown when the value passed for the SSL type is not a valid port SSL option.</exception>
         [ConfigurationProperty("ssl", IsRequired = false)]
         public string Ssl
         {
-            get
-            {
-                return (string)this["ssl"];
-            }
+            get => (string)this["ssl"];
 
-            [UsedImplicitly]
             set
             {
                 PortClass portType;
@@ -75,25 +68,19 @@ namespace McNNTP.Core.Server.Configuration
 
                     throw new ConfigurationErrorsException(message);
                 }
-                
+
                 this["ssl"] = portType.ToString();
             }
         }
 
         /// <summary>
-        /// Gets or sets the protocol to listen for on the port
+        /// Gets or sets the protocol to listen for on the port.
         /// </summary>
         [ConfigurationProperty("proto", IsRequired = true)]
         public string Protocol
         {
-            get
-            {
-                return (string)this["proto"]; 
-            }
-            set
-            {
-                this["proto"] = value;
-            }
+            get => (string)this["proto"];
+            set => this["proto"] = value;
         }
     }
 }

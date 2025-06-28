@@ -10,16 +10,13 @@
 namespace McNNTP.Core.Database
 {
     using System;
-
-    using JetBrains.Annotations;
-
-    using Data;
-
+    using System.Diagnostics.Contracts;
+    using McNNTP.Data;
     using NHibernate;
     using NHibernate.Cfg;
 
     /// <summary>
-    /// A utility class that provides assistance managing and consuming NHibernate database sessions
+    /// A utility class that provides assistance managing and consuming NHibernate database sessions.
     /// </summary>
     public static class SessionUtility
     {
@@ -27,25 +24,19 @@ namespace McNNTP.Core.Database
         /// A singleton instance of an NHibernate <see cref="ISessionFactory"/> built from the
         /// configuration of the application.
         /// </summary>
-        private static readonly Lazy<ISessionFactory> _SessionFactory = new Lazy<ISessionFactory>(() =>
+        private static readonly Lazy<ISessionFactory> SessionFactory = new Lazy<ISessionFactory>(() =>
         {
             var configuration = new Configuration();
             configuration.AddAssembly(typeof(Newsgroup).Assembly);
-            
+
             return configuration.BuildSessionFactory();
         });
 
         /// <summary>
-        /// Builds a new session from the NHibernate session factory
+        /// Builds a new session from the NHibernate session factory.
         /// </summary>
-        /// <returns>A new session from the NHibernate session factory</returns>
-        /// <exception cref="MemberAccessException">Thrown when an error occurs trying to access the NHibernate session factory</exception>
-        /// <exception cref="MissingMemberException">Thrown when an error occurs trying to access the NHibernate session factory</exception>
-        /// <exception cref="InvalidOperationException">Thrown when an error occurs trying to access the NHibernate session factory</exception>
-        [NotNull, Pure]
-        public static ISession OpenSession()
-        {
-            return _SessionFactory.Value.OpenSession();
-        }
+        /// <returns>A new session from the NHibernate session factory.</returns>
+        [Pure]
+        public static ISession OpenSession() => SessionFactory.Value.OpenSession();
     }
 }
