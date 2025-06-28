@@ -30,11 +30,6 @@ namespace McNNTP.Server.Console.Configuration
         public AuthenticationSettings Authentication { get; set; } = new();
 
         /// <summary>
-        /// Gets or sets the protocols configuration
-        /// </summary>
-        public ProtocolsSettings Protocols { get; set; } = new();
-
-        /// <summary>
         /// Gets or sets the port configurations
         /// </summary>
         public List<PortSettings> Ports { get; set; } = new();
@@ -73,59 +68,6 @@ namespace McNNTP.Server.Console.Configuration
     }
 
     /// <summary>
-    /// Protocols configuration settings
-    /// </summary>
-    public class ProtocolsSettings
-    {
-        /// <summary>
-        /// Gets or sets the IRC protocol configuration
-        /// </summary>
-        public IrcSettings Irc { get; set; } = new();
-    }
-
-    /// <summary>
-    /// IRC protocol configuration settings
-    /// </summary>
-    public class IrcSettings
-    {
-        /// <summary>
-        /// Gets or sets the message of the day file path
-        /// </summary>
-        public string Motd { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Gets or sets the operator configurations
-        /// </summary>
-        public List<OperatorSettings> Operators { get; set; } = new();
-    }
-
-    /// <summary>
-    /// IRC operator configuration settings
-    /// </summary>
-    public class OperatorSettings
-    {
-        /// <summary>
-        /// Gets or sets the operator name
-        /// </summary>
-        public string Name { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Gets or sets the host mask
-        /// </summary>
-        public string Hostmask { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Gets or sets the SHA256 password hash
-        /// </summary>
-        public string Sha256PasswordHash { get; set; } = string.Empty;
-
-        /// <summary>
-        /// Gets or sets whether this is a global operator
-        /// </summary>
-        public bool Global { get; set; }
-    }
-
-    /// <summary>
     /// Port configuration settings
     /// </summary>
     public class PortSettings
@@ -141,7 +83,7 @@ namespace McNNTP.Server.Console.Configuration
         public string Ssl { get; set; } = string.Empty;
 
         /// <summary>
-        /// Gets or sets the protocol (nntp, irc)
+        /// Gets or sets the protocol (nntp)
         /// </summary>
         public string Protocol { get; set; } = string.Empty;
     }
