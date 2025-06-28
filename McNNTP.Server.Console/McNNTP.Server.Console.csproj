@@ -5,8 +5,8 @@
     <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyVersion>0.0.7.0</AssemblyVersion>
-    <Version>0.0.7</Version>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <Version>1.1.0</Version>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <EnableConfigurationBindingGenerator>true</EnableConfigurationBindingGenerator>
     <PublishTrimmed>true</PublishTrimmed>

@@ -262,12 +262,14 @@ namespace McNNTP.Core.Server.NNTP
 
         internal void AddConnection([NotNull] NntpConnection nntpConnection)
         {
+            ArgumentNullException.ThrowIfNull(nntpConnection);
             this.connections.Add(nntpConnection);
             _logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort);
         }
 
         internal void RemoveConnection([NotNull] NntpConnection nntpConnection)
         {
+            ArgumentNullException.ThrowIfNull(nntpConnection);
             this.connections.Remove(nntpConnection);
             if (nntpConnection.Identity == null)
             {
