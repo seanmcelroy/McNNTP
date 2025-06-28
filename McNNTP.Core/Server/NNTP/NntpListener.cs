@@ -6,6 +6,7 @@
     using System.Net;
     using System.Net.Security;
     using System.Net.Sockets;
+    using System.Threading;
     using Microsoft.Extensions.Logging;
 
     internal class NntpListener : TcpListener
@@ -25,7 +26,7 @@
 
         public PortClass PortType { get; set; }
 
-        public async void StartAccepting()
+        public async void StartAccepting(CancellationToken cancellationToken = default)
         {
             // Establish the local endpoint for the socket.
             var localEndPoint = new IPEndPoint(IPAddress.Any, ((IPEndPoint)this.LocalEndpoint).Port);
@@ -38,7 +39,7 @@
             {
                 listener.Start(100);
 
-                while (true)
+                while (!cancellationToken.IsCancellationRequested)
                 {
                     // Start an asynchronous socket to listen for connections.
                     var handler = await listener.AcceptTcpClientAsync();
@@ -75,9 +76,17 @@
                     nntpConnection.Process();
                 }
             }
+            catch (OperationCanceledException)
+            {
+                _logger.LogInformation("Listener gracefully stopped due to cancellation");
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Exception when trying to accept connection from listener");
+            }
+            finally
+            {
+                listener.Stop();
             }
         }
     }

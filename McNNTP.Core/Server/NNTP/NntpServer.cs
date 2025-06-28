@@ -48,6 +48,11 @@ namespace McNNTP.Core.Server.NNTP
         private readonly List<Tuple<Thread, NntpListener>> listeners = [];
 
         /// <summary>
+        /// Cancellation token source for graceful shutdown of listener threads.
+        /// </summary>
+        private CancellationTokenSource? _cancellationTokenSource;
+
+        /// <summary>
         /// A list of connections currently established to this server instance.
         /// </summary>
         private readonly List<NntpConnection> connections = new List<NntpConnection>();
@@ -138,6 +143,7 @@ namespace McNNTP.Core.Server.NNTP
         public void Start()
         {
             this.listeners.Clear();
+            _cancellationTokenSource = new CancellationTokenSource();
 
             // Setup SSL
             if (!string.IsNullOrWhiteSpace(this.SslServerCertificateThumbprint) && this.SslServerCertificateThumbprint != null)
@@ -182,7 +188,7 @@ namespace McNNTP.Core.Server.NNTP
                     PortType = PortClass.ClearText,
                 };
 
-                this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
+                this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(() => listener.StartAccepting(_cancellationTokenSource.Token)), listener));
             }
 
             foreach (var implicitTlsPort in this.NntpImplicitTLSPorts)
@@ -196,7 +202,7 @@ namespace McNNTP.Core.Server.NNTP
                     PortType = PortClass.ImplicitTLS,
                 };
 
-                this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(listener.StartAccepting), listener));
+                this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(() => listener.StartAccepting(_cancellationTokenSource.Token)), listener));
             }
 
             foreach (var listener in this.listeners)
@@ -215,6 +221,9 @@ namespace McNNTP.Core.Server.NNTP
 
         public void Stop()
         {
+            // Signal all threads to stop gracefully
+            _cancellationTokenSource?.Cancel();
+
             foreach (var listener in this.listeners)
             {
                 try
@@ -230,27 +239,25 @@ namespace McNNTP.Core.Server.NNTP
 
             Task.WaitAll(this.connections.Select(connection => connection.Shutdown()).ToArray());
 
+            // Wait for threads to complete gracefully
             foreach (var thread in this.listeners)
             {
                 try
                 {
-                    thread.Item1.Abort();
+                    // Give threads a reasonable time to finish gracefully
+                    if (!thread.Item1.Join(TimeSpan.FromSeconds(5)))
+                    {
+                        _logger.LogWarning("Thread did not complete within timeout period");
+                    }
                 }
-                catch (SecurityException se)
+                catch (Exception ex)
                 {
-                    _logger.LogError(
-                        se,
-                        "Unable to abort the thread due to a security exception.  Application will now exit.");
-                    Environment.Exit(se.HResult);
-                }
-                catch (ThreadStateException tse)
-                {
-                    _logger.LogError(
-                        tse,
-                        "Unable to abort the thread due to a thread state exception.  Application will now exit.");
-                    Environment.Exit(tse.HResult);
+                    _logger.LogError(ex, "Exception waiting for thread to complete");
                 }
             }
+
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
         }
 
         internal void AddConnection([NotNull] NntpConnection nntpConnection)
