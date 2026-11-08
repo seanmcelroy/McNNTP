@@ -6,6 +6,7 @@
     using System.Net;
     using System.Net.Security;
     using System.Net.Sockets;
+    using System.Security.Authentication;
     using System.Threading;
     using Microsoft.Extensions.Logging;
 
@@ -26,56 +27,18 @@
 
         public PortClass PortType { get; set; }
 
-        public async void StartAccepting(CancellationToken cancellationToken = default)
+        public async Task StartAccepting(CancellationToken cancellationToken = default)
         {
-            // Establish the local endpoint for the socket.
-            var localEndPoint = new IPEndPoint(IPAddress.Any, ((IPEndPoint)this.LocalEndpoint).Port);
-
-            // Create a TCP/IP socket.
-            var listener = new NntpListener(this.server, localEndPoint, _logger, _loggerFactory);
-
             // Bind the socket to the local endpoint and listen for incoming connections.
             try
             {
-                listener.Start(100);
+                this.Start(100);
 
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     // Start an asynchronous socket to listen for connections.
-                    var handler = await listener.AcceptTcpClientAsync(cancellationToken);
-
-                    // Create the state object.
-                    NntpConnection nntpConnection;
-
-                    if (this.PortType == PortClass.ClearText || this.PortType == PortClass.ExplicitTLS)
-                    {
-                        var stream = handler.GetStream();
-
-                        nntpConnection = new NntpConnection(this.server, handler, stream, _loggerFactory.CreateLogger<NntpConnection>());
-                    }
-                    else
-                    {
-                        var stream = handler.GetStream();
-                        var sslStream = new SslStream(stream);
-
-                        try
-                        {
-                            await sslStream.AuthenticateAsServerAsync(this.server.ServerAuthenticationCertificate);
-                        }
-                        catch (IOException ioe)
-                        {
-                            _logger.LogError(ioe, "I/O Exception attempting to perform TLS handshake");
-                            return;
-                        }
-
-                        nntpConnection = new NntpConnection(this.server, handler, sslStream, _loggerFactory.CreateLogger<NntpConnection>(), true);
-                    }
-
-                    this.server.AddConnection(nntpConnection);
-
-                    _ = nntpConnection.Process().ContinueWith(
-                        t => _logger.LogError(t.Exception, "Connection processing faulted"),
-                        TaskContinuationOptions.OnlyOnFaulted);
+                    var client = await this.AcceptTcpClientAsync(cancellationToken);
+                    _ = Task.Run(() => HandleClientAsync(client, cancellationToken), cancellationToken);
                 }
             }
             catch (OperationCanceledException)
@@ -88,8 +51,64 @@
             }
             finally
             {
-                listener.Stop();
+                this.Stop();
             }
         }
+
+        private async Task HandleClientAsync(TcpClient client, CancellationToken cancellationToken)
+        {
+            EndPoint? remote;
+            try
+            {
+                remote = client.Client.RemoteEndPoint;
+            }
+            catch (Exception)
+            {
+                // Socket COULD be closed between function call and read of RemoteEndPoint.
+                remote = null;
+            }
+
+            try
+            {
+                // Create the state object.
+                NntpConnection nntpConnection;
+                var stream = client.GetStream();
+
+                if (this.PortType == PortClass.ClearText || this.PortType == PortClass.ExplicitTLS)
+                {
+                    nntpConnection = new NntpConnection(this.server, client, stream, _loggerFactory.CreateLogger<NntpConnection>());
+                }
+                else // ImplicitTLS
+                {
+                    var sslStream = new SslStream(stream);
+                    using var handshakeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    handshakeCts.CancelAfter(TimeSpan.FromSeconds(30));
+
+                    try
+                    {
+                        await sslStream.AuthenticateAsServerAsync(
+                            new SslServerAuthenticationOptions { ServerCertificate = this.server.ServerAuthenticationCertificate },
+                            handshakeCts.Token);
+                    }
+                    catch (Exception ex) when (ex is IOException or AuthenticationException or OperationCanceledException)
+                    {
+                        _logger.LogWarning(ex, "TLS handshake failed or timed out for {Remote}", remote);
+                        client.Dispose();
+                        return;
+                    }
+
+                    nntpConnection = new NntpConnection(this.server, client, sslStream, _loggerFactory.CreateLogger<NntpConnection>(), true);
+                }
+
+                this.server.AddConnection(nntpConnection);
+                await nntpConnection.Process();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Connection processing faulted for {Remote}", remote);
+                client.Dispose();
+            }
+        }
+
     }
 }

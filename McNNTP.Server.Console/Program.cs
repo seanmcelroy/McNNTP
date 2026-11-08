@@ -49,8 +49,8 @@ namespace McNNTP.Server.Console
             { "PEER", PeerCommand },
             { "PURGEDB", DatabaseUtility.RebuildSchema },
             { "SHOWCONN", s => ShowConn() },
-            { "EXIT", s => Quit() },
-            { "QUIT", s => Quit() },
+            { "EXIT", s => Quit().Result },
+            { "QUIT", s => Quit().Result },
             { "USER", UserCommand }
         };
 
@@ -79,7 +79,7 @@ namespace McNNTP.Server.Console
         /// </summary>
         /// <param name="args">Command line arguments</param>
         /// <returns>An error code, indicating an error condition when the value returned is non-zero.</returns>
-        public static int Main(string[] args)
+        public static async Task<int> Main(string[] args)
         {
             var version = Assembly.GetEntryAssembly()?.GetName().Version;
             Console.WriteLine("McNNTP Server Console Harness v{0}", version);
@@ -87,7 +87,7 @@ namespace McNNTP.Server.Console
             try
             {
                 var host = CreateHostBuilder(args).Build();
-                
+
                 using var scope = host.Services.CreateScope();
                 var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
                 var mcnntpSettings = scope.ServiceProvider.GetRequiredService<IOptions<McNNTPSettings>>().Value;
@@ -106,7 +106,7 @@ namespace McNNTP.Server.Console
                 DatabaseUtility.SetLogger(loggerFactory.CreateLogger("DatabaseUtility"));
 
                 // Verify Database
-                if (DatabaseUtility.VerifyDatabase()) 
+                if (DatabaseUtility.VerifyDatabase())
                 {
                     DatabaseUtility.UpdateSchema();
                 }
@@ -122,24 +122,21 @@ namespace McNNTP.Server.Console
                 _nntpServer = new NntpServer(nntpServerLogger, loggerFactory)
                 {
                     AllowPosting = true,
-                    NntpClearPorts = mcnntpSettings.Ports
+                    NntpClearPorts = [.. mcnntpSettings.Ports
                         .Where(p => p.Ssl == "ClearText" && p.Protocol == "nntp")
-                        .Select(p => p.Number)
-                        .ToArray(),
-                    NntpExplicitTLSPorts = mcnntpSettings.Ports
+                        .Select(p => p.Number)],
+                    NntpExplicitTLSPorts = [.. mcnntpSettings.Ports
                         .Where(p => p.Ssl == "ExplicitTLS" && p.Protocol == "nntp")
-                        .Select(p => p.Number)
-                        .ToArray(),
-                    NntpImplicitTLSPorts = mcnntpSettings.Ports
+                        .Select(p => p.Number)],
+                    NntpImplicitTLSPorts = [.. mcnntpSettings.Ports
                         .Where(p => p.Ssl == "ImplicitTLS" && p.Protocol == "nntp")
-                        .Select(p => p.Number)
-                        .ToArray(),
+                        .Select(p => p.Number)],
                     PathHost = mcnntpSettings.PathHost,
                     SslGenerateSelfSignedServerCertificate = mcnntpSettings.Ssl.GenerateSelfSignedServerCertificate,
                     SslServerCertificateThumbprint = mcnntpSettings.Ssl.ServerCertificateThumbprint
                 };
 
-                _nntpServer.Start();
+                await _nntpServer.Start();
 
                 Console.WriteLine("Type QUIT and press Enter to end the server.");
 
@@ -153,16 +150,16 @@ namespace McNNTP.Server.Console
                         continue;
                     }
 
-                    if (!_CommandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input)) 
+                    if (!_CommandDirectory[input.Split(' ')[0].ToUpperInvariant()].Invoke(input))
                         continue;
 
-                    _nntpServer.Stop();
+                    await _nntpServer.Stop();
                     return 0;
                 }
             }
             catch (AggregateException ae)
             {
-                foreach (var ex in ae.InnerExceptions) 
+                foreach (var ex in ae.InnerExceptions)
                 {
                     Console.WriteLine(ex.ToString());
                     _logger?.LogError(ex, "Aggregate exception occurred");
@@ -476,7 +473,7 @@ namespace McNNTP.Server.Console
         private static bool ShowConn()
         {
             if (_nntpServer == null) return false;
-            
+
             _nntpServer.ShowBytes = !_nntpServer.ShowBytes;
             Console.WriteLine("\r\nConnections ({0})", _nntpServer.Connections.Count);
             Console.WriteLine("-----------");
@@ -704,9 +701,13 @@ namespace McNNTP.Server.Console
         /// indicating to the caller the server should terminate.
         /// </summary>
         /// <returns><c>true</c></returns>
-        private static bool Quit()
+        private static async Task<bool> Quit()
         {
-            _nntpServer?.Stop();
+            var svr = _nntpServer;
+            if (svr != null)
+            {
+                await svr.Stop();
+            }
             _logger?.LogInformation("Server shutdown requested via QUIT command");
             return true;
         }

@@ -2775,7 +2775,7 @@ namespace McNNTP.Core.Server.NNTP
                                         .OrderBy(an => an.Number)
                                         .ToList();
                                 }
-                                else if (this.CurrentNewsgroup.EndsWith(".deleted"))
+                                else if (this.CurrentNewsgroup.EndsWith(".pending"))
                                 {
                                     articleNewsgroups = session.Query<ArticleNewsgroup>()
                                         .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Pending && an.Number >= range.Item1 && an.Number <= range.Item2.Value)

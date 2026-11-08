@@ -31,22 +31,25 @@ namespace McNNTP.Core.Server.NNTP
     /// Defines the an NNTP server utility that provides connection management and command handling to expose
     /// a fully functioning USENET news server.
     /// </summary>
-    public class NntpServer
+    /// <remarks>
+    /// Initializes a new instance of the <see cref="NntpServer"/> class.
+    /// </remarks>
+    public class NntpServer([NotNull] ILogger<NntpServer> logger, [NotNull] ILoggerFactory loggerFactory)
     {
         /// <summary>
         /// The logging utility instance to use to log events from this class.
         /// </summary>
-        private readonly ILogger<NntpServer> _logger;
+        private readonly ILogger<NntpServer> _logger = logger;
 
         /// <summary>
         /// The logger factory to create loggers for components.
         /// </summary>
-        private readonly ILoggerFactory _loggerFactory;
+        private readonly ILoggerFactory _loggerFactory = loggerFactory;
 
         /// <summary>
-        /// A list of threads and the associated TCP new-connection listeners that are serviced by each by the client.
+        /// A list of tasks and the associated TCP new-connection listeners that are serviced by each by the client.
         /// </summary>
-        private readonly List<Tuple<Thread, NntpListener>> listeners = [];
+        private readonly List<(Task task, NntpListener listener)> listeners = [];
 
         /// <summary>
         /// Cancellation token source for graceful shutdown of listener threads.
@@ -59,35 +62,24 @@ namespace McNNTP.Core.Server.NNTP
         private readonly ConcurrentDictionary<string, NntpConnection> connections = new();
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="NntpServer"/> class.
-        /// </summary>
-        public NntpServer([NotNull] ILogger<NntpServer> logger, [NotNull] ILoggerFactory loggerFactory)
-        {
-            this._logger = logger;
-            this._loggerFactory = loggerFactory;
-            this.AllowStartTLS = true;
-            this.ShowData = false;
-        }
-
-        /// <summary>
         /// Gets or sets a value indicating whether or not to allow users to post to the server.
         /// When this value is set to false, the server is read-only for regular client connections.
         /// </summary>
         public bool AllowPosting { get; set; }
 
-        public bool AllowStartTLS { get; set; }
+        public bool AllowStartTLS { get; set; } = true;
 
         [NotNull]
-        public int[] NntpClearPorts { get; set; }
+        public required int[] NntpClearPorts { get; set; }
 
         [NotNull]
-        public int[] NntpExplicitTLSPorts { get; set; }
+        public required int[] NntpExplicitTLSPorts { get; set; }
 
         [NotNull]
-        public int[] NntpImplicitTLSPorts { get; set; }
+        public required int[] NntpImplicitTLSPorts { get; set; }
 
         [NotNull]
-        public string PathHost { get; set; }
+        public required string PathHost { get; set; }
 
         public bool SslGenerateSelfSignedServerCertificate { get; set; }
 
@@ -126,7 +118,7 @@ namespace McNNTP.Core.Server.NNTP
         /// <summary>
         /// Gets or sets a value indicating whether the actual bytes (data) transmitted are logged to the logging instance.
         /// </summary>
-        public bool ShowData { get; set; }
+        public bool ShowData { get; set; } = false;
 
         /// <summary>
         /// Gets the X.509 server certificate this instance presents to clients
@@ -141,7 +133,7 @@ namespace McNNTP.Core.Server.NNTP
         /// </summary>
         /// <exception cref="System.Security.Cryptography.CryptographicException">Thrown when an error occurs while a SSL certificate is loaded to support TLS-enabled ports.</exception>
         /// <exception cref="SecurityException">Thrown when the certificate store cannot be successfully opened to look up a SSL certificate by its thumbprint.</exception>
-        public void Start()
+        public async Task Start()
         {
             this.listeners.Clear();
             _cancellationTokenSource = new CancellationTokenSource();
@@ -189,7 +181,11 @@ namespace McNNTP.Core.Server.NNTP
                     PortType = PortClass.ClearText,
                 };
 
-                this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(() => listener.StartAccepting(_cancellationTokenSource.Token)), listener));
+                this.listeners.Add((Task.Run(
+                    () => listener
+                        .StartAccepting(_cancellationTokenSource.Token)
+                        .ContinueWith(t => _logger.LogInformation("Listening on port {Port} ({PortClass})", ((IPEndPoint)listener.LocalEndpoint).Port, listener.PortType))
+                    ), listener));
             }
 
             foreach (var implicitTlsPort in this.NntpImplicitTLSPorts)
@@ -203,24 +199,12 @@ namespace McNNTP.Core.Server.NNTP
                     PortType = PortClass.ImplicitTLS,
                 };
 
-                this.listeners.Add(new Tuple<Thread, NntpListener>(new Thread(() => listener.StartAccepting(_cancellationTokenSource.Token)), listener));
-            }
-
-            foreach (var listener in this.listeners)
-            {
-                try
-                {
-                    listener.Item1.Start();
-                    _logger.LogInformation("Listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
-                }
-                catch (OutOfMemoryException oom)
-                {
-                    _logger.LogError(oom, "Unable to start listener thread.  Not enough memory.");
-                }
+                this.listeners.Add((Task.Run(() => listener.StartAccepting(_cancellationTokenSource.Token)), listener));
+                _logger.LogInformation("Listening on port {Port} ({PortClass})", ((IPEndPoint)listener.LocalEndpoint).Port, listener.PortType);
             }
         }
 
-        public void Stop()
+        public async Task Stop()
         {
             // Signal all threads to stop gracefully
             _cancellationTokenSource?.Cancel();
@@ -229,32 +213,28 @@ namespace McNNTP.Core.Server.NNTP
             {
                 try
                 {
-                    listener.Item2.Stop();
-                    _logger.LogInformation("Stopped listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                    listener.listener.Stop();
+                    _logger.LogInformation("Stopped listening on port {Port} ({PortClass})", ((IPEndPoint)listener.listener.LocalEndpoint).Port, listener.listener.PortType);
                 }
                 catch (SocketException ex)
                 {
-                    _logger.LogError(ex, "Exception attempting to stop listening on port {0} ({1})", ((IPEndPoint)listener.Item2.LocalEndpoint).Port, listener.Item2.PortType);
+                    _logger.LogError(ex, "Exception attempting to stop listening on port {Port} ({PortClass})", ((IPEndPoint)listener.listener.LocalEndpoint).Port, listener.listener.PortType);
                 }
             }
 
-            Task.WaitAll([.. this.connections.Select(connection => connection.Value.Shutdown())]);
+            await Task.WhenAll(this.connections.Select(c => c.Value.Shutdown()));
 
-            // Wait for threads to complete gracefully
-            foreach (var thread in this.listeners)
+            try
             {
-                try
-                {
-                    // Give threads a reasonable time to finish gracefully
-                    if (!thread.Item1.Join(TimeSpan.FromSeconds(5)))
-                    {
-                        _logger.LogWarning("Thread did not complete within timeout period");
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Exception waiting for thread to complete");
-                }
+                await Task.WhenAll(this.listeners.Select(l => l.task)).WaitAsync(TimeSpan.FromSeconds(5));
+            }
+            catch (TimeoutException te)
+            {
+                _logger.LogWarning(te, "Listeners did not stop within timeout period");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Exception waiting for thread to complete");
             }
 
             _cancellationTokenSource?.Dispose();
@@ -291,21 +271,21 @@ namespace McNNTP.Core.Server.NNTP
         {
             using var rsa = RSA.Create(2048);
             var request = new CertificateRequest($"CN={commonName}", rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-            
+
             // Add basic constraints
             request.CertificateExtensions.Add(new X509BasicConstraintsExtension(false, false, 0, false));
-            
+
             // Add key usage
             request.CertificateExtensions.Add(new X509KeyUsageExtension(
                 X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment, false));
-            
+
             // Add enhanced key usage for server authentication
             request.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
                 [new Oid("1.3.6.1.5.5.7.3.1")], false)); // Server Authentication OID
 
             // Create the certificate with a 100-year validity period
             var certificate = request.CreateSelfSigned(
-                DateTimeOffset.Now.AddDays(-1), 
+                DateTimeOffset.Now.AddDays(-1),
                 DateTimeOffset.Now.AddYears(100));
 
             // Export and reimport to ensure the certificate has a private key
