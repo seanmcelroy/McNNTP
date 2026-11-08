@@ -83,28 +83,6 @@ namespace McNNTP.Core.Server.NNTP
         private readonly StringBuilder builder = new StringBuilder();
 
         /// <summary>
-        /// The remote IP address to which the connection is established
-        /// </summary>
-        [NotNull]
-        private readonly IPAddress remoteAddress;
-
-        /// <summary>
-        /// The remote TCP port number for the remote endpoint to which the connection is established
-        /// </summary>
-        private readonly int remotePort;
-
-        /// <summary>
-        /// The local IP address to which the connection is established
-        /// </summary>
-        [NotNull]
-        private readonly IPAddress localAddress;
-
-        /// <summary>
-        /// The local TCP port number for the local endpoint to which the connection is established
-        /// </summary>
-        private readonly int localPort;
-
-        /// <summary>
         /// For commands that handle conversational request-replies, this is a reference to the
         /// command that should handle new input received by the main process loop.
         /// </summary>
@@ -172,11 +150,11 @@ namespace McNNTP.Core.Server.NNTP
             this.TLS = tls;
 
             var remoteIpEndpoint = (IPEndPoint)this.client.Client.RemoteEndPoint;
-            this.remoteAddress = remoteIpEndpoint.Address;
-            this.remotePort = remoteIpEndpoint.Port;
+            this.RemoteAddress = remoteIpEndpoint.Address;
+            this.RemotePort = remoteIpEndpoint.Port;
             var localIpEndpoint = (IPEndPoint)this.client.Client.LocalEndPoint;
-            this.localAddress = localIpEndpoint.Address;
-            this.localPort = localIpEndpoint.Port;
+            this.LocalAddress = localIpEndpoint.Address;
+            this.LocalPort = localIpEndpoint.Port;
         }
 
         /// <summary>
@@ -232,42 +210,36 @@ namespace McNNTP.Core.Server.NNTP
 
         #region Derived instance properties
         /// <summary>
+        /// Gets the virutal 'key' used for storing this class in a ConcurrentDictionary.
+        /// </summary>
+        [NotNull, Pure]
+        internal string Key => $"{this.RemoteAddress}:{this.RemotePort}->{this.LocalAddress}:{this.LocalPort}#{GetHashCode()}";
+
+        /// <summary>
         /// Gets the remote IP address to which the connection is established
         /// </summary>
         [NotNull]
-        public IPAddress RemoteAddress
-        {
-            get { return this.remoteAddress; }
-        }
+        public IPAddress RemoteAddress { get; init; }
 
         /// <summary>
         /// Gets the remote TCP port number for the remote endpoint to which the connection is established.
         /// </summary>
-        public int RemotePort
-        {
-            get { return this.remotePort; }
-        }
+        public int RemotePort { get; init; }
 
         /// <summary>
         /// Gets the local IP address to which the connection is established.
         /// </summary>
         [NotNull]
-        public IPAddress LocalAddress
-        {
-            get { return this.localAddress; }
-        }
+        public IPAddress LocalAddress { get; init; }
 
         /// <summary>
         /// Gets the local TCP port number for the local endpoint to which the connection is established
         /// </summary>
-        public int LocalPort
-        {
-            get { return this.localPort; }
-        }
+        public int LocalPort { get; init; }
         #endregion
 
         #region IO and Connection Management
-        public async void Process()
+        public async Task Process()
         {
             // ReSharper disable ConvertIfStatementToConditionalTernaryExpression
             if (this.CanPost)
@@ -282,7 +254,7 @@ namespace McNNTP.Core.Server.NNTP
 
             Debug.Assert(this.stream != null, "The stream was 'null', but it should not have been because the connection was accepted and processing is beginning.");
 
-            bool send403;
+            bool send403 = false;
 
             try
             {
@@ -300,13 +272,18 @@ namespace McNNTP.Core.Server.NNTP
                     }
 
                     var bytesRead = await this.stream.ReadAsync(this.buffer, 0, BufferSize);
+                    if (bytesRead == 0)
+                    {
+                        // Peer closed the connection
+                        return;
+                    }
 
                     // There  might be more data, so store the data received so far.
                     this.builder.Append(Encoding.ASCII.GetString(this.buffer, 0, bytesRead));
 
                     // Not all data received OR no more but not yet ending with the delimiter. Get more.
                     var content = this.builder.ToString();
-                    if (bytesRead == BufferSize || !content.EndsWith("\r\n", StringComparison.Ordinal))
+                    if (!content.EndsWith("\r\n", StringComparison.Ordinal))
                     {
                         // Read some more.
                         continue;
@@ -412,10 +389,19 @@ namespace McNNTP.Core.Server.NNTP
                 _logger.LogError(ode, "Object Disposed Exception");
                 return;
             }
-
-            if (send403)
+            finally
             {
-                await this.Send("403 Archive server temporarily offline\r\n");
+                try
+                {
+                    if (send403)
+                    {
+                        await this.Send("403 Archive server temporarily offline\r\n");
+                    }
+                }
+                finally
+                {
+                    this.Close();
+                }
             }
         }
 
@@ -513,13 +499,27 @@ namespace McNNTP.Core.Server.NNTP
 
         public async Task Shutdown()
         {
-            if (this.client.Connected)
+            if (this.client.Connected && this.stream.CanWrite)
             {
                 await this.Send("205 closing connection\r\n");
+            }
+
+            this.Close();
+        }
+
+        private int _closed;
+        private void Close()
+        {
+            if (Interlocked.Exchange(ref this._closed, 1) != 0) return;
+            try
+            {
                 this.client.Client.Shutdown(SocketShutdown.Both);
                 this.client.Close();
             }
-
+            catch
+            {
+                // Already dead 
+            }
             this.server.RemoveConnection(this);
         }
         #endregion
@@ -991,7 +991,7 @@ namespace McNNTP.Core.Server.NNTP
             {
                 type = 2;
                 int articleId;
-                if (!int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out articleId))
+                if (!int.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out articleId))
                 {
                     await this.Send("501 Syntax Error\r\n");
                     return new CommandProcessingResult(true);
@@ -2771,14 +2771,14 @@ namespace McNNTP.Core.Server.NNTP
                                 if (this.CurrentNewsgroup.EndsWith(".deleted"))
                                 {
                                     articleNewsgroups = session.Query<ArticleNewsgroup>()
-                                        .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Cancelled && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
+                                        .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Cancelled && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                         .OrderBy(an => an.Number)
                                         .ToList();
                                 }
                                 else if (this.CurrentNewsgroup.EndsWith(".deleted"))
                                 {
                                     articleNewsgroups = session.Query<ArticleNewsgroup>()
-                                        .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, this.CurrentNewsgroup.Length - 8) && an.Pending && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
+                                        .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Pending && an.Number >= range.Item1 && an.Number <= range.Item2.Value)
                                         .OrderBy(an => an.Number)
                                         .ToList();
                                 }
@@ -3109,24 +3109,24 @@ namespace McNNTP.Core.Server.NNTP
             int low, high;
             if (input.IndexOf('-') == -1)
             {
-                return !int.TryParse(input, out low)
+                return !int.TryParse(input, NumberStyles.None, CultureInfo.InvariantCulture, out low)
                     ? default
                     : new Tuple<int, int?>(low, low);
             }
 
             if (input.EndsWith("-", StringComparison.Ordinal))
             {
-                return !int.TryParse(input, out low)
+                return !int.TryParse(input.AsSpan(0, input.Length - 1), NumberStyles.None, CultureInfo.InvariantCulture, out low)
                     ? default
                     : new Tuple<int, int?>(low, null);
             }
 
-            if (!int.TryParse(input.Substring(0, input.IndexOf('-')), NumberStyles.Integer, CultureInfo.InvariantCulture, out low))
+            if (!int.TryParse(input.Substring(0, input.IndexOf('-')), NumberStyles.None, CultureInfo.InvariantCulture, out low))
             {
                 return default(Tuple<int, int?>);
             }
 
-            if (!int.TryParse(input.Substring(input.IndexOf('-') + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out high))
+            if (!int.TryParse(input.Substring(input.IndexOf('-') + 1), NumberStyles.None, CultureInfo.InvariantCulture, out high))
             {
                 return default(Tuple<int, int?>);
             }

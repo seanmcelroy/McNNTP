@@ -42,7 +42,7 @@
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     // Start an asynchronous socket to listen for connections.
-                    var handler = await listener.AcceptTcpClientAsync();
+                    var handler = await listener.AcceptTcpClientAsync(cancellationToken);
 
                     // Create the state object.
                     NntpConnection nntpConnection;
@@ -73,7 +73,9 @@
 
                     this.server.AddConnection(nntpConnection);
 
-                    nntpConnection.Process();
+                    _ = nntpConnection.Process().ContinueWith(
+                        t => _logger.LogError(t.Exception, "Connection processing faulted"),
+                        TaskContinuationOptions.OnlyOnFaulted);
                 }
             }
             catch (OperationCanceledException)

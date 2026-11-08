@@ -1,4 +1,6 @@
 news.db
+*.csproj.lscache
+.vscode/
 
 #################
 ## Eclipse

@@ -252,22 +252,21 @@ namespace McNNTP.Core.Database
             using (var session = SessionUtility.OpenSession())
             {
                 admin = session.Query<User>().Fetch(a => a.Moderates).SingleOrDefault(a => a.Username == username);
-                if (admin != null)
+
+                if (admin == null)
                 {
-                    admin.LastLogin = DateTime.UtcNow;
-                    session.SaveOrUpdate(admin);
+                    return null;
                 }
-            }
 
-            if (admin == null)
-            {
-                return null;
-            }
+                if (admin.PasswordHash != Convert.ToBase64String(SHA512.HashData(Encoding.UTF8.GetBytes(string.Concat(admin.PasswordSalt, password)))))
+                {
+                    _logger.LogWarning("User {Username} failed authentication against local authentication database.", admin.Username);
+                    return null;
+                }
 
-            if (admin.PasswordHash != Convert.ToBase64String(SHA512.HashData(Encoding.UTF8.GetBytes(string.Concat(admin.PasswordSalt, password)))))
-            {
-                _logger.LogWarning("User {0} failed authentication against local authentication database.", admin.Username);
-                return null;
+                admin.LastLogin = DateTime.UtcNow;
+                session.SaveOrUpdate(admin);
+                session.Flush();
             }
 
             return admin;
@@ -294,59 +293,59 @@ namespace McNNTP.Core.Database
                 }
 
                 if (toId == null)
+                {
+                    if (catalogName.EndsWith(".deleted"))
                     {
-                        if (catalogName.EndsWith(".deleted"))
-                        {
-                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
+                        articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Cancelled)
                             .Where(an => an.Number >= fromId)
                             .OrderBy(an => an.Number)
                             .Cast<IMessage>()];
-                        }
-                        else if (catalogName.EndsWith(".pending"))
-                        {
-                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
+                    }
+                    else if (catalogName.EndsWith(".pending"))
+                    {
+                        articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Pending)
                             .Where(an => an.Number >= fromId)
                             .OrderBy(an => an.Number)
                             .Cast<IMessage>()];
-                        }
-                        else
-                        {
-                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
-                            .Where(an => an.Newsgroup.Name == ng.Name && !an.Cancelled && !an.Pending)
-                            .Where(an => an.Number >= fromId)
-                            .OrderBy(an => an.Number)
-                            .Cast<IMessage>()];
-                        }
                     }
                     else
                     {
-                        if (catalogName.EndsWith(".deleted"))
-                        {
-                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
+                        articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
+                            .Where(an => an.Newsgroup.Name == ng.Name && !an.Cancelled && !an.Pending)
+                            .Where(an => an.Number >= fromId)
+                            .OrderBy(an => an.Number)
+                            .Cast<IMessage>()];
+                    }
+                }
+                else
+                {
+                    if (catalogName.EndsWith(".deleted"))
+                    {
+                        articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Cancelled)
                             .Where(an => an.Number >= fromId && an.Number <= toId.Value)
                             .OrderBy(an => an.Number)
                             .Cast<IMessage>()];
-                        }
-                        else if (catalogName.EndsWith(".pending"))
-                        {
-                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
+                    }
+                    else if (catalogName.EndsWith(".pending"))
+                    {
+                        articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name.Substring(0, ng.Name.Length - 8) && an.Pending)
                             .Where(an => an.Number >= fromId && an.Number <= toId.Value)
                             .OrderBy(an => an.Number)
                             .Cast<IMessage>()];
-                        }
-                        else
-                        {
-                            articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
+                    }
+                    else
+                    {
+                        articleNewsgroups = [.. session.Query<ArticleNewsgroup>()
                             .Where(an => an.Newsgroup.Name == ng.Name && !an.Cancelled && !an.Pending)
                             .Where(an => an.Number >= fromId && an.Number <= toId.Value)
                             .OrderBy(an => an.Number)
                             .Cast<IMessage>()];
-                        }
                     }
+                }
 
                 session.Close();
             }
@@ -484,7 +483,7 @@ namespace McNNTP.Core.Database
                 if (toId == null)
                 {
                     articleFlags = [.. session.Query<ArticleFlag>()
-                        .Where(af => af.Id == ng.Id)
+                        .Where(af => af.NewsgroupId == ng.Id)
                         .Where(af => af.Id >= fromId)
                         .OrderBy(af => af.Id)
                         .Cast<IMessageDetail>()];
@@ -492,7 +491,7 @@ namespace McNNTP.Core.Database
                 else
                 {
                     articleFlags = [.. session.Query<ArticleFlag>()
-                        .Where(af => af.Id == ng.Id)
+                        .Where(af => af.NewsgroupId == ng.Id)
                         .Where(af => af.Id >= fromId && af.Id <= toId.Value)
                         .OrderBy(af => af.Id)
                         .Cast<IMessageDetail>()];

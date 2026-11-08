@@ -25,6 +25,7 @@ namespace McNNTP.Core.Server.NNTP
     using Microsoft.Extensions.Logging;
 
     using McNNTP.Common;
+    using System.Collections.Concurrent;
 
     /// <summary>
     /// Defines the an NNTP server utility that provides connection management and command handling to expose
@@ -55,7 +56,7 @@ namespace McNNTP.Core.Server.NNTP
         /// <summary>
         /// A list of connections currently established to this server instance.
         /// </summary>
-        private readonly List<NntpConnection> connections = new List<NntpConnection>();
+        private readonly ConcurrentDictionary<string, NntpConnection> connections = new();
 
         /// <summary>
         /// Initializes a new instance of the <see cref="NntpServer"/> class.
@@ -65,7 +66,7 @@ namespace McNNTP.Core.Server.NNTP
             this._logger = logger;
             this._loggerFactory = loggerFactory;
             this.AllowStartTLS = true;
-            this.ShowData = true;
+            this.ShowData = false;
         }
 
         /// <summary>
@@ -103,9 +104,9 @@ namespace McNNTP.Core.Server.NNTP
             {
                 return this.connections.Select(c => new ConnectionMetadata
                 {
-                    AuthenticatedUsername = c.Identity == null ? null : c.Identity.Username,
-                    RemoteAddress = c.RemoteAddress,
-                    RemotePort = c.RemotePort,
+                    AuthenticatedUsername = c.Value.Identity == null ? null : c.Value.Identity.Username,
+                    RemoteAddress = c.Value.RemoteAddress,
+                    RemotePort = c.Value.RemotePort,
                 })
                 .ToList()
                 .AsReadOnly();
@@ -237,7 +238,7 @@ namespace McNNTP.Core.Server.NNTP
                 }
             }
 
-            Task.WaitAll(this.connections.Select(connection => connection.Shutdown()).ToArray());
+            Task.WaitAll([.. this.connections.Select(connection => connection.Value.Shutdown())]);
 
             // Wait for threads to complete gracefully
             foreach (var thread in this.listeners)
@@ -263,14 +264,14 @@ namespace McNNTP.Core.Server.NNTP
         internal void AddConnection([NotNull] NntpConnection nntpConnection)
         {
             ArgumentNullException.ThrowIfNull(nntpConnection);
-            this.connections.Add(nntpConnection);
+            this.connections.TryAdd(nntpConnection.Key, nntpConnection);
             _logger.VerboseFormat("Connection from {0}:{1} to {2}:{3}", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort);
         }
 
         internal void RemoveConnection([NotNull] NntpConnection nntpConnection)
         {
             ArgumentNullException.ThrowIfNull(nntpConnection);
-            this.connections.Remove(nntpConnection);
+            this.connections.TryRemove(nntpConnection.Key, out _);
             if (nntpConnection.Identity == null)
             {
                 _logger.VerboseFormat("Disconnection from {0}:{1}", nntpConnection.RemoteAddress, nntpConnection.RemotePort, nntpConnection.LocalAddress, nntpConnection.LocalPort);
