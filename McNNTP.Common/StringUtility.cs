@@ -35,20 +35,34 @@ namespace McNNTP.Common
         /// <returns>A ZLIB compressed byte array representation of <paramref name="text"/>.</returns>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="text"/> is null or an empty string.</exception>
         [Pure]
-        public static async Task<byte[]> ZlibDeflate([NotNull] this string text, CancellationToken cancellationToken)
+        public static Task<byte[]> ZlibDeflate([NotNull] this string text, CancellationToken cancellationToken)
         {
-            ArgumentNullException.ThrowIfNull(text);
+            ArgumentException.ThrowIfNullOrEmpty(text);
+            return Encoding.UTF8.GetBytes(text).ZlibDeflate(cancellationToken);
+        }
 
-            var buffer = Encoding.UTF8.GetBytes(text);
+        /// <summary>
+        /// Compresses bytes using ZLIB compression (Unix-style GZIP compression).
+        /// </summary>
+        /// <param name="buffer">The bytes to compress.</param>
+        /// <param name="cancellationToken">The cancellation token.</param>
+        /// <returns>A ZLIB compressed byte array representation of <paramref name="buffer"/>.</returns>
+        /// <exception cref="ArgumentNullException">Thrown when the <paramref name="buffer"/> is null.</exception>
+        [Pure]
+        public static async Task<byte[]> ZlibDeflate([NotNull] this byte[] buffer, CancellationToken cancellationToken)
+        {
+            ArgumentNullException.ThrowIfNull(buffer);
+
             await using var ms = new MemoryStream();
             var options = new ZLibCompressionOptions
             {
                 //CompressionStrategy = ZLibCompressionStrategy.Default,
                 CompressionLevel = 1,
             };
-            await using var deflateStream = new ZLibStream(ms, options, true);
-            await deflateStream.WriteAsync(buffer, cancellationToken);
-            await deflateStream.FlushAsync(cancellationToken);
+            await using (var deflateStream = new ZLibStream(ms, options, true))
+            {
+                await deflateStream.WriteAsync(buffer, cancellationToken);
+            }
             return ms.ToArray();
         }
 

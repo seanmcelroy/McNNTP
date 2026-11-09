@@ -40,12 +40,24 @@ namespace McNNTP.Core.Server.NNTP
         /// <summary>
         /// The size of the stream receive buffer.
         /// </summary>
-        private const int BufferSize = 1024;
+        private const int SocketReadBufferSize = 1024;
+
+        /// <summary>
+        /// Upper bound on a single unterminated line,
+        /// so a client can't grow <see cref="pendingReceivedBytes"/> without limit.
+        /// </summary>
+        private const int MaxLineBytes = 1024 * 1024;
 
         /// <summary>
         /// A command-indexed dictionary with function pointers to support client command
         /// </summary>
         private static readonly Dictionary<string, Func<NntpConnection, string, Task<CommandProcessingResult>>> CommandDirectory;
+
+        /// <summary>
+        /// Command 'lines' are UTF-8 (RFC 3977 3.1).  We use a strict
+        /// encoding to reject malformed input instead of silently replacing it.
+        /// </summary>
+        private static readonly Encoding StrictUtf8 = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
         /// <summary>
         /// The logging utility instance to use to log events from this class
@@ -70,17 +82,24 @@ namespace McNNTP.Core.Server.NNTP
         [NotNull]
         private readonly Stream stream;
 
+        #region Input pipeline
         /// <summary>
         /// The stream receive buffer,
         /// </summary>
         [NotNull]
-        private readonly byte[] buffer = new byte[BufferSize];
+        private readonly byte[] socketReadBuffer = new byte[SocketReadBufferSize];
 
         /// <summary>
-        /// The received data buffer appended to from the stream buffer
+        /// The raw bytes received that are not yet CRLF-terminated
         /// </summary>
-        [NotNull]
-        private readonly StringBuilder builder = new StringBuilder();
+        private readonly MemoryStream pendingReceivedBytes = new MemoryStream();
+
+        /// <summary>
+        /// Specialized NNTP post buffer that handles multi-chunk posts.
+        /// This accumulates POST/IHAVE articles one line at a time.
+        /// </summary>
+        private readonly StringBuilder postBuffer = new StringBuilder();
+        #endregion
 
         /// <summary>
         /// For commands that handle conversational request-replies, this is a reference to the
@@ -271,56 +290,68 @@ namespace McNNTP.Core.Server.NNTP
                         return;
                     }
 
-                    var bytesRead = await this.stream.ReadAsync(this.buffer, 0, BufferSize);
+                    var bytesRead = await this.stream.ReadAsync(this.socketReadBuffer, 0, SocketReadBufferSize);
                     if (bytesRead == 0)
                     {
                         // Peer closed the connection
                         return;
                     }
 
-                    // There  might be more data, so store the data received so far.
-                    this.builder.Append(Encoding.ASCII.GetString(this.buffer, 0, bytesRead));
-
-                    // Not all data received OR no more but not yet ending with the delimiter. Get more.
-                    var content = this.builder.ToString();
-                    if (!content.EndsWith("\r\n", StringComparison.Ordinal))
-                    {
-                        // Read some more.
-                        continue;
-                    }
+                    this.pendingReceivedBytes.Write(this.socketReadBuffer, 0, bytesRead);
 
                     // All the data has been read from the client. Display it on the console.
-                    if (this.ShowBytes && this.ShowData)
+                    void logReceived(string content)
                     {
-                        _logger.TraceFormat(
-                            "{0}:{1} >{2}> {3} bytes: {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
-                            content.Length,
-                            content.TrimEnd('\r', '\n'));
-                    }
-                    else if (this.ShowBytes)
-                    {
-                        _logger.TraceFormat(
-                            "{0}:{1} >{2}> {3} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
-                            content.Length);
-                    }
-                    else if (this.ShowData)
-                    {
-                        _logger.TraceFormat(
-                            "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
-                            content.TrimEnd('\r', '\n'));
-                    }
-
-                    if (this.inProcessCommand != null && this.inProcessCommand.MessageHandler != null)
-                    {
-                        // Ongoing read - don't parse it for commands
-                        this.inProcessCommand = await this.inProcessCommand.MessageHandler(content, this.inProcessCommand);
-                        if (this.inProcessCommand != null && this.inProcessCommand.IsQuitting)
+                        if (this.ShowBytes && this.ShowData)
                         {
-                            this.inProcessCommand = null;
+                            _logger.TraceFormat(
+                                "{0}:{1} >{2}> {3} bytes: {4}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
+                                content.Length,
+                                content.TrimEnd('\r', '\n'));
+                        }
+                        else if (this.ShowBytes)
+                        {
+                            _logger.TraceFormat(
+                                "{0}:{1} >{2}> {3} bytes", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
+                                content.Length);
+                        }
+                        else if (this.ShowData)
+                        {
+                            _logger.TraceFormat(
+                                "{0}:{1} >{2}> {3}", this.RemoteAddress, this.RemotePort, this.TLS ? "!" : ">",
+                                content.TrimEnd('\r', '\n'));
                         }
                     }
-                    else
+
+                    while (this.TryTakeLine(out var lineBytes))
                     {
+                        // Data mode: Article text after a `POST`.
+                        // Latin-1 maps each byte to char 1:1, so there is parity
+                        if (this.inProcessCommand?.MessageHandler is { } handler)
+                        {
+                            var dataLine = Encoding.Latin1.GetString(lineBytes);
+                            logReceived(dataLine);
+                            this.inProcessCommand = await handler(dataLine, this.inProcessCommand);
+                            if (this.inProcessCommand != null && this.inProcessCommand.IsQuitting)
+                            {
+                                this.inProcessCommand = null;
+                            }
+                            continue;
+                        }
+
+                        // Or else, Command mode: UTF-8
+                        string content;
+                        try
+                        {
+                            // Add back CRLF, as handlers expect this.
+                            content = StrictUtf8.GetString(lineBytes) + "\r\n";   // handlers still get their trailing CRLF, so none of them change
+                        }
+                        catch (DecoderFallbackException)
+                        {
+                            await this.Send("501 Syntax Error\r\n");
+                            continue;
+                        }
+                        logReceived(content);
                         var command = content.Split(' ').First().TrimEnd('\r', '\n').ToUpperInvariant();
                         if (CommandDirectory.ContainsKey(command))
                         {
@@ -361,23 +392,27 @@ namespace McNNTP.Core.Server.NNTP
                         }
                     }
 
-                    this.builder.Clear();
+                    if (this.pendingReceivedBytes.Length > MaxLineBytes)
+                    {
+                        await this.Send("501 Line too long\r\n");
+                        return;
+                    }
                 }
             }
             catch (DecoderFallbackException dfe)
             {
                 send403 = true;
-                _logger.LogError(dfe, "Decoder Fallback Exception socket " + this.RemoteAddress);
+                _logger.LogError(dfe, "Decoder Fallback Exception socket {RemoteAddress}", this.RemoteAddress);
             }
             catch (IOException se)
             {
                 send403 = true;
-                _logger.LogError(se, "I/O Exception on socket " + this.RemoteAddress);
+                _logger.LogError(se, "I/O Exception on socket {RemoteAddress}", this.RemoteAddress);
             }
             catch (SocketException se)
             {
                 send403 = true;
-                _logger.LogError(se, "Socket Exception on socket " + this.RemoteAddress);
+                _logger.LogError(se, "Socket Exception on socket {RemoteAddress}", this.RemoteAddress);
             }
             catch (NotSupportedException nse)
             {
@@ -406,38 +441,74 @@ namespace McNNTP.Core.Server.NNTP
         }
 
         /// <summary>
-        /// Sends the formatted data to the client.
+        /// Removes one CRLF-terminated line from
+        /// <see cref="pendingReceivedBytes"/>, without the CRLF.
         /// </summary>
-        /// <param name="format">The data, or format string for data, to send to the client.</param>
-        /// <param name="args">The argument applied as a format string to <paramref name="format"/> to create the data to send to the client.</param>
-        /// <returns>A value indicating whether or not the transmission was successful.</returns>
-        private async Task<bool> Send([NotNull][StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, [NotNull] params object[] args)
+        private bool TryTakeLine(out byte[] line)
         {
-            return await this.SendInternal(string.Format(CultureInfo.InvariantCulture, format, args), false, CancellationToken.None);
+            var buf = this.pendingReceivedBytes.GetBuffer();
+            var len = (int)this.pendingReceivedBytes.Length;
+            var idx = buf.AsSpan(0, len).IndexOf("\r\n"u8);
+            if (idx < 0)
+            {
+                line = [];
+                return false;
+            }
+
+            line = buf.AsSpan(0, idx).ToArray();
+            var rest = len - (idx + 2);
+            Buffer.BlockCopy(buf, idx + 2, buf, 0, rest);
+            this.pendingReceivedBytes.SetLength(rest);
+            this.pendingReceivedBytes.Position = rest;
+            return true;
         }
 
         /// <summary>
-        /// Sends the formatted data to the client.
+        /// Sends formatted protocol text to the client as UTF-8.
         /// </summary>
         /// <param name="format">The data, or format string for data, to send to the client.</param>
         /// <param name="args">The argument applied as a format string to <paramref name="format"/> to create the data to send to the client.</param>
         /// <returns>A value indicating whether or not the transmission was successful.</returns>
-        private async Task<bool> SendCompressed([NotNull][StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, [NotNull] params object[] args)
+        private async Task<bool> Send(
+            [NotNull][StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format,
+            [NotNull] params object[] args)
         {
-            return await this.SendInternal(string.Format(CultureInfo.InvariantCulture, format, args), true, CancellationToken.None);
+            // Skip string.Format if there are no args so stray braces cannot throw
+            var data = args.Length == 0
+                ? format
+                : string.Format(CultureInfo.InvariantCulture, format, args);
+            return await this.SendInternal(data, false, Encoding.UTF8, CancellationToken.None);
         }
 
-        private async Task<bool> SendInternal([NotNull] string data, bool compressedIfPossible, CancellationToken cancellationToken)
+        /// <summary>
+        /// Sends stored article data (Latin-1 strings), byte-for-byte, as received.
+        /// </summary>
+        /// <param name="data">The data to send.</param>
+        /// <returns>A value indicating whether or not the transmission was successful.</returns>
+        private async Task<bool> SendRaw([NotNull] string data) => await this.SendInternal(data, false, Encoding.Latin1, CancellationToken.None);
+
+        /// <summary>
+        /// Sends the raw data (Latin-1 strings) as compressed.
+        /// </summary>
+        /// <param name="data">The data to send.</param>
+        /// <returns>A value indicating whether or not the transmission was successful.</returns>
+        private async Task<bool> SendCompressedRaw([NotNull] string data) => await this.SendInternal(data, true, Encoding.Latin1, CancellationToken.None);
+
+        private async Task<bool> SendInternal(
+            [NotNull] string data,
+            bool compressedIfPossible,
+            Encoding encoding,
+            CancellationToken cancellationToken)
         {
-            // Convert the string data to byte data using ASCII encoding.
+            // Convert the string data to byte data using the specified encoding.
             byte[] byteData;
             if (compressedIfPossible && this.Compression && this.CompressionGZip && this.CompressionTerminator)
             {
-                byteData = await data.ZlibDeflate(cancellationToken);
+                byteData = await encoding.GetBytes(data).ZlibDeflate(cancellationToken);
             }
             else
             {
-                byteData = Encoding.UTF8.GetBytes(data);
+                byteData = encoding.GetBytes(data);
             }
 
             try
@@ -655,8 +726,8 @@ namespace McNNTP.Core.Server.NNTP
                             break;
                     }
 
-                    await this.Send(articleNewsgroup.Article.Headers + "\r\n\r\n");
-                    await this.Send(articleNewsgroup.Article.Body + "\r\n.\r\n");
+                    await this.SendRaw(articleNewsgroup.Article.Headers + "\r\n\r\n");
+                    await this.SendRaw(articleNewsgroup.Article.Body + "\r\n.\r\n");
                 }
             }
 
@@ -880,7 +951,7 @@ namespace McNNTP.Core.Server.NNTP
                             break;
                     }
 
-                    await this.Send(articleNewsgroup.Article.Body + "\r\n.\r\n");
+                    await this.SendRaw(articleNewsgroup.Article.Body + "\r\n.\r\n");
                 }
             }
 
@@ -1155,17 +1226,17 @@ namespace McNNTP.Core.Server.NNTP
                     {
                         if (type == 1)
                         {
-                            await this.Send(
-                                "{0} {1}\r\n",
+                            await this.SendRaw(
+                                string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
                                 (!string.IsNullOrEmpty(this.CurrentNewsgroup) && string.CompareOrdinal(articleNewsgroup.Newsgroup.Name, this.CurrentNewsgroup) == 0) ? articleNewsgroup.Article.MessageId : "0",
-                                headerFunction.Invoke(articleNewsgroup.Article));
+                                headerFunction.Invoke(articleNewsgroup.Article)));
                         }
                         else
                         {
-                            await this.Send(
-                                "{0} {1}\r\n",
+                            await this.SendRaw(
+                                string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
                                 articleNewsgroup.Number,
-                                headerFunction.Invoke(articleNewsgroup.Article));
+                                headerFunction.Invoke(articleNewsgroup.Article)));
                         }
                     }
 
@@ -1294,7 +1365,7 @@ namespace McNNTP.Core.Server.NNTP
                             break;
                     }
 
-                    await this.Send(articleNewsgroup.Article.Headers + "\r\n.\r\n");
+                    await this.SendRaw(articleNewsgroup.Article.Headers + "\r\n.\r\n");
                 }
             }
 
@@ -1527,14 +1598,17 @@ namespace McNNTP.Core.Server.NNTP
             }
 
             await this.Send("215 list of newsgroups follows\r\n");
-            foreach (var ng in newsGroups)
+            if (newsGroups != null)
             {
-                await this.Send("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark ?? 0, ng.LowWatermark ?? 0,
-                    ng.Moderated ? "m" :
-                    !this.CanPost || (ng.DenyLocalPosting && ng.DenyPeerPosting) ? "n" :
-                    ng.DenyPeerPosting ? "x" :
-                    ng.DenyLocalPosting ? "j" :
-                    "y");
+                foreach (var ng in newsGroups)
+                {
+                    await this.Send("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark ?? 0, ng.LowWatermark ?? 0,
+                        ng.Moderated ? "m" :
+                        !this.CanPost || (ng.DenyLocalPosting && ng.DenyPeerPosting) ? "n" :
+                        ng.DenyPeerPosting ? "x" :
+                        ng.DenyLocalPosting ? "j" :
+                        "y");
+                }
             }
 
             await this.Send(".\r\n");
@@ -2170,12 +2244,12 @@ namespace McNNTP.Core.Server.NNTP
                     unfold(articleNewsgroup.Article.Date).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
                     unfold(articleNewsgroup.Article.MessageId).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
                     unfold(articleNewsgroup.Article.References).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
-                    unfold((articleNewsgroup.Article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
+                    unfold(articleNewsgroup.Article.Body.Length.ToString(CultureInfo.InvariantCulture)),
                     unfold(articleNewsgroup.Article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture)));
             }
 
             sb.Append(".\r\n");
-            await this.SendCompressed(sb.ToString());
+            await this.SendCompressedRaw(sb.ToString());
 
             return new CommandProcessingResult(true);
         }
@@ -2199,179 +2273,177 @@ namespace McNNTP.Core.Server.NNTP
             return await this.PostMessageAccumulator(null, null);
         }
 
-        private async Task<CommandProcessingResult> PostMessageAccumulator(string? msg, CommandProcessingResult? prev)
+        private async Task<CommandProcessingResult> PostMessageAccumulator(string? line, CommandProcessingResult? prev)
         {
-            if (
-
-                // Message ends naturally
-                (msg != null && msg.EndsWith("\r\n.\r\n", StringComparison.OrdinalIgnoreCase)) ||
-
-                // Message delimiter comes in second batch
-                (prev != null && prev.Message != null && prev.Message.EndsWith("\r\n", StringComparison.OrdinalIgnoreCase) && msg != null && msg.EndsWith(".\r\n", StringComparison.OrdinalIgnoreCase)))
+            if (line == null)
             {
-                bool send441;
-
-                try
+                this.postBuffer.Clear();
+                return new CommandProcessingResult(true, false)
                 {
-                    Article article;
-                    if (!Data.Article.TryParse(prev.Message == null ? msg.Substring(0, msg.Length - 5) : prev.Message + msg.Substring(0, msg.Length - 3), out article))
+                    MessageHandler = this.PostMessageAccumulator
+                };
+            }
+
+            // Not the terminator yet: append the line exactly as received (still dot-stuffed)
+            if (line != ".")
+            {
+                this.postBuffer.Append(line).Append("\r\n");
+                return new CommandProcessingResult(true, false)
+                {
+                    MessageHandler = this.PostMessageAccumulator
+                };
+            }
+
+            // Terminator received. Drop the final CRLF, the same as the old Substring(0, Length - 5).
+            var block = this.postBuffer.Length >= 2
+                ? this.postBuffer.ToString(0, this.postBuffer.Length - 2)
+                : string.Empty;
+            this.postBuffer.Clear();
+
+            try
+            {
+                Article article;
+                if (!Data.Article.TryParse(block, out article))
+                {
+                    await this.Send("441 Posting failed\r\n");
+                    return new CommandProcessingResult(true, true);
+                }
+
+                article.ArticleNewsgroups = new HashSet<ArticleNewsgroup>();
+                article.Path = this.PathHost;
+
+                using (var session = Database.SessionUtility.OpenSession())
+                {
+                    session.Save(article);
+
+                    static string latin1ToUtf8(string s) => Encoding.UTF8.GetString(Encoding.Latin1.GetBytes(s));
+                    foreach (var newsgroupName in article.Newsgroups.Split(' ').Select(latin1ToUtf8))
                     {
-                        await this.Send("441 Posting failed\r\n");
-                        return new CommandProcessingResult(true, true);
-                    }
-
-                    article.ArticleNewsgroups = new HashSet<ArticleNewsgroup>();
-                    article.Path = this.PathHost;
-
-                    using (var session = Database.SessionUtility.OpenSession())
-                    {
-                        session.Save(article);
-
-                        foreach (var newsgroupName in article.Newsgroups.Split(' '))
+                        bool canApprove;
+                        if (this.Identity == null)
                         {
-                            bool canApprove;
-                            if (this.Identity == null)
+                            canApprove = false;
+                        }
+                        else if (this.Identity.CanInject || this.Identity.CanApproveAny)
+                        {
+                            canApprove = true;
+                        }
+                        else
+                        {
+                            canApprove = this.Identity.Moderates.Any(ng => ng.Name == newsgroupName);
+                        }
+
+                        if (!canApprove)
+                        {
+                            article.Approved = null;
+                            article.RemoveHeader("Approved");
+                        }
+
+                        if (this.Identity != null && !this.Identity.CanCancel)
+                        {
+                            article.Supersedes = null;
+                            article.RemoveHeader("Supersedes");
+                        }
+
+                        if (this.Identity != null && !this.Identity.CanInject)
+                        {
+                            article.InjectionDate = DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000";
+                            article.ChangeHeader("Injection-Date", DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000");
+                            article.InjectionInfo = null;
+                            article.RemoveHeader("Injection-Info");
+                            article.Xref = null;
+                            article.RemoveHeader("Xref");
+
+                            // RFC 5536 3.2.6. The Followup-To header field SHOULD NOT appear in a message, unless its content is different from the content of the Newsgroups header field.
+                            if (!string.IsNullOrWhiteSpace(article.FollowupTo) &&
+                                string.Compare(article.FollowupTo, article.Newsgroups, StringComparison.OrdinalIgnoreCase) == 0)
                             {
-                                canApprove = false;
-                            }
-                            else if (this.Identity.CanInject || this.Identity.CanApproveAny)
-                            {
-                                canApprove = true;
-                            }
-                            else
-                            {
-                                canApprove = this.Identity.Moderates.Any(ng => ng.Name == newsgroupName);
-                            }
-
-                            if (!canApprove)
-                            {
-                                article.Approved = null;
-                                article.RemoveHeader("Approved");
-                            }
-
-                            if (this.Identity != null && !this.Identity.CanCancel)
-                            {
-                                article.Supersedes = null;
-                                article.RemoveHeader("Supersedes");
-                            }
-
-                            if (this.Identity != null && !this.Identity.CanInject)
-                            {
-                                article.InjectionDate = DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000";
-                                article.ChangeHeader("Injection-Date", DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss") + " +0000");
-                                article.InjectionInfo = null;
-                                article.RemoveHeader("Injection-Info");
-                                article.Xref = null;
-                                article.RemoveHeader("Xref");
-
-                                // RFC 5536 3.2.6. The Followup-To header field SHOULD NOT appear in a message, unless its content is different from the content of the Newsgroups header field.
-                                if (!string.IsNullOrWhiteSpace(article.FollowupTo) &&
-                                    string.Compare(article.FollowupTo, article.Newsgroups, StringComparison.OrdinalIgnoreCase) == 0)
-                                {
-                                    article.FollowupTo = null;
-                                }
-                            }
-
-                            if ((article.Control != null && this.Identity == null) ||
-                                (article.Control != null && this.Identity != null && article.Control.StartsWith("cancel ", StringComparison.OrdinalIgnoreCase) && !this.Identity.CanCancel) ||
-                                (article.Control != null && this.Identity != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !this.Identity.CanCreateCatalogs) ||
-                                (article.Control != null && this.Identity != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !this.Identity.CanDeleteCatalogs) ||
-                                (article.Control != null && this.Identity != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !this.Identity.CanCheckCatalogs))
-                            {
-                                await this.Send("480 Permission to issue control message denied\r\n");
-                                return new CommandProcessingResult(true, true);
-                            }
-
-                            // Moderation - if this is a moderator's approval message, don't post it, but approve the referenced message.
-                            if (canApprove && !string.IsNullOrEmpty(article.References) &&
-                                (article.Body.StartsWith("APPROVE\r\n", StringComparison.OrdinalIgnoreCase) ||
-                                    article.Body.StartsWith("APPROVED\r\n", StringComparison.OrdinalIgnoreCase)))
-                            {
-                                var references = article.References.Split(' ');
-
-                                var target = session.CreateQuery("from ArticleNewsgroup an where an.Article.MessageId IN (:ReferencesList) AND an.Newsgroup.Name = :NewsgroupName")
-                                    .SetParameterList("ReferencesList", references)
-                                    .SetParameter("NewsgroupName", newsgroupName)
-                                    .List<ArticleNewsgroup>()
-                                    .SingleOrDefault();
-
-                                if (target != null)
-                                {
-                                    target.Article.Approved = this.Identity.Mailbox ?? string.Format("{0}@{1}", this.Identity.Username, this.server.PathHost);
-                                    session.SaveOrUpdate(target.Article);
-
-                                    target.Pending = false;
-                                    session.SaveOrUpdate(target);
-                                    session.Flush();
-                                    session.Close();
-
-                                    await this.Send("240 Article received OK\r\n");
-                                    return new CommandProcessingResult(true, true)
-                                    {
-                                        Message = prev.Message + msg,
-                                    };
-                                }
-                            }
-
-                            var newsgroupNameClosure = newsgroupName;
-                            // We don't add metagroups here, you can't 'post' directly to a meta group.
-                            var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == newsgroupNameClosure);
-                            if (newsgroup == null)
-                            {
-                                _logger.VerboseFormat("Cross-post of message {0} to {1} failed - newsgroup not found", article.MessageId, newsgroupNameClosure);
-                                continue;
-                            }
-
-                            if (newsgroup.DenyLocalPosting)
-                            {
-                                _logger.VerboseFormat("Cross-post of message {0} to {1} failed - local posting denied", article.MessageId, newsgroupNameClosure);
-                                continue;
-                            }
-
-                            var articleNewsgroup = new ArticleNewsgroup
-                            {
-                                Article = article,
-                                Cancelled = false,
-                                Newsgroup = newsgroup,
-                                Number = session.CreateQuery("select max(an.Number) from ArticleNewsgroup an where an.Newsgroup.Name = :NewsgroupName").SetParameter("NewsgroupName", newsgroupName).UniqueResult<int>() + 1,
-                                Pending = newsgroup.Moderated && !canApprove,
-                            };
-                            session.Save(articleNewsgroup);
-
-                            if (article.Control != null)
-                            {
-                                this.HandleControlMessage(newsgroup, article);
+                                article.FollowupTo = null;
                             }
                         }
 
-                        session.Flush();
-                        session.Close();
+                        if ((article.Control != null && this.Identity == null) ||
+                            (article.Control != null && this.Identity != null && article.Control.StartsWith("cancel ", StringComparison.OrdinalIgnoreCase) && !this.Identity.CanCancel) ||
+                            (article.Control != null && this.Identity != null && article.Control.StartsWith("newgroup ", StringComparison.OrdinalIgnoreCase) && !this.Identity.CanCreateCatalogs) ||
+                            (article.Control != null && this.Identity != null && article.Control.StartsWith("rmgroup ", StringComparison.OrdinalIgnoreCase) && !this.Identity.CanDeleteCatalogs) ||
+                            (article.Control != null && this.Identity != null && article.Control.StartsWith("checkgroups ", StringComparison.OrdinalIgnoreCase) && !this.Identity.CanCheckCatalogs))
+                        {
+                            await this.Send("480 Permission to issue control message denied\r\n");
+                            return new CommandProcessingResult(true, true);
+                        }
+
+                        // Moderation - if this is a moderator's approval message, don't post it, but approve the referenced message.
+                        if (canApprove && !string.IsNullOrEmpty(article.References) &&
+                            (article.Body.StartsWith("APPROVE\r\n", StringComparison.OrdinalIgnoreCase) ||
+                                article.Body.StartsWith("APPROVED\r\n", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            var references = article.References.Split(' ');
+
+                            var target = session.CreateQuery("from ArticleNewsgroup an where an.Article.MessageId IN (:ReferencesList) AND an.Newsgroup.Name = :NewsgroupName")
+                                .SetParameterList("ReferencesList", references)
+                                .SetParameter("NewsgroupName", newsgroupName)
+                                .List<ArticleNewsgroup>()
+                                .SingleOrDefault();
+
+                            if (target != null)
+                            {
+                                target.Article.Approved = this.Identity.Mailbox ?? string.Format("{0}@{1}", this.Identity.Username, this.server.PathHost);
+                                session.SaveOrUpdate(target.Article);
+
+                                target.Pending = false;
+                                session.SaveOrUpdate(target);
+                                session.Flush();
+                                session.Close();
+
+                                await this.Send("240 Article received OK\r\n");
+                                return new CommandProcessingResult(true, true);
+                            }
+                        }
+
+                        var newsgroupNameClosure = newsgroupName;
+                        // We don't add metagroups here, you can't 'post' directly to a meta group.
+                        var newsgroup = session.Query<Newsgroup>().SingleOrDefault(n => n.Name == newsgroupNameClosure);
+                        if (newsgroup == null)
+                        {
+                            _logger.VerboseFormat("Cross-post of message {0} to {1} failed - newsgroup not found", article.MessageId, newsgroupNameClosure);
+                            continue;
+                        }
+
+                        if (newsgroup.DenyLocalPosting)
+                        {
+                            _logger.VerboseFormat("Cross-post of message {0} to {1} failed - local posting denied", article.MessageId, newsgroupNameClosure);
+                            continue;
+                        }
+
+                        var articleNewsgroup = new ArticleNewsgroup
+                        {
+                            Article = article,
+                            Cancelled = false,
+                            Newsgroup = newsgroup,
+                            Number = session.CreateQuery("select max(an.Number) from ArticleNewsgroup an where an.Newsgroup.Name = :NewsgroupName").SetParameter("NewsgroupName", newsgroupName).UniqueResult<int>() + 1,
+                            Pending = newsgroup.Moderated && !canApprove,
+                        };
+                        session.Save(articleNewsgroup);
+
+                        if (article.Control != null)
+                        {
+                            this.HandleControlMessage(newsgroup, article);
+                        }
                     }
 
-                    await this.Send("240 Article received OK\r\n");
-                    return new CommandProcessingResult(true, true)
-                    {
-                        Message = prev.Message + msg,
-                    };
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Exception when trying to handle POST");
-                    send441 = true;
+                    session.Flush();
+                    session.Close();
                 }
 
-                if (send441)
-                {
-                    await this.Send("441 Posting failed\r\n");
-                    return new CommandProcessingResult(true);
-                }
+                await this.Send("240 Article received OK\r\n");
+                return new CommandProcessingResult(true, true);
             }
-
-            return new CommandProcessingResult(true, false)
+            catch (Exception ex)
             {
-                MessageHandler = this.PostMessageAccumulator,
-                Message = prev == null ? msg : prev.Message == null ? msg : prev.Message + "\r\n" + msg,
-            };
+                _logger.LogError(ex, "Exception when trying to handle POST");
+                await this.Send("441 Posting failed\r\n");
+                return new CommandProcessingResult(true);
+            }
         }
 
         /// <summary>
@@ -2675,7 +2747,7 @@ namespace McNNTP.Core.Server.NNTP
             }
 
             sb.Append(".\r\n");
-            await this.SendCompressed(sb.ToString());
+            await this.SendCompressedRaw(sb.ToString());
 
             return new CommandProcessingResult(true);
         }
@@ -2843,12 +2915,12 @@ namespace McNNTP.Core.Server.NNTP
                         unfold(articleNewsgroup.Article.Date),
                         unfold(articleNewsgroup.Article.MessageId),
                         unfold(articleNewsgroup.Article.References),
-                        unfold((articleNewsgroup.Article.Body.Length * 2).ToString(CultureInfo.InvariantCulture)),
+                        unfold(articleNewsgroup.Article.Body.Length.ToString(CultureInfo.InvariantCulture)),
                         unfold(articleNewsgroup.Article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture)));
                 }
 
                 sb.Append(".\r\n");
-                await this.SendCompressed(sb.ToString());
+                await this.SendCompressedRaw(sb.ToString());
             }
 
             return new CommandProcessingResult(true);
@@ -3044,7 +3116,7 @@ namespace McNNTP.Core.Server.NNTP
                 }
             }
             sb.Append(".\r\n");
-            await this.SendCompressed(sb.ToString());
+            await this.SendCompressedRaw(sb.ToString());
 
             return new CommandProcessingResult(true);
         }
