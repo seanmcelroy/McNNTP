@@ -20,6 +20,7 @@ namespace McNNTP.Core.Server.NNTP
     using System.Net;
     using System.Net.Sockets;
     using System.Reflection;
+    using System.Runtime.CompilerServices;
     using System.Security.Cryptography;
     using System.Text;
     using System.Threading.Tasks;
@@ -383,7 +384,7 @@ namespace McNNTP.Core.Server.NNTP
                             {
                                 send403 = true;
                                 _logger.LogError(ex, "Exception processing a command");
-                                break;
+                                return;
                             }
                         }
                         else
@@ -629,7 +630,7 @@ namespace McNNTP.Core.Server.NNTP
 
             using (var session = Database.SessionUtility.OpenSession())
             {
-                ArticleNewsgroup articleNewsgroup;
+                ArticleNewsgroup? articleNewsgroup;
                 int type;
                 if (string.IsNullOrEmpty(param))
                 {
@@ -656,7 +657,11 @@ namespace McNNTP.Core.Server.NNTP
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
                 {
-                    articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => an.Article.MessageId == param);
+                    articleNewsgroup = session.Query<ArticleNewsgroup>()
+                        .FirstOrDefault(an =>
+                            an.Article.MessageId == param
+                            && !an.Cancelled
+                            && !an.Pending);
                     type = 1;
                 }
                 else
@@ -664,7 +669,7 @@ namespace McNNTP.Core.Server.NNTP
                     int articleNumber;
                     if (!int.TryParse(param, out articleNumber))
                     {
-                        await this.Send("423 No article with that number\r\n");
+                        await this.Send("501 Bad syntax in article number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
@@ -743,6 +748,7 @@ namespace McNNTP.Core.Server.NNTP
 
             if (string.IsNullOrWhiteSpace(param))
             {
+                // 481 per RFC 4643 2.3.1 / 2.4.2
                 await this.Send("481 Authentication failed/rejected\r\n");
                 return new CommandProcessingResult(true);
             }
@@ -844,19 +850,11 @@ namespace McNNTP.Core.Server.NNTP
                     return new CommandProcessingResult(true);
                 }
             }
-            else
-            {
-                if (this.CurrentNewsgroup == null)
-                {
-                    await this.Send("412 No newsgroup selected\r\n");
-                    return new CommandProcessingResult(true);
-                }
-            }
 
             using (var session = Database.SessionUtility.OpenSession())
             {
                 int type;
-                ArticleNewsgroup articleNewsgroup;
+                ArticleNewsgroup? articleNewsgroup;
                 if (string.IsNullOrEmpty(param))
                 {
                     if (this.CurrentNewsgroup == null)
@@ -896,7 +894,7 @@ namespace McNNTP.Core.Server.NNTP
                     int articleNumber;
                     if (!int.TryParse(param, out articleNumber))
                     {
-                        await this.Send("423 No article with that number\r\n");
+                        await this.Send("501 Bad syntax in article number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
@@ -973,10 +971,13 @@ namespace McNNTP.Core.Server.NNTP
             // sb.Append("IHAVE\r\n");
             sb.Append("HDR\r\n");
             sb.Append("LIST ACTIVE NEWSGROUPS ACTIVE.TIMES DISTRIB.PATS HEADERS OVERVIEW.FMT\r\n");
-            sb.Append("MODE-READER\r\n");
+            // Cannot also exist with 'READER": sb.Append("MODE-READER\r\n");
             sb.Append("NEWNEWS\r\n");
             sb.Append("OVER MSGID\r\n");
-            sb.Append("POST\r\n");
+            if (this.CanPost)
+            {
+                sb.Append("POST\r\n");
+            }
             sb.Append("READER\r\n");
             if (this.AllowStartTls)
             {
@@ -1011,17 +1012,37 @@ namespace McNNTP.Core.Server.NNTP
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc3977#section-6.1.1">RFC 3977</a> for more information.</remarks>
         private async Task<CommandProcessingResult> Group(string content)
         {
-            content = content.TrimEnd('\r', '\n').Substring(content.IndexOf(' ') + 1).Split(' ')[0];
-            Newsgroup ng;
+            if (content == null)
+            {
+                await this.Send("501 Syntax Error\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            content = content.TrimEnd('\r', '\n');
+            if (string.IsNullOrWhiteSpace(content))
+            {
+                await this.Send("501 Syntax Error\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            var contentSplit = content.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            if (contentSplit.Length != 2)
+            {
+                await this.Send("501 Syntax Error\r\n");
+                return new CommandProcessingResult(true);
+            }
+            var groupName = contentSplit[1];
+
+            Newsgroup? ng;
             using (var session = Database.SessionUtility.OpenSession())
             {
-                ng = session.Query<Newsgroup>().AddMetagroups(session, this.Identity).SingleOrDefault(n => n.Name == content);
+                ng = session.Query<Newsgroup>().AddMetagroups(session, this.Identity).SingleOrDefault(n => n.Name == groupName);
                 session.Close();
             }
 
             if (ng == null)
             {
-                await this.Send("411 {0} is unknown\r\n", content);
+                await this.Send("411 {0} is unknown\r\n", groupName);
             }
             else
             {
@@ -1093,11 +1114,17 @@ namespace McNNTP.Core.Server.NNTP
 
             using (var session = Database.SessionUtility.OpenSession())
             {
-                IEnumerable<ArticleNewsgroup> articleNewsgroups;
+                IEnumerable<ArticleNewsgroup?> articleNewsgroups;
                 switch (type)
                 {
                     case 1:
-                        articleNewsgroups = new[] { session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Article.MessageId == parts[2]) };
+                        articleNewsgroups = session.Query<ArticleNewsgroup>()
+                            .Where(an =>
+                                !an.Cancelled
+                                && !an.Pending
+                                && an.Article.MessageId == parts[2])
+                            .Take(1)
+                            .ToList();
                         break;
                     case 2:
                         var range = ParseRange(parts[2]);
@@ -1212,6 +1239,12 @@ namespace McNNTP.Core.Server.NNTP
                         case "XREF":
                             headerFunction = a => a.Xref;
                             break;
+                        case ":BYTES":
+                            headerFunction = a => a.CalculateBytes().ToString(CultureInfo.InvariantCulture);
+                            break;
+                        case ":LINES":
+                            headerFunction = a => a.CalculateBodyLines().ToString(CultureInfo.InvariantCulture);
+                            break;
                         default:
                             {
                                 Dictionary<string, string> headers, headersAndFullLines;
@@ -1228,15 +1261,15 @@ namespace McNNTP.Core.Server.NNTP
                         {
                             await this.SendRaw(
                                 string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
-                                (!string.IsNullOrEmpty(this.CurrentNewsgroup) && string.CompareOrdinal(articleNewsgroup.Newsgroup.Name, this.CurrentNewsgroup) == 0) ? articleNewsgroup.Article.MessageId : "0",
-                                headerFunction.Invoke(articleNewsgroup.Article)));
+                                (!string.IsNullOrEmpty(this.CurrentNewsgroup) && string.CompareOrdinal(articleNewsgroup!.Newsgroup.Name, this.CurrentNewsgroup) == 0) ? articleNewsgroup.Article.MessageId : "0",
+                                headerFunction.Invoke(articleNewsgroup!.Article)));
                         }
                         else
                         {
                             await this.SendRaw(
                                 string.Format(CultureInfo.InvariantCulture, "{0} {1}\r\n",
-                                articleNewsgroup.Number,
-                                headerFunction.Invoke(articleNewsgroup.Article)));
+                                articleNewsgroup!.Number,
+                                headerFunction.Invoke(articleNewsgroup!.Article)));
                         }
                     }
 
@@ -1261,18 +1294,10 @@ namespace McNNTP.Core.Server.NNTP
                     return new CommandProcessingResult(true);
                 }
             }
-            else
-            {
-                if (string.IsNullOrEmpty(this.CurrentNewsgroup))
-                {
-                    await this.Send("412 No newsgroup selected\r\n");
-                    return new CommandProcessingResult(true);
-                }
-            }
 
             using (var session = Database.SessionUtility.OpenSession())
             {
-                ArticleNewsgroup articleNewsgroup;
+                ArticleNewsgroup? articleNewsgroup;
                 int type;
                 if (string.IsNullOrEmpty(param))
                 {
@@ -1299,7 +1324,10 @@ namespace McNNTP.Core.Server.NNTP
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
                 {
-                    articleNewsgroup = session.Query<ArticleNewsgroup>().FirstOrDefault(an => an.Article.MessageId == param);
+                    articleNewsgroup = session.Query<ArticleNewsgroup>().FirstOrDefault(an =>
+                        an.Article.MessageId == param
+                        && !an.Cancelled
+                        && !an.Pending);
                     type = 1;
                 }
                 else
@@ -1313,7 +1341,7 @@ namespace McNNTP.Core.Server.NNTP
                     int articleNumber;
                     if (!int.TryParse(param, out articleNumber))
                     {
-                        await this.Send("423 No article with that number\r\n");
+                        await this.Send("501 Bad syntax in article number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
@@ -1602,12 +1630,17 @@ namespace McNNTP.Core.Server.NNTP
             {
                 foreach (var ng in newsGroups)
                 {
-                    await this.Send("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark ?? 0, ng.LowWatermark ?? 0,
+                    await this.Send("{0} {1} {2} {3}\r\n",
+                        ng.Name,
+                        ng.HighWatermark ?? 0, ng.LowWatermark ?? 0,
                         ng.Moderated ? "m" :
-                        !this.CanPost || (ng.DenyLocalPosting && ng.DenyPeerPosting) ? "n" :
-                        ng.DenyPeerPosting ? "x" :
-                        ng.DenyLocalPosting ? "j" :
-                        "y");
+                        !this.CanPost || (ng.DenyLocalPosting && ng.DenyPeerPosting)
+                            ? "n" :
+                            ng.DenyPeerPosting
+                                ? "x" :
+                                ng.DenyLocalPosting
+                                    ? "j"
+                                    : "y");
                 }
             }
 
@@ -1653,7 +1686,7 @@ namespace McNNTP.Core.Server.NNTP
                 var epoch = new DateTime(1970, 1, 1);
                 foreach (var ng in newsGroups)
                 {
-                    await this.Send("{0} {1} {2}\r\n", ng.Name, (ng.CreateDate - epoch).TotalSeconds, ng.CreatorEntity);
+                    await this.Send("{0} {1} {2}\r\n", ng.Name, (long)(ng.CreateDate - epoch).TotalSeconds, ng.CreatorEntity);
                 }
             }
 
@@ -1757,7 +1790,7 @@ namespace McNNTP.Core.Server.NNTP
             await this.Send("215 information follows\r\n");
             foreach (var pat in pats)
             {
-                await this.Send("{0} {1}\r\n", pat.Distribution, pat.Description);
+                await this.Send("{0} {1}\r\n", pat.Distribution, pat.Description ?? string.Empty);
             }
 
             await this.Send(".\r\n");
@@ -1785,6 +1818,8 @@ namespace McNNTP.Core.Server.NNTP
             sb.Append("Subject\r\n");
             sb.Append("UserAgent\r\n");
             sb.Append("Xref\r\n");
+            sb.Append(":bytes\r\n");
+            sb.Append(":lines\r\n");
             sb.Append(".\r\n");
 
             await this.Send(sb.ToString());
@@ -1820,7 +1855,7 @@ namespace McNNTP.Core.Server.NNTP
 
         private async Task ListNewsgroups()
         {
-            IList<Newsgroup> newsGroups = null;
+            IList<Newsgroup>? newsGroups = null;
 
             var send403 = false;
 
@@ -1850,9 +1885,12 @@ namespace McNNTP.Core.Server.NNTP
             }
 
             await this.Send("215 information follows\r\n");
-            foreach (var ng in newsGroups)
+            if (newsGroups != null)
             {
-                await this.Send("{0}\t{1}\r\n", ng.Name, ng.Description);
+                foreach (var ng in newsGroups)
+                {
+                    await this.Send("{0}\t{1}\r\n", ng.Name, ng.Description ?? string.Empty);
+                }
             }
 
             await this.Send(".\r\n");
@@ -1872,13 +1910,13 @@ namespace McNNTP.Core.Server.NNTP
             if (parts.Length == 1 && this.CurrentNewsgroup == null)
             {
                 await this.Send("412 No newsgroup selected\r\n");
+                return new CommandProcessingResult(true);
             }
 
             using (var session = Database.SessionUtility.OpenSession())
             {
                 var name = (parts.Length == 2) ? parts[1] : this.CurrentNewsgroup;
                 var ng = session.Query<Newsgroup>().AddMetagroups(session, this.Identity).SingleOrDefault(n => n.Name == name);
-
                 if (ng == null)
                 {
                     await this.Send("411 No such newsgroup\r\n");
@@ -1888,7 +1926,8 @@ namespace McNNTP.Core.Server.NNTP
                 this.CurrentNewsgroup = ng.Name;
                 if (ng.MessageCount == 0)
                 {
-                    await this.Send("211 0 0 0 {0}\r\n", ng.Name);
+                    await this.Send("211 0 0 0 {0}\r\n.\r\n", ng.Name);
+                    this.CurrentArticleNumber = null;
                     return new CommandProcessingResult(true);
                 }
 
@@ -1937,7 +1976,12 @@ namespace McNNTP.Core.Server.NNTP
         {
             if (content.StartsWith("MODE READER", StringComparison.OrdinalIgnoreCase))
             {
-                await this.Send("200 This server is not a mode-switching server, but whatever!\r\n");
+                // This is not a mode-switching server, but reply appropriately.
+                if (this.CanPost)
+                    await this.Send("200 Service available, posting allowed\r\n");
+                else
+                    await this.Send("201 Service available, posting prohibited\r\n");
+
                 return new CommandProcessingResult(true);
             }
 
@@ -1948,6 +1992,12 @@ namespace McNNTP.Core.Server.NNTP
         private async Task<CommandProcessingResult> NewGroups(string content)
         {
             var parts = content.TrimEnd('\r', '\n').Split(' ');
+            if (parts.Length is < 3 or > 4
+                || (parts.Length == 4 && !parts[3].Equals("GMT", StringComparison.OrdinalIgnoreCase)))
+            {
+                await this.Send("501 Syntax Error\r\n");
+                return new CommandProcessingResult(true);
+            }
 
             var dateTime = string.Join(" ", parts.ElementAt(1), parts.ElementAt(2));
             DateTime afterDate;
@@ -1968,7 +2018,17 @@ namespace McNNTP.Core.Server.NNTP
             await this.Send("231 List of new newsgroups follows (multi-line)\r\n");
             foreach (var ng in newsGroups)
             {
-                await this.Send("{0} {1} {2} {3}\r\n", ng.Name, ng.HighWatermark, ng.LowWatermark, this.CanPost ? "y" : "n");
+                await this.Send("{0} {1} {2} {3}\r\n",
+                    ng.Name,
+                    ng.HighWatermark ?? 0, ng.LowWatermark ?? 0,
+                    ng.Moderated ? "m" :
+                    !this.CanPost || (ng.DenyLocalPosting && ng.DenyPeerPosting)
+                        ? "n" :
+                        ng.DenyPeerPosting
+                            ? "x" :
+                            ng.DenyLocalPosting
+                                ? "j"
+                                : "y");
             }
 
             await this.Send(".\r\n");
@@ -2005,26 +2065,22 @@ namespace McNNTP.Core.Server.NNTP
 
             afterDate = afterDate.ToUniversalTime();
 
-            IList<Article> newArticles;
+            IEnumerable<string?> ids;
             using (var session = Database.SessionUtility.OpenSession())
             {
-                newArticles = session.CreateCriteria<Article>()
-                    .Add(Restrictions.Ge("DateTimeParsed", afterDate))
-                    .SetFetchMode("ArticleNewsgroups", FetchMode.Join)
-                    .SetProjection(Projections.ProjectionList()
-                        .Add(Projections.Property("MessageId"), "MessageId"))
-                    .SetResultTransformer(Transformers.AliasToBean<Article>())
-                    .List<Article>();
+                var rows = session.Query<ArticleNewsgroup>()
+                    .Where(an => !an.Cancelled && !an.Pending && an.Article.DateTimeParsed >= afterDate)
+                    .Select(an => new { Group = an.Newsgroup.Name, an.Article.MessageId })
+                    .ToList();
+                ids = rows.Where(r => r.Group.MatchesWildmat(wildmat)).Select(r => r.MessageId).Distinct();
+
                 session.Close();
             }
 
             await this.Send("230 list of new articles by message-id follows\r\n");
-            if (newArticles != null)
+            foreach (var id in ids.Where(s => !string.IsNullOrWhiteSpace(s)))
             {
-                foreach (var a in newArticles.Where(na => na.ArticleNewsgroups.Select(an => an.Newsgroup).Any(ng => ng.Name.MatchesWildmat(wildmat))))
-                {
-                    await this.Send("{0}\r\n", a.MessageId);
-                }
+                await this.Send("{0}\r\n", id!);
             }
 
             await this.Send(".\r\n");
@@ -2125,7 +2181,7 @@ namespace McNNTP.Core.Server.NNTP
                     else if (param.StartsWith("<", StringComparison.Ordinal))
                     {
                         // First form (message-id specified)
-                        articleNewsgroups = session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Article.MessageId == param).ToArray();
+                        articleNewsgroups = session.Query<ArticleNewsgroup>().Where(an => !an.Cancelled && !an.Pending && an.Article.MessageId == param).ToArray();
 
                         if (!articleNewsgroups.Any())
                         {
@@ -2143,7 +2199,13 @@ namespace McNNTP.Core.Server.NNTP
                         }
 
                         var range = ParseRange(param);
-                        if (range == null || range.Equals(default(Tuple<int, int?>)))
+                        if (range == null)
+                        {
+                            await this.Send("501 Unable to parse range\r\n");
+                            return new CommandProcessingResult(true);
+                        }
+
+                        if (range.Equals(default(Tuple<int, int?>)))
                         {
                             await this.Send("423 No articles in that range\r\n");
                             return new CommandProcessingResult(true);
@@ -2243,7 +2305,7 @@ namespace McNNTP.Core.Server.NNTP
                     unfold(articleNewsgroup.Article.From).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
                     unfold(articleNewsgroup.Article.Date).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
                     unfold(articleNewsgroup.Article.MessageId).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
-                    unfold(articleNewsgroup.Article.References).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
+                    unfold(articleNewsgroup.Article.References ?? string.Empty).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
                     articleNewsgroup.Article.CalculateBytes().ToString(CultureInfo.InvariantCulture),
                     articleNewsgroup.Article.CalculateBodyLines().ToString(CultureInfo.InvariantCulture));
             }
@@ -2317,7 +2379,7 @@ namespace McNNTP.Core.Server.NNTP
                     session.Save(article);
 
                     static string latin1ToUtf8(string s) => Encoding.UTF8.GetString(Encoding.Latin1.GetBytes(s));
-                    foreach (var newsgroupName in article.Newsgroups.Split(' ').Select(latin1ToUtf8))
+                    foreach (var newsgroupName in article.Newsgroups.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(latin1ToUtf8))
                     {
                         bool canApprove;
                         if (this.Identity == null)
@@ -2387,7 +2449,7 @@ namespace McNNTP.Core.Server.NNTP
 
                             if (target != null)
                             {
-                                target.Article.Approved = this.Identity.Mailbox ?? string.Format("{0}@{1}", this.Identity.Username, this.server.PathHost);
+                                target.Article.Approved = this.Identity?.Mailbox ?? string.Format("{0}@{1}", this.Identity.Username, this.server.PathHost);
                                 session.SaveOrUpdate(target.Article);
 
                                 target.Pending = false;
@@ -2490,27 +2552,19 @@ namespace McNNTP.Core.Server.NNTP
                     return new CommandProcessingResult(true);
                 }
             }
-            else
-            {
-                if (string.IsNullOrEmpty(this.CurrentNewsgroup))
-                {
-                    await this.Send("412 No newsgroup selected\r\n");
-                    return new CommandProcessingResult(true);
-                }
-            }
 
             using (var session = Database.SessionUtility.OpenSession())
             {
-                ArticleNewsgroup articleNewsgroup;
+                ArticleNewsgroup? articleNewsgroup;
                 int type;
                 if (string.IsNullOrEmpty(param))
                 {
-                    articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == this.CurrentArticleNumber);
+                    articleNewsgroup = session.Query<ArticleNewsgroup>().FirstOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == this.CurrentArticleNumber);
                     type = 3;
                 }
                 else if (param.StartsWith("<", StringComparison.Ordinal))
                 {
-                    articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Article.MessageId == param);
+                    articleNewsgroup = session.Query<ArticleNewsgroup>().FirstOrDefault(an => !an.Cancelled && !an.Pending && an.Article.MessageId == param);
                     type = 1;
                 }
                 else
@@ -2518,11 +2572,17 @@ namespace McNNTP.Core.Server.NNTP
                     int articleNumber;
                     if (!int.TryParse(param, out articleNumber))
                     {
-                        await this.Send("423 No article with that number\r\n");
+                        await this.Send("501 Bad syntax in article number\r\n");
                         return new CommandProcessingResult(true);
                     }
 
-                    articleNewsgroup = session.Query<ArticleNewsgroup>().SingleOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == articleNumber);
+                    if (this.CurrentNewsgroup == null)
+                    {
+                        await this.Send("412 No newsgroup selected\r\n");
+                        return new CommandProcessingResult(true);
+                    }
+
+                    articleNewsgroup = session.Query<ArticleNewsgroup>().FirstOrDefault(an => !an.Cancelled && !an.Pending && an.Newsgroup.Name == this.CurrentNewsgroup && an.Number == articleNumber);
                     type = 2;
                 }
 
@@ -2590,8 +2650,17 @@ namespace McNNTP.Core.Server.NNTP
         /// <remarks>See <a href="http://tools.ietf.org/html/rfc2980#section-2.6">RFC 2980</a> for more information.</remarks>
         private async Task<CommandProcessingResult> XHDR(string content)
         {
-            var header = content.Split(' ')[1];
-            var rangeExpression = content.Split(' ')[2].TrimEnd('\r', '\n');
+            ArgumentNullException.ThrowIfNull(content);
+
+            var contentSplit = content.Split(' ');
+            if (contentSplit.Length < 3)
+            {
+                await this.Send("501 Syntax Error\r\n");
+                return new CommandProcessingResult(true);
+            }
+
+            var header = contentSplit[1];
+            var rangeExpression = contentSplit[2].TrimEnd('\r', '\n');
 
             if (this.CurrentNewsgroup == null && !rangeExpression.StartsWith("<", StringComparison.OrdinalIgnoreCase))
             {
@@ -2605,7 +2674,7 @@ namespace McNNTP.Core.Server.NNTP
                 return new CommandProcessingResult(true);
             }
 
-            IList<ArticleNewsgroup> articleNewsgroups = null;
+            IList<ArticleNewsgroup>? articleNewsgroups = null;
 
             var send403 = false;
             try
@@ -2733,9 +2802,9 @@ namespace McNNTP.Core.Server.NNTP
                 return new CommandProcessingResult(true);
             }
 
-            if (!articleNewsgroups.Any())
+            if (articleNewsgroups == null || !articleNewsgroups.Any())
             {
-                await this.Send(".\r\n");
+                await this.Send("430 No such article\r\n");
                 return new CommandProcessingResult(true);
             }
 
@@ -2778,6 +2847,11 @@ namespace McNNTP.Core.Server.NNTP
                     using (var session = Database.SessionUtility.OpenSession())
                     {
                         ng = session.Query<Newsgroup>().AddMetagroups(session, this.Identity).SingleOrDefault(n => n.Name == this.CurrentNewsgroup);
+                        if (ng == null)
+                        {
+                            await this.Send("412 No news group current selected\r\n");
+                            return new CommandProcessingResult(true);
+                        }
 
                         if (string.IsNullOrEmpty(rangeExpression))
                         {
@@ -2914,7 +2988,7 @@ namespace McNNTP.Core.Server.NNTP
                         unfold(articleNewsgroup.Article.From),
                         unfold(articleNewsgroup.Article.Date),
                         unfold(articleNewsgroup.Article.MessageId),
-                        unfold(articleNewsgroup.Article.References),
+                        unfold(articleNewsgroup.Article.References ?? string.Empty),
                         articleNewsgroup.Article.CalculateBytes().ToString(CultureInfo.InvariantCulture),
                         articleNewsgroup.Article.CalculateBodyLines().ToString(CultureInfo.InvariantCulture));
                 }
@@ -2962,7 +3036,7 @@ namespace McNNTP.Core.Server.NNTP
                 return new CommandProcessingResult(true);
             }
 
-            IList<ArticleNewsgroup> articleNewsgroups = null;
+            IList<ArticleNewsgroup>? articleNewsgroups = null;
 
             var send403 = false;
             try
@@ -3094,9 +3168,9 @@ namespace McNNTP.Core.Server.NNTP
                 return new CommandProcessingResult(true);
             }
 
-            if (!articleNewsgroups.Any())
+            if (articleNewsgroups == null || !articleNewsgroups.Any())
             {
-                await this.Send(".\r\n");
+                await this.Send("430 No such article on server\r\n");
                 return new CommandProcessingResult(true);
             }
 
