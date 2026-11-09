@@ -405,5 +405,40 @@ namespace McNNTP.Data
 
             return true;
         }
+
+        /// <summary>
+        /// Computes the RFC 3977 8.1.1 <c>:bytes</c> value for an article:
+        /// headers, the separator empty line, and body, with CRLF counted as 2 octets,
+        /// excluding dot-stuffing and the terminating "." line.
+        /// </summary>
+        /// <remarks>Article text is stored as Latin-1, so string length equals octet count.</remarks>
+        public virtual int CalculateBytes()
+        {
+            var body = Body ?? string.Empty;
+            var octets = Headers.Length + 4 + body.Length + 2;
+
+            // Body is stored dot-stuffed; RFC 3977 says not to count the stuffing dots.
+            return octets - CountDotStuffedLines(body);
+        }
+
+        /// <summary>
+        /// Counts lines beginning with ".." (each has 1 stuffing dot).
+        /// </summary>
+        private static int CountDotStuffedLines([NotNull] string body)
+        {
+            var count = body.StartsWith("..", StringComparison.Ordinal) ? 1 : 0;
+            for (var i = body.IndexOf("\r\n..", StringComparison.Ordinal); i >= 0; i = body.IndexOf("\r\n..", i + 2, StringComparison.Ordinal))
+            {
+                count++;
+            }
+
+            return count;
+        }
+
+        /// <summary>
+        /// Computes the RFC 3977 8.1.2 <c>:lines</c> value: the number of body lines.
+        /// </summary>
+        public virtual int CalculateBodyLines() =>
+            Body.AsSpan().Count("\r\n".AsSpan()) + 1;
     }
 }

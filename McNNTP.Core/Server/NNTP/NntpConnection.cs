@@ -2221,7 +2221,7 @@ namespace McNNTP.Core.Server.NNTP
             }
 
             this.CurrentArticleNumber = articleNewsgroups.First().Number;
-            Func<string, string> unfold = i => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", string.Empty).Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
+            string unfold(string i) => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", string.Empty).Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
 
             if (this.Compression && this.CompressionGZip)
             {
@@ -2244,8 +2244,8 @@ namespace McNNTP.Core.Server.NNTP
                     unfold(articleNewsgroup.Article.Date).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
                     unfold(articleNewsgroup.Article.MessageId).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
                     unfold(articleNewsgroup.Article.References).Replace('\0', ' ').Replace('\r', ' ').Replace('\n', ' '),
-                    unfold(articleNewsgroup.Article.Body.Length.ToString(CultureInfo.InvariantCulture)),
-                    unfold(articleNewsgroup.Article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture)));
+                    articleNewsgroup.Article.CalculateBytes().ToString(CultureInfo.InvariantCulture),
+                    articleNewsgroup.Article.CalculateBodyLines().ToString(CultureInfo.InvariantCulture));
             }
 
             sb.Append(".\r\n");
@@ -2892,7 +2892,7 @@ namespace McNNTP.Core.Server.NNTP
                 }
 
                 this.CurrentArticleNumber = articleNewsgroups.First().Number;
-                Func<string, string> unfold = i => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", string.Empty).Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
+                string unfold(string i) => string.IsNullOrWhiteSpace(i) ? i : i.Replace("\r\n", string.Empty).Replace("\r", " ").Replace("\n", " ").Replace("\t", " ");
 
                 if (this.Compression && this.CompressionGZip)
                 {
@@ -2915,8 +2915,8 @@ namespace McNNTP.Core.Server.NNTP
                         unfold(articleNewsgroup.Article.Date),
                         unfold(articleNewsgroup.Article.MessageId),
                         unfold(articleNewsgroup.Article.References),
-                        unfold(articleNewsgroup.Article.Body.Length.ToString(CultureInfo.InvariantCulture)),
-                        unfold(articleNewsgroup.Article.Body.Split(new[] { "\r\n" }, StringSplitOptions.None).Length.ToString(CultureInfo.InvariantCulture)));
+                        articleNewsgroup.Article.CalculateBytes().ToString(CultureInfo.InvariantCulture),
+                        articleNewsgroup.Article.CalculateBodyLines().ToString(CultureInfo.InvariantCulture));
                 }
 
                 sb.Append(".\r\n");
